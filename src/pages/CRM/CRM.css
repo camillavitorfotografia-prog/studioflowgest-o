@@ -1,0 +1,303 @@
+.crm-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.crm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.crm-title h1 {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.crm-title p {
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+
+.crm-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 12px 22px;
+
+  background: var(--color-highlight);
+  color: #111;
+
+  border: none;
+  border-radius: 10px;
+
+  font-weight: 600;
+  cursor: pointer;
+
+  transition: .2s;
+}
+
+.crm-button:hover {
+  transform: translateY(-2px);
+  background: var(--color-highlight-hover);
+}
+
+.crm-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 16px 20px;
+
+  background: var(--bg-card);
+
+  border: 1px solid var(--border-color);
+
+  border-radius: 12px;
+}
+
+.crm-search input {
+  width: 100%;
+
+  background: transparent;
+
+  border: none;
+
+  color: white;
+
+  font-size: 15px;
+
+  outline: none;
+}
+
+.crm-search input::placeholder {
+  color: var(--text-secondary);
+}
+
+.crm-table {
+  width: 100%;
+
+  border-collapse: collapse;
+
+  overflow: hidden;
+
+  background: var(--bg-card);
+
+  border-radius: 16px;
+}
+
+.crm-table thead {
+  background: rgba(255,255,255,.03);
+}
+
+.crm-table th {
+  padding: 18px 20px;
+
+  text-align: left;
+
+  color: var(--text-secondary);
+
+  font-size: .85rem;
+
+  font-weight: 500;
+
+  border-bottom: 1px solid var(--border-color);
+}
+
+.crm-table td {
+  padding: 20px;
+
+  border-bottom: 1px solid rgba(255,255,255,.05);
+
+  vertical-align: middle;
+}
+
+.crm-table tbody tr {
+  transition: .2s;
+}
+
+.crm-table tbody tr:hover {
+  background: rgba(255,255,255,.02);
+}
+
+.cliente-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cliente-info strong {
+  color: white;
+  font-size: .95rem;
+}
+
+.cliente-info span {
+  color: var(--text-secondary);
+  font-size: .8rem;
+}
+
+.tipo-badge {
+  display: inline-flex;
+
+  align-items: center;
+
+  padding: 7px 14px;
+
+  border-radius: 30px;
+
+  background: rgba(197,160,89,.15);
+
+  color: var(--color-highlight);
+
+  font-size: .8rem;
+
+  font-weight: 500;
+}
+
+.status {
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  padding: 7px 14px;
+
+  border-radius: 30px;
+
+  color: white;
+
+  font-size: .8rem;
+
+  font-weight: 600;
+}
+
+.status.novo {
+  background: #2563EB;
+}
+
+.status.contato {
+  background: #7C3AED;
+}
+
+.status.orcamento {
+  background: #F59E0B;
+}
+
+.status.negociacao {
+  background: #0891B2;
+}
+
+.status.fechado {
+  background: #16A34A;
+}
+
+.status.perdido {
+  background: #DC2626;
+}
+
+.crm-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.crm-icon {
+  width: 38px;
+  height: 38px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 50%;
+
+  cursor: pointer;
+
+  transition: .2s;
+}
+
+.crm-icon:hover {
+  transform: scale(1.08);
+}
+
+.crm-icon.whatsapp {
+  background: rgba(34,197,94,.15);
+  color: #22C55E;
+}
+
+.crm-icon.email {
+  background: rgba(37,99,235,.15);
+  color: #60A5FA;
+}
+
+.crm-icon.menu {
+  background: rgba(255,255,255,.05);
+  color: #AAA;
+}
+
+.crm-resumo {
+  display: grid;
+
+  grid-template-columns: repeat(4,1fr);
+
+  gap: 20px;
+}
+
+.crm-card {
+  background: var(--bg-card);
+
+  border: 1px solid var(--border-color);
+
+  border-radius: 16px;
+
+  padding: 24px;
+}
+
+.crm-card h3 {
+  color: var(--text-secondary);
+  font-size: .9rem;
+  font-weight: 500;
+}
+
+.crm-card h2 {
+  margin-top: 12px;
+  font-size: 2rem;
+  color: white;
+}
+
+.crm-card p {
+  margin-top: 6px;
+  color: var(--color-highlight);
+  font-size: .8rem;
+}
+
+@media(max-width:1100px){
+
+.crm-resumo{
+grid-template-columns:repeat(2,1fr);
+}
+
+}
+
+@media(max-width:700px){
+
+.crm-header{
+flex-direction:column;
+align-items:flex-start;
+gap:20px;
+}
+
+.crm-resumo{
+grid-template-columns:1fr;
+}
+
+.crm-table{
+display:block;
+overflow-x:auto;
+}
+
+}

@@ -1,0 +1,467 @@
+:root {
+  /* Paleta de Cores Premium */
+  --bg-main: #1A1A1A;
+  --bg-card: #202020;
+  --bg-menu: #111111;
+  
+  --text-main: #F4F1EA;
+  --text-secondary: #A1A1AA;
+  
+  --color-highlight: #C9A06C; 
+  --color-highlight-hover: #D9B47C;
+  
+  --color-success: #10B981;
+  --color-danger: #EF4444;
+  --color-warning: #F59E0B;
+  --color-button: #2563EB;
+  
+  --border-color: rgba(244, 241, 234, 0.08);
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  
+  --transition-fast: 0.2s ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+body { background-color: var(--bg-main); color: var(--text-main); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+
+.glass { background: var(--bg-card); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-main); }
+::-webkit-scrollbar-thumb { background: #2A2E39; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+*:focus-visible { outline: 2px solid var(--color-highlight); outline-offset: 2px; }
+
+/* Layout e Sidebar */
+.app-layout { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+.sidebar { width: 260px; background-color: var(--bg-menu); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 32px 16px 24px 16px; z-index: 50; justify-content: space-between; }
+.sidebar-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 48px; padding-left: 12px; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
+.nav-item { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-radius: var(--radius-sm); color: var(--text-secondary); text-decoration: none; font-size: 0.95rem; font-weight: 400; transition: var(--transition-fast); }
+.nav-item:hover { background-color: rgba(255, 255, 255, 0.02); color: var(--text-main); }
+.nav-item.active { background: linear-gradient(90deg, rgba(201, 160, 108, 0.15) 0%, rgba(201, 160, 108, 0) 100%); color: var(--color-highlight); border-left: 3px solid var(--color-highlight); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.main-content { flex: 1; background-color: var(--bg-main); padding: 32px; overflow-y: auto; }
+
+/* Dashboard Grid */
+.dash-container { display: flex; flex-wrap: wrap; gap: 24px; width: 100%; }
+.dash-col { display: flex; flex-direction: column; gap: 24px; flex: 1; min-width: 320px; }
+.dash-col-lg { flex: 1.5; min-width: 450px; }
+@media (max-width: 1100px) { .dash-col-lg { min-width: 100%; } }
+@media (max-width: 768px) {
+  .app-layout { flex-direction: column-reverse; }
+  .sidebar { width: 100vw; height: auto; padding: 12px 8px; border-top: 1px solid var(--border-color); flex-direction: row; justify-content: space-around; align-items: center; }
+  .sidebar-logo, .sidebar-footer { display: none; }
+  .sidebar-nav { flex-direction: row; width: 100%; justify-content: space-around; gap: 0; }
+  .nav-item { flex-direction: column; padding: 8px 4px; gap: 4px; text-align: center; border-left: none !important; }
+  .nav-item span { font-size: 0.65rem; }
+  .nav-item.active { background: transparent; border-bottom: 2px solid var(--color-highlight); border-radius: 0; }
+  .main-content { padding: 16px; }
+}
+
+/* =========================================
+   REACT BIG CALENDAR - FORÇA BRUTA (DARK THEME)
+   ========================================= */
+.rbc-calendar { font-family: 'Poppins', sans-serif; color: var(--text-main); border: none !important; }
+.rbc-toolbar { display: none !important; }
+
+/* Remove os fundos brancos e cinzas teimosos */
+.rbc-month-view { border: none !important; background-color: transparent !important; }
+.rbc-today { background-color: transparent !important; }
+.rbc-off-range-bg { background-color: transparent !important; }
+
+/* Bordas finas e elegantes igual à imagem */
+.rbc-day-bg { border-left: 1px solid rgba(255, 255, 255, 0.05) !important; background: transparent !important;}
+.rbc-month-row { border-top: 1px solid rgba(255, 255, 255, 0.05) !important; }
+.rbc-month-row + .rbc-month-row { border-top: 1px solid rgba(255, 255, 255, 0.05) !important; }
+
+/* Cabeçalho dos dias da semana (DOM, SEG...) */
+.rbc-header { 
+  padding-bottom: 12px !important; 
+  font-weight: 500; 
+  font-size: 0.8rem; 
+  border: none !important; 
+  color: var(--text-secondary) !important; 
+  text-transform: uppercase; 
+}
+
+/* Números dos dias (Alinhados à esquerda igual à imagem) */
+.rbc-date-cell { text-align: left !important; padding: 12px !important; }
+.rbc-button-link { color: var(--text-main); font-weight: 500; }
+.rbc-off-range .rbc-button-link { color: rgba(255, 255, 255, 0.2) !important; }
+
+/* Dia de Hoje: Círculo Dourado perfeito */
+.rbc-today .rbc-button-link { 
+  background-color: var(--color-highlight) !important; 
+  color: #141416 !important; 
+  border-radius: 50%; 
+  width: 28px; 
+  height: 28px; 
+  display: inline-flex; 
+  justify-content: center; 
+  align-items: center; 
+  font-weight: 600; 
+}
+
+/* Eventos */
+.rbc-event { background: transparent !important; padding: 2px 4px !important; border: none !important; }
+.rbc-row-segment { padding: 0 4px; }
+.rbc-show-more { color: var(--color-highlight); font-size: 0.8rem; margin-left: 8px; z-index: 5;}
+
+/* Regra para telas de computador (Desktop) */
+@media (min-width: 769px) {
+  .main-content {
+    margin-left: 250px; /* Espaço para a Sidebar */
+    width: calc(100% - 250px);
+  }
+}
+
+/* Regra para celulares e tablets (Mobile/Retrato) */
+@media (max-width: 768px) {
+  .sidebar {
+    display: none; /* Esconde a sidebar no celular */
+  }
+  .main-content {
+    margin-left: 0 !important; /* Conteúdo ocupa a tela toda */
+    width: 100% !important;
+    padding: 10px !important;
+  }
+}
+
+/* Container flexível para TODAS as páginas */
+.page-container {
+  display: flex;
+  flex-wrap: wrap; /* Isso faz com que blocos desçam quando a tela aperta */
+  gap: 20px;
+  padding: 20px;
+}
+
+/* Blocos que devem se adaptar (Cards, Calendário, etc) */
+.responsive-card {
+  flex: 1 1 300px; /* Tenta ocupar o espaço, mas se for < 300px, pula de linha */
+}
+/* StudioFlow finance module */
+.sf-finance-page {
+  min-height: 100vh;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sf-finance-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 14px;
+}
+
+.sf-finance-nav button,
+.sf-primary-button,
+.sf-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  font-weight: 700;
+}
+
+.sf-finance-nav button {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 10px 14px;
+}
+
+.sf-finance-nav button.active,
+.sf-finance-nav button:hover {
+  color: var(--color-highlight);
+  background: rgba(201, 160, 108, 0.1);
+  border-color: rgba(201, 160, 108, 0.35);
+}
+
+.sf-primary-button {
+  background: var(--color-highlight);
+  color: #111;
+  border-color: var(--color-highlight);
+  padding: 12px 18px;
+}
+
+.sf-primary-button.wide {
+  width: 100%;
+  padding: 14px;
+}
+
+.sf-secondary-button {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-main);
+  padding: 10px 14px;
+}
+
+.sf-finance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sf-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sf-section-header h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.sf-section-header p,
+.sf-muted {
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.sf-metric-grid,
+.sf-panel-grid,
+.sf-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.sf-panel-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.sf-card,
+.sf-table-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.sf-card {
+  padding: 20px;
+}
+
+.sf-card.metric strong,
+.sf-card > strong {
+  display: block;
+  font-size: 1.45rem;
+  margin-top: 10px;
+}
+
+.sf-card.metric.positive strong,
+.positive strong {
+  color: var(--color-success);
+}
+
+.sf-card.metric.negative strong,
+.negative {
+  color: var(--color-danger);
+}
+
+.sf-card.metric.warning strong {
+  color: var(--color-warning);
+}
+
+.metric-label {
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.sf-card h3 {
+  margin: 0 0 16px;
+  font-size: 1rem;
+}
+
+.formula-row,
+.formula-total,
+.compact-row,
+.report-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.formula-total {
+  margin-top: 8px;
+  border-bottom: 0;
+  color: var(--color-highlight);
+  font-size: 1.05rem;
+}
+
+.formula-total.soft {
+  color: var(--text-main);
+  align-items: flex-start;
+}
+
+.formula-row span,
+.compact-row span,
+.report-row span {
+  color: var(--text-secondary);
+}
+
+.sf-table-card {
+  overflow-x: auto;
+}
+
+.sf-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+  text-align: left;
+}
+
+.sf-table th,
+.sf-table td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sf-table th {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sf-table td small {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sf-table .empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 32px;
+}
+
+.sf-pill,
+.sf-status,
+.sf-export-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  padding: 6px 9px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.78rem;
+}
+
+.sf-status.pago {
+  color: var(--color-success);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.sf-status.pendente {
+  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.sf-status.atrasado {
+  color: var(--color-danger);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.sf-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.sf-actions button {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px;
+  cursor: pointer;
+}
+
+.sf-actions button:hover {
+  color: var(--color-highlight);
+  border-color: var(--border-color);
+}
+
+.sf-alert,
+.sf-inline-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.sf-alert.warning,
+.sf-inline-note {
+  background: rgba(245, 158, 11, 0.08);
+  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.sf-account {
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-main);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sf-account strong {
+  display: block;
+  text-transform: capitalize;
+}
+
+.sf-account span {
+  font-size: 0.75rem;
+}
+
+.sf-account.active {
+  color: var(--color-highlight);
+  border-color: rgba(201, 160, 108, 0.45);
+  background: rgba(201, 160, 108, 0.1);
+}
+
+@media (max-width: 768px) {
+  .sf-finance-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 10px;
+  }
+
+  .sf-finance-nav button span {
+    white-space: nowrap;
+  }
+
+  .sf-section-header h1 {
+    font-size: 1.55rem;
+  }
+}
