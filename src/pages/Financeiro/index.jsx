@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -14,10 +14,12 @@ import {
   Settings,
   Wallet,
 } from 'lucide-react';
+import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import Modal from '../../components/Modal';
 import Despesas from './Despesas';
 import {
   FINANCE_STORAGE_KEYS,
+  buildFinanceSnapshot,
   calculateDepreciation,
   formatCurrency,
   getAverageVariableExpenses,
@@ -29,6 +31,7 @@ import {
   groupBySum,
   isExpense,
   monthKey,
+  normalizeDistributionConfig,
   parseCurrency,
 } from '../../utils/financeEngine';
 
@@ -72,7 +75,7 @@ function useFinanceData() {
   const [financasConfig, setFinancasConfig] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'),
   );
-  const [saldos] = useState(() =>
+  const [saldos, setSaldos] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
   );
   const [clientes] = useState(() => JSON.parse(localStorage.getItem('cv_studio_clients') || '[]'));
@@ -124,8 +127,18 @@ function useFinanceData() {
     );
     const maiorCategoria = Object.entries(despesasPorCategoria).sort((a, b) => b[1] - a[1])[0];
 
+    const financeSnapshot = buildFinanceSnapshot({
+      clients: clientes,
+      transactions: transacoes,
+      equipment: equipamentos,
+      balances: saldos,
+      config: financasConfig,
+      referenceDate: now,
+    });
+
     return {
       saldos,
+      setSaldos,
       clientes,
       transacoes,
       equipamentos,
@@ -146,6 +159,7 @@ function useFinanceData() {
       contasAPagar,
       proximosVencimentos,
       maiorCategoria,
+      financeSnapshot,
     };
   }, [clientes, equipamentos, financasConfig, saldos, transacoes]);
 
@@ -155,11 +169,57 @@ function useFinanceData() {
 function FinanceDashboard() {
   const data = useFinanceData();
   const [configOpen, setConfigOpen] = useState(false);
+  const { receitaBruta, financasConfig, saldos, setSaldos } = data;
 
   const saveConfig = () => {
-    localStorage.setItem(FINANCE_STORAGE_KEYS.config, JSON.stringify(data.financasConfig));
+    const normalized = normalizeDistributionConfig(data.financasConfig);
+    data.setFinancasConfig(normalized);
+    localStorage.setItem(FINANCE_STORAGE_KEYS.config, JSON.stringify(normalized));
     setConfigOpen(false);
   };
+
+  useEffect(() => {
+    if (receitaBruta <= 0) return;
+    const currentMonth = monthKey(new Date());
+    const ledger = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.distributionLedger) || '{}');
+    const alreadyDistributed = Number(ledger[currentMonth] || 0);
+    const delta = receitaBruta - alreadyDistributed;
+    if (delta <= 0.01) return;
+
+    const config = normalizeDistributionConfig(financasConfig);
+    const distribution = {
+      salario: delta * (config.salario / 100),
+      empresa: delta * (config.empresa / 100),
+      reserva: delta * (config.reserva / 100),
+    };
+    const nextBalances = {
+      salario: Number(saldos.salario || 0) + distribution.salario,
+      empresa: Number(saldos.empresa || 0) + distribution.empresa,
+      reserva: Number(saldos.reserva || 0) + distribution.reserva,
+    };
+    const transactions = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]');
+
+    ledger[currentMonth] = alreadyDistributed + delta;
+    localStorage.setItem(FINANCE_STORAGE_KEYS.distributionLedger, JSON.stringify(ledger));
+    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(nextBalances));
+    localStorage.setItem(
+      FINANCE_STORAGE_KEYS.transactions,
+      JSON.stringify([
+        ...transactions,
+        {
+          id: `regra-tres-${Date.now()}`,
+          descricao: 'Regra dos Tres',
+          valor: delta,
+          tipo: 'distribuicao',
+          tipoGeral: 'Movimentacao Interna',
+          detalhes: distribution,
+          data: new Date().toISOString().slice(0, 10),
+        },
+      ]),
+    );
+    setSaldos(nextBalances);
+    window.dispatchEvent(new Event('storage'));
+  }, [receitaBruta, financasConfig, saldos, setSaldos]);
 
   return (
     <div className="sf-finance-section">
@@ -176,15 +236,66 @@ function FinanceDashboard() {
       <div className="sf-metric-grid">
         <Metric icon={ArrowUpCircle} label="Receita do mes" value={data.receitaBruta} tone="positive" />
         <Metric icon={PiggyBank} label="Lucro do mes" value={data.lucroReal} tone={data.lucroReal >= 0 ? 'positive' : 'negative'} />
+        <Metric icon={Wallet} label="Saldo disponivel" value={data.saldos.salario + data.saldos.empresa + data.saldos.reserva} tone="positive" />
+        <Metric icon={PiggyBank} label="Fundo acumulado" value={data.saldos.reserva} />
+        <Metric icon={BriefcaseBusiness} label="Dinheiro da empresa" value={data.saldos.empresa} />
+        <Metric icon={CircleDollarSign} label="Salario disponivel" value={data.saldos.salario} />
         <Metric icon={Receipt} label="Despesas fixas" value={data.despesasFixas} tone="warning" />
         <Metric icon={ArrowDownCircle} label="Despesas variaveis" value={data.despesasVariaveis} tone="negative" />
         <Metric icon={Package} label="Investimento em equipamentos" value={data.investimentoEquipamentosMes} />
         <Metric icon={Wallet} label="Fluxo de caixa" value={data.fluxoCaixa} tone={data.fluxoCaixa >= 0 ? 'positive' : 'negative'} />
+        <Metric icon={LineChart} label="Previsao financeira" value={data.financeSnapshot.forecast} tone={data.financeSnapshot.forecast >= 0 ? 'positive' : 'negative'} />
         <Metric icon={CalendarClock} label="Contas a pagar" value={data.contasAPagar} tone="warning" />
         <Metric icon={CircleDollarSign} label="Contas a receber" value={data.contasAReceber} />
       </div>
 
       <div className="sf-panel-grid">
+        <div className="sf-card tall">
+          <h3>Regra dos Tres</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie
+                data={[
+                  { name: 'Salario', value: data.financeSnapshot.distribution.salario, color: '#10b981' },
+                  { name: 'Reserva', value: data.financeSnapshot.distribution.reserva, color: '#c5a059' },
+                  { name: 'Empresa', value: data.financeSnapshot.distribution.empresa, color: '#2563eb' },
+                ]}
+                dataKey="value"
+                innerRadius={58}
+                outerRadius={82}
+                paddingAngle={4}
+                stroke="none"
+              >
+                {['#10b981', '#c5a059', '#2563eb'].map((color) => <Cell key={color} fill={color} />)}
+              </Pie>
+              <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} contentStyle={{ background: '#111', border: '1px solid #333', borderRadius: 8 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="formula-row"><span>Salario</span><strong>{data.financeSnapshot.distribution.salario.toFixed(1)}%</strong></div>
+          <div className="formula-row"><span>Fundo de reserva</span><strong>{data.financeSnapshot.distribution.reserva.toFixed(1)}%</strong></div>
+          <div className="formula-row"><span>Caixa da empresa</span><strong>{data.financeSnapshot.distribution.empresa.toFixed(1)}%</strong></div>
+        </div>
+
+        <div className="sf-card tall">
+          <h3>Fluxo e previsao</h3>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart
+              data={[
+                { name: 'Receita', valor: data.receitaBruta },
+                { name: 'Fluxo', valor: data.fluxoCaixa },
+                { name: 'Lucro', valor: data.lucroReal },
+                { name: 'Previsao', valor: data.financeSnapshot.forecast },
+              ]}
+              margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
+            >
+              <XAxis dataKey="name" stroke="#A1A1AA" tickLine={false} axisLine={false} />
+              <YAxis stroke="#A1A1AA" tickFormatter={(value) => `R$ ${Math.round(value / 1000)}k`} />
+              <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#111', border: '1px solid #333', borderRadius: 8 }} />
+              <Bar dataKey="valor" fill="#c5a059" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
         <div className="sf-card tall">
           <h3>Custo operacional</h3>
           <div className="formula-row"><span>Custo fixo mensal</span><strong>{formatCurrency(data.despesasFixas)}</strong></div>

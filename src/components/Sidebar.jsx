@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   BarChart3,
   CalendarDays,
+  Calculator,
   DollarSign,
   FolderOpen,
   Home,
@@ -54,6 +55,10 @@ export default function Sidebar() {
 
         <NavLink to="/financeiro" className={linkClass}>
           <DollarSign /> <span>Financeiro</span>
+        </NavLink>
+
+        <NavLink to="/precificacao" className={linkClass}>
+          <Calculator /> <span>Precificacao</span>
         </NavLink>
 
         <NavLink to="/equipamentos" className={linkClass}>

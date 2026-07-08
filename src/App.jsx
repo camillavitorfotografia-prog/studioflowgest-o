@@ -10,6 +10,7 @@ import Financeiro from './pages/Financeiro';
 import Perfil from './pages/Perfil';
 import Equipamentos from './pages/Equipamentos';
 import Relatorios from './pages/Relatorios';
+import Precificacao from './pages/Precificacao';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="agenda" element={<Agenda />} />
           <Route path="financas" element={<Financeiro />} />
           <Route path="financeiro" element={<Financeiro />} />
+          <Route path="precificacao" element={<Precificacao />} />
           <Route path="perfil" element={<Perfil />} />
           <Route path="equipamentos" element={<Equipamentos />} />
           <Route path="relatorios" element={<Relatorios />} />

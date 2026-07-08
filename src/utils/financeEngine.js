@@ -6,19 +6,34 @@ export const FIXED_EXPENSE_CATEGORIES = [
   'Combustivel',
   'Internet',
   'Conta de celular',
+  'Adobe',
+  'Google Drive',
+  'Canva',
+  'ChatGPT',
+  'Dominio',
+  'Hospedagem',
   'Assinaturas',
   'MEI / Impostos',
   'Contabilidade',
+  'Contador',
+  'Impostos',
   'Outros',
 ];
 
 export const VARIABLE_EXPENSE_CATEGORIES = [
   'Transporte',
+  'Combustivel',
   'Alimentacao em eventos',
   'Marketing',
   'Assistentes',
   'Hospedagem',
   'Pedagios',
+  'Pedagio',
+  'Estacionamento',
+  'Freelancer',
+  'Segundo fotografo',
+  'Segundo filmmaker',
+  'Drone',
   'Manutencao',
   'Compra de materiais',
   'Equipamentos',
@@ -68,6 +83,9 @@ export const FINANCE_STORAGE_KEYS = {
   config: 'cv_finance_config',
   replacement: 'cv_finance_reposicao',
   equipment: 'cv_studio_equipamentos',
+  pricing: 'cv_studio_precificacao',
+  calendarSync: 'cv_studio_calendar_sync',
+  distributionLedger: 'cv_finance_distribution_ledger',
 };
 
 export const parseCurrency = (value) => {
@@ -308,4 +326,77 @@ export const distribuirRecebimento = (valorTotal) => {
   localStorage.setItem(FINANCE_STORAGE_KEYS.transactions, JSON.stringify(historico));
 
   return novosSaldos;
+};
+
+export const normalizeDistributionConfig = (config = {}) => {
+  const base = {
+    salario: Number(config.salario ?? 35),
+    empresa: Number(config.empresa ?? 45),
+    reserva: Number(config.reserva ?? 20),
+  };
+  const total = base.salario + base.empresa + base.reserva;
+  if (total === 100) return base;
+  if (total <= 0) return { salario: 35, empresa: 45, reserva: 20 };
+  return {
+    salario: (base.salario / total) * 100,
+    empresa: (base.empresa / total) * 100,
+    reserva: (base.reserva / total) * 100,
+  };
+};
+
+export const buildFinanceSnapshot = ({
+  clients = [],
+  transactions = [],
+  equipment = [],
+  balances = { salario: 0, empresa: 0, reserva: 0 },
+  config = { salario: 35, empresa: 45, reserva: 20 },
+  referenceDate = new Date(),
+} = {}) => {
+  const currentMonth = monthKey(referenceDate);
+  const monthlyTotals = getMonthlyTotals(transactions, referenceDate);
+  const fixedMonthly = monthlyTotals.fixed;
+  const variableMonthly = monthlyTotals.variable;
+  const variableAverage = getAverageVariableExpenses(transactions);
+  const equipmentDepreciation = getEquipmentMonthlyDepreciation(equipment);
+
+  const revenue = clients.reduce((total, client) => {
+    const payments = client.pagamentos || [];
+    const paidThisMonth = payments.reduce((sum, payment) => {
+      if (monthKey(payment.data) !== currentMonth) return sum;
+      return sum + parseCurrency(payment.valor);
+    }, 0);
+    return total + paidThisMonth;
+  }, monthlyTotals.income);
+
+  const pendingRevenue = clients.reduce((total, client) => {
+    const totalValue = parseCurrency(client.valorTotal);
+    const paid = (client.pagamentos || []).reduce((sum, payment) => sum + parseCurrency(payment.valor), 0);
+    return total + Math.max(0, totalValue - paid);
+  }, 0);
+
+  const cashFlow = revenue - fixedMonthly - variableMonthly;
+  const monthlyProfit = revenue - fixedMonthly - variableMonthly - equipmentDepreciation;
+  const distribution = normalizeDistributionConfig(config);
+  const projectedDistribution = {
+    salario: revenue * (distribution.salario / 100),
+    empresa: revenue * (distribution.empresa / 100),
+    reserva: revenue * (distribution.reserva / 100),
+  };
+
+  return {
+    revenue,
+    pendingRevenue,
+    fixedMonthly,
+    variableMonthly,
+    variableAverage,
+    equipmentDepreciation,
+    operationalCost: fixedMonthly + variableAverage + equipmentDepreciation,
+    cashFlow,
+    monthlyProfit,
+    profitMargin: revenue > 0 ? (monthlyProfit / revenue) * 100 : 0,
+    forecast: cashFlow + pendingRevenue,
+    balances,
+    distribution,
+    projectedDistribution,
+  };
 };

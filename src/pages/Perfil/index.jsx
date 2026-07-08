@@ -16,7 +16,7 @@ export default function Perfil() {
       nome: 'Camilla Vitor',
       email: 'contato@camillavitor.com',
       telefone: '',
-      studio: 'Camilla Vitor Fotografia',
+      studio: '',
       cnpj: '',
       cep: '',
       endereco: '',

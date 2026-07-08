@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { MoreVertical, Calendar, DollarSign } from 'lucide-react';
+import { MoreVertical, Calendar, DollarSign, CalendarCheck, Smartphone } from 'lucide-react';
+import { FINANCE_STORAGE_KEYS } from '../../utils/financeEngine';
 
 const colunas = [
   { id: 'contrato_fechado', titulo: 'Contrato Fechado' },
@@ -11,19 +12,26 @@ const colunas = [
 export default function Trabalhos() {
   const [trabalhos, setTrabalhos] = useState([]);
   const [activeMenuId, setActiveMenuId] = useState(null);
+  const [syncConfig, setSyncConfig] = useState({});
 
   // Efeito para carregar os clientes e sincronizar as abas
   useEffect(() => {
     const carregarTrabalhos = () => {
       const clientes = JSON.parse(localStorage.getItem('cv_studio_clients') || '[]');
+      const calendarSync = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.calendarSync) || '{}');
       
       // Mapeia garantindo que todo cliente tenha um status na esteira de produção
       const formatados = clientes.map(c => ({
         ...c,
-        statusTrabalho: c.statusTrabalho || 'contrato_fechado'
+        statusTrabalho: c.statusTrabalho || 'contrato_fechado',
+        calendarSync: {
+          google: Boolean(c.calendarSync?.google || calendarSync[c.id]?.google),
+          apple: Boolean(c.calendarSync?.apple || calendarSync[c.id]?.apple),
+        },
       }));
       
       setTrabalhos(formatados);
+      setSyncConfig(calendarSync);
     };
 
     carregarTrabalhos();
@@ -39,6 +47,36 @@ export default function Trabalhos() {
     setTrabalhos(novaLista);
     localStorage.setItem('cv_studio_clients', JSON.stringify(novaLista));
     setActiveMenuId(null);
+  };
+
+  const alternarSincronizacao = (id, provider) => {
+    const novaLista = trabalhos.map(t => {
+      if (t.id !== id) return t;
+      return {
+        ...t,
+        calendarSync: {
+          google: Boolean(t.calendarSync?.google),
+          apple: Boolean(t.calendarSync?.apple),
+          [provider]: !t.calendarSync?.[provider],
+        },
+      };
+    });
+    const projetoAtualizado = novaLista.find(t => t.id === id);
+    const novoSync = {
+      ...syncConfig,
+      [id]: {
+        google: Boolean(projetoAtualizado?.calendarSync?.google),
+        apple: Boolean(projetoAtualizado?.calendarSync?.apple),
+        providerReady: true,
+        status: 'ready_for_api',
+        preparedAt: new Date().toISOString(),
+      },
+    };
+    setTrabalhos(novaLista);
+    setSyncConfig(novoSync);
+    localStorage.setItem('cv_studio_clients', JSON.stringify(novaLista));
+    localStorage.setItem(FINANCE_STORAGE_KEYS.calendarSync, JSON.stringify(novoSync));
+    window.dispatchEvent(new Event('storage'));
   };
 
   return (
@@ -90,6 +128,22 @@ export default function Trabalhos() {
                   </div>
 
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>{trabalho.tipo}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                    <button
+                      onClick={() => alternarSincronizacao(trabalho.id, 'google')}
+                      title="Preparar sincronizacao com Google Agenda"
+                      className={trabalho.calendarSync?.google ? 'sf-sync-button active' : 'sf-sync-button'}
+                    >
+                      <CalendarCheck size={13} /> Google
+                    </button>
+                    <button
+                      onClick={() => alternarSincronizacao(trabalho.id, 'apple')}
+                      title="Preparar sincronizacao com Agenda Apple iOS"
+                      className={trabalho.calendarSync?.apple ? 'sf-sync-button active' : 'sf-sync-button'}
+                    >
+                      <Smartphone size={13} /> Apple
+                    </button>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--color-highlight)', opacity: 0.9 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12}/> {trabalho.dataTrabalho || 'Sem data'}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><DollarSign size={12}/> {trabalho.valorTotal || '0,00'}</span>
