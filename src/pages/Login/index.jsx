@@ -27,7 +27,7 @@ export default function Login() {
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const location = useLocation();
-  const from = location.state?.from?.pathname || '/';
+  const from = location.state?.from?.pathname || '/dashboard';
 
   const handleEmailLogin = (event) => {
     event.preventDefault();
@@ -56,7 +56,7 @@ export default function Login() {
   }
 
   if (isAuthenticated) {
-    return <Navigate to={from} replace />;
+    return <Navigate to={from === '/login' ? '/dashboard' : from} replace />;
   }
 
   const visibleError = submitError || authError;

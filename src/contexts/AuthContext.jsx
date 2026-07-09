@@ -9,40 +9,49 @@ export function AuthProvider({ children }) {
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    let active = true;
+    let isMounted = true;
 
     if (!isSupabaseConfigured) {
       return () => {
-        active = false;
+        isMounted = false;
       };
     }
 
     const loadSession = async () => {
+      setLoading(true);
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
-        if (!active) return;
+
+        if (!isMounted) return;
         setSession(data.session || null);
         setUser(data.session?.user || null);
+        setAuthError('');
       } catch (error) {
         console.error('Erro ao carregar sessao:', error.message);
-        setAuthError(error.message);
+        if (isMounted) {
+          setAuthError(error.message);
+          setSession(null);
+          setUser(null);
+        }
       } finally {
-        if (active) setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     void loadSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!isMounted) return;
       setSession(nextSession || null);
       setUser(nextSession?.user || null);
+      setAuthError('');
       setLoading(false);
     });
 
     return () => {
-      active = false;
-      listener.subscription.unsubscribe();
+      isMounted = false;
+      listener?.subscription?.unsubscribe();
     };
   }, []);
 
@@ -57,11 +66,7 @@ export function AuthProvider({ children }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
+        redirectTo: `${window.location.origin}/dashboard`,
       },
     });
 
@@ -72,6 +77,8 @@ export function AuthProvider({ children }) {
     if (!isSupabaseConfigured) return;
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    setSession(null);
+    setUser(null);
   };
 
   const value = useMemo(() => ({

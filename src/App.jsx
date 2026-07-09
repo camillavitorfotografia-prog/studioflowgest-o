@@ -30,6 +30,7 @@ function App() {
             )}
           >
           <Route index element={<Dashboard />} />
+          <Route path="dashboard" element={<Dashboard />} />
           <Route path="clientes" element={<Clientes />} />
           <Route path="crm" element={<CRM />} />
           <Route path="trabalhos" element={<Trabalhos />} />
