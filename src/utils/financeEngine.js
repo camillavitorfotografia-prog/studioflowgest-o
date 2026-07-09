@@ -84,6 +84,7 @@ export const FINANCE_STORAGE_KEYS = {
   replacement: 'cv_finance_reposicao',
   equipment: 'cv_studio_equipamentos',
   pricing: 'cv_studio_precificacao',
+  pricingConfig: 'cv_studio_precificacao_config',
   calendarSync: 'cv_studio_calendar_sync',
   distributionLedger: 'cv_finance_distribution_ledger',
 };

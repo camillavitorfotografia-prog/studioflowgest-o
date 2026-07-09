@@ -1,219 +1,445 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { User, Mail, Phone, Camera, Lock, Save, Briefcase, MapPin, Edit3, BarChart2, ChevronRight, Wallet, ArrowLeft } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import {
+  Banknote,
+  Building2,
+  Camera,
+  CheckCircle2,
+  Globe2,
+  MapPin,
+  Save,
+  Settings,
+  Share2,
+  Sparkles,
+  UserRound,
+  X,
+} from 'lucide-react';
+import { FINANCE_STORAGE_KEYS, formatCurrency, getTransactionDate, getTransactionValue, isIncome, parseCurrency } from '../../utils/financeEngine';
+import { capitalizeName, maskCurrency, maskPhone } from '../../utils/masks';
+
+const PROFILE_KEY = 'cv_perfil_data';
+const PHOTO_KEY = 'cv_foto_perfil';
+
+const emailDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com', '@icloud.com'];
+const smartTitleFields = new Set([
+  'empresaNome',
+  'nomeFantasia',
+  'responsavelNome',
+  'fotografoResponsavel',
+  'videomakerResponsavel',
+  'titularConta',
+  'cidade',
+  'estado',
+  'bairro',
+  'rua',
+]);
+
+const defaultProfile = {
+  empresaNome: 'StudioFlow',
+  nomeFantasia: 'StudioFlow',
+  responsavelNome: 'Camilla & Junior',
+  areaAtuacao: 'Fotografia e Filmagem',
+  cnpj: '',
+  cpf: '',
+  telefone: '',
+  whatsapp: '',
+  email: 'contato@studioflow.com',
+  instagram: '@studioflow',
+  site: '',
+  rua: '',
+  numero: '',
+  bairro: '',
+  cidade: 'Porto Seguro',
+  estado: 'BA',
+  cep: '',
+  pais: 'Brasil',
+  fotografoResponsavel: 'Camilla',
+  videomakerResponsavel: 'Junior',
+  equipe: '',
+  regiaoAtendimento: '',
+  quilometragemGratuita: '',
+  valorKmExcedente: '',
+  pixTipo: 'CPF',
+  pixChave: '',
+  banco: '',
+  agencia: '',
+  conta: '',
+  titularConta: '',
+  facebook: '',
+  youtube: '',
+  tiktok: '',
+  pinterest: '',
+  idioma: 'Portugues',
+  formatoData: 'DD/MM/AAAA',
+  formatoMoeda: 'BRL - Real brasileiro',
+  fusoHorario: 'America/Sao_Paulo',
+  tema: 'StudioFlow Dark',
+  assinaturas: {
+    adobe: '',
+    googleDrive: '',
+    canva: '',
+    chatgpt: '',
+    dominio: '',
+    hospedagem: '',
+    outras: '',
+  },
+};
+
+const migrateProfile = (saved = {}) => ({
+  ...defaultProfile,
+  ...saved,
+  empresaNome: saved.empresaNome || saved.studio || defaultProfile.empresaNome,
+  nomeFantasia: saved.nomeFantasia || saved.studio || defaultProfile.nomeFantasia,
+  responsavelNome: saved.responsavelNome || saved.nome || defaultProfile.responsavelNome,
+  telefone: saved.telefone || defaultProfile.telefone,
+  email: saved.email || defaultProfile.email,
+  cnpj: saved.cnpj || defaultProfile.cnpj,
+  cep: saved.cep || defaultProfile.cep,
+  rua: saved.rua || saved.endereco || defaultProfile.rua,
+  bairro: saved.bairro || defaultProfile.bairro,
+  cidade: saved.cidade || defaultProfile.cidade,
+  estado: saved.estado || defaultProfile.estado,
+  assinaturas: { ...defaultProfile.assinaturas, ...(saved.assinaturas || {}) },
+});
+
+const loadProfile = () => {
+  try {
+    return migrateProfile(JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}'));
+  } catch {
+    return defaultProfile;
+  }
+};
+
+const onlyDigits = (value) => value.toString().replace(/\D/g, '');
+
+const maskCep = (value) => {
+  const digits = onlyDigits(value).slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+};
+
+const maskCpf = (value) => {
+  const digits = onlyDigits(value).slice(0, 11);
+  return digits
+    .replace(/^(\d{3})(\d)/, '$1.$2')
+    .replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1-$2');
+};
+
+const maskCnpj = (value) => {
+  const digits = onlyDigits(value).slice(0, 14);
+  return digits
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2');
+};
+
+const normalizeInstagram = (value) => {
+  const clean = value.replace(/[^a-zA-Z0-9._]/g, '').replace(/^@+/, '');
+  return clean ? `@${clean}` : '';
+};
+
+const normalizeSite = (value) => {
+  const clean = value.trim();
+  if (!clean) return '';
+  if (/^https?:\/\//i.test(clean)) return clean;
+  return `https://${clean}`;
+};
+
+const isValidEmail = (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const formatInitials = (name) =>
+  (name || 'SF')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join('');
 
 export default function Perfil() {
-  const navigate = useNavigate();
-  const [isEditing, setIsEditing] = useState(false); 
-  
-  // CORREÇÃO: Lê a foto salva no localStorage se existir
-  const [fotoPerfil, setFotoPerfil] = useState(() => localStorage.getItem('cv_foto_perfil') || null);
-  
-  // CORREÇÃO: Lê os dados do localStorage ao iniciar
-  const [formData, setFormData] = useState(() => {
-    const saved = localStorage.getItem('cv_perfil_data');
-    return saved ? JSON.parse(saved) : {
-      nome: 'Camilla Vitor',
-      email: 'contato@camillavitor.com',
-      telefone: '',
-      studio: '',
-      cnpj: '',
-      cep: '',
-      endereco: '',
-      numero: '',
-      complemento: '',
-      bairro: '',
-      estado: 'BA',
-      cidade: 'Porto Seguro',
-      senha: '',
-      confirmarSenha: ''
-    };
-  });
-
+  const fileInputRef = useRef(null);
+  const [savedProfile, setSavedProfile] = useState(loadProfile);
+  const [formData, setFormData] = useState(savedProfile);
+  const [fotoPerfil, setFotoPerfil] = useState(() => localStorage.getItem(PHOTO_KEY) || null);
   const [errors, setErrors] = useState({});
-  const [estados, setEstados] = useState([]);
-  const [cidades, setCidades] = useState([]);
 
-  useEffect(() => {
-    fetch('https://servicodados.ibge.gov.br/api/v1/localidades/estados?orderBy=nome')
-      .then((response) => response.json())
-      .then((data) => setEstados(data))
-      .catch((error) => console.error("Erro ao buscar estados:", error));
-  }, []);
+  const stats = useMemo(() => buildCompanyStats(), []);
+  const location = [formData.cidade, formData.estado].filter(Boolean).join(' - ');
 
-  useEffect(() => {
-    if (formData.estado) {
-      fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${formData.estado}/municipios?orderBy=nome`)
-        .then((response) => response.json())
-        .then((data) => setCidades(data))
-        .catch((error) => console.error("Erro ao buscar cidades:", error));
-    }
-  }, [formData.estado]);
+  const updateField = (name, rawValue) => {
+    let value = rawValue;
+    if (smartTitleFields.has(name)) value = capitalizeName(value);
+    if (name === 'telefone' || name === 'whatsapp') value = maskPhone(value);
+    if (name === 'cep') value = maskCep(value);
+    if (name === 'cnpj') value = maskCnpj(value);
+    if (name === 'cpf') value = maskCpf(value);
+    if (name === 'instagram' || name === 'facebook' || name === 'tiktok') value = normalizeInstagram(value);
+    if (name === 'valorKmExcedente') value = maskCurrency(value);
+    if (name === 'pixChave') value = formatPixValue(formData.pixTipo, value);
 
-  // CORREÇÃO: Converte a foto para Base64 e salva no localStorage
-  const handleFotoChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result;
-        setFotoPerfil(base64String);
-        localStorage.setItem('cv_foto_perfil', base64String);
-      };
-      reader.readAsDataURL(file);
-    }
+    setFormData((current) => ({ ...current, [name]: value }));
+    if (errors[name]) setErrors((current) => ({ ...current, [name]: false }));
   };
 
-  const handleSave = () => {
-    const novosErros = {};
-    if (!formData.nome.trim()) novosErros.nome = true;
-    if (!formData.email.trim()) novosErros.email = true;
-    if (!formData.telefone.trim()) novosErros.telefone = true;
-    if (!formData.cnpj.trim()) novosErros.cnpj = true;
-    if (!formData.senha.trim()) novosErros.senha = true;
+  const updateSubscription = (name, value) => {
+    setFormData((current) => ({
+      ...current,
+      assinaturas: { ...current.assinaturas, [name]: maskCurrency(value) },
+    }));
+  };
 
-    if (Object.keys(novosErros).length > 0) {
-      setErrors(novosErros);
+  const updatePixType = (pixTipo) => {
+    setFormData((current) => ({ ...current, pixTipo, pixChave: '' }));
+  };
+
+  const handlePhotoChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFotoPerfil(reader.result);
+      localStorage.setItem(PHOTO_KEY, reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const validate = () => {
+    const nextErrors = {};
+    if (!formData.empresaNome.trim()) nextErrors.empresaNome = true;
+    if (!formData.responsavelNome.trim()) nextErrors.responsavelNome = true;
+    if (!isValidEmail(formData.email)) nextErrors.email = true;
+    if (formData.pixTipo === 'E-mail' && !isValidEmail(formData.pixChave)) nextErrors.pixChave = true;
+    return nextErrors;
+  };
+
+  const saveProfile = () => {
+    const nextErrors = validate();
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
       return;
     }
 
-    if (formData.senha !== formData.confirmarSenha) {
-      setErrors({ confirmarSenha: true, senha: true });
-      return;
-    }
-
-    // CORREÇÃO: Persiste os dados no localStorage ao salvar
-    localStorage.setItem('cv_perfil_data', JSON.stringify(formData));
-
+    const normalized = {
+      ...formData,
+      site: normalizeSite(formData.site),
+      instagram: normalizeInstagram(formData.instagram),
+      facebook: normalizeInstagram(formData.facebook),
+      tiktok: normalizeInstagram(formData.tiktok),
+    };
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(normalized));
+    setFormData(normalized);
+    setSavedProfile(normalized);
     setErrors({});
-    setIsEditing(false); 
+    window.dispatchEvent(new Event('storage'));
   };
 
-  const maskPhone = (value) => value.replace(/\D/g, '').replace(/^(\d{2})(\d)/g, '($1) $2').replace(/(\d)(\d{4})$/, '$1-$2').slice(0, 16);
-  const maskCNPJ = (value) => value.replace(/\D/g, '').replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2').slice(0, 18);
-
-  const handleChange = (e) => {
-    let { name, value } = e.target;
-    if (name === 'telefone') value = maskPhone(value);
-    if (name === 'cnpj') value = maskCNPJ(value);
-    if (errors[name]) setErrors({ ...errors, [name]: false });
-    setFormData({ ...formData, [name]: value });
+  const cancelChanges = () => {
+    setFormData(savedProfile);
+    setErrors({});
   };
-
-  const handleEstadoChange = (e) => {
-    setFormData({ ...formData, estado: e.target.value, cidade: '' });
-  };
-
-  const baseInputStyle = { width: '100%', backgroundColor: 'rgba(255, 255, 255, 0.03)', color: '#fff', padding: '12px 16px 12px 40px', borderRadius: '8px', outline: 'none', transition: 'border-color 0.3s, box-shadow 0.3s' };
-  const getInputStyle = (fieldName) => ({ ...baseInputStyle, border: `1px solid ${errors[fieldName] ? '#ff4d4d' : 'var(--border-color, #333)'}`, boxShadow: errors[fieldName] ? '0 0 0 1px #ff4d4d' : 'none' });
-  const selectStyle = { ...baseInputStyle, border: '1px solid var(--border-color, #333)', paddingLeft: '16px', cursor: 'pointer', appearance: 'auto' };
-  const iconStyle = (fieldName) => ({ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: errors[fieldName] ? '#ff4d4d' : 'var(--text-secondary, #888)', transition: 'color 0.3s' });
-  const backButtonStyle = { backgroundColor: 'transparent', color: '#888', border: '1px solid #333', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' };
 
   return (
-    <>
-      <style>{`
-        input:-webkit-autofill,
-        input:-webkit-autofill:hover, 
-        input:-webkit-autofill:focus, 
-        input:-webkit-autofill:active {
-            -webkit-box-shadow: 0 0 0 30px #121212 inset !important;
-            -webkit-text-fill-color: #ffffff !important;
-            transition: background-color 5000s ease-in-out 0s;
-        }
-      `}</style>
+    <div className="sf-profile-page">
+      <div className="sf-section-header">
+        <div>
+          <h1>Perfil</h1>
+          <p>Configuracoes da empresa, dados profissionais e informacoes usadas pelo StudioFlow.</p>
+        </div>
+        <div className="sf-profile-actions">
+          <button className="sf-secondary-button" onClick={cancelChanges}>
+            <X size={17} /> Cancelar
+          </button>
+          <button className="sf-primary-button" onClick={saveProfile}>
+            <Save size={17} /> Salvar Alteracoes
+          </button>
+        </div>
+      </div>
 
-      {!isEditing ? (
-        <div style={{ maxWidth: '700px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
-            <button onClick={() => navigate('/')} style={backButtonStyle}><ArrowLeft size={16}/> Voltar</button>
-            <h1 style={{ color: '#fff', fontSize: '2rem', fontWeight: '600', margin: 0 }}>Painel da Empresa</h1>
+      <div className="sf-profile-grid">
+        <section className="sf-card sf-company-card">
+          <div className="sf-company-photo">
+            {fotoPerfil ? <img src={fotoPerfil} alt="Logomarca da empresa" /> : <span>{formatInitials(formData.empresaNome)}</span>}
           </div>
-          <p style={{ color: '#888', marginBottom: '24px' }}>Acesse as configurações do seu perfil, relatórios, finanças e equipamentos.</p>
-
-          <div onClick={() => setIsEditing(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', backgroundColor: '#1a1a1a', borderRadius: '12px', cursor: 'pointer', transition: 'background-color 0.2s', border: '1px solid #2a2a2a' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#222'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1a1a1a'}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '50px', height: '50px', borderRadius: '50%', overflow: 'hidden', border: '2px solid #d4af37', backgroundColor: '#2a2a2a', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                {fotoPerfil ? <img src={fotoPerfil} alt="Perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Camera size={24} color="#888" />}
-              </div>
-              <span style={{ color: '#fff', fontSize: '1.2rem', fontWeight: '500' }}>{formData.studio}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#888' }}><span style={{ fontSize: '0.9rem' }}>Editar Perfil</span><Edit3 size={18} /></div>
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoChange} hidden />
+          <button className="sf-secondary-button" onClick={() => fileInputRef.current?.click()}>
+            <Camera size={17} /> Alterar Foto
+          </button>
+          <div className="sf-company-info">
+            <strong>{formData.empresaNome || 'Nome da empresa'}</strong>
+            <span>{formData.responsavelNome || 'Responsavel'}</span>
+            <span>{formData.areaAtuacao || 'Area de atuacao'}</span>
+            <span>{location || 'Cidade - Estado'}</span>
           </div>
+        </section>
 
-          <div onClick={() => navigate('/equipamentos')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', backgroundColor: '#1a1a1a', borderRadius: '12px', cursor: 'pointer', transition: 'background-color 0.2s', border: '1px solid #2a2a2a' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#222'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1a1a1a'}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}><div style={{ width: '50px', height: '50px', borderRadius: '50%', backgroundColor: 'rgba(212, 175, 55, 0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}><Camera size={24} color="#d4af37" /></div><span style={{ color: '#fff', fontSize: '1.2rem', fontWeight: '500' }}>Equipamentos</span></div>
-            <ChevronRight size={20} color="#888" />
-          </div>
+        <ProfileCard icon={Building2} title="Dados da Empresa">
+          <Field label="Nome da Empresa" error={errors.empresaNome}><input value={formData.empresaNome} onChange={(event) => updateField('empresaNome', event.target.value)} /></Field>
+          <Field label="Nome Fantasia"><input value={formData.nomeFantasia} onChange={(event) => updateField('nomeFantasia', event.target.value)} /></Field>
+          <Field label="CNPJ ou MEI"><input value={formData.cnpj} onChange={(event) => updateField('cnpj', event.target.value)} inputMode="numeric" /></Field>
+          <Field label="CPF"><input value={formData.cpf} onChange={(event) => updateField('cpf', event.target.value)} inputMode="numeric" /></Field>
+          <Field label="Telefone"><input value={formData.telefone} onChange={(event) => updateField('telefone', event.target.value)} inputMode="tel" /></Field>
+          <Field label="WhatsApp"><input value={formData.whatsapp} onChange={(event) => updateField('whatsapp', event.target.value)} inputMode="tel" /></Field>
+          <Field label="E-mail" error={errors.email} helper={errors.email ? 'Formato de e-mail invalido.' : ''}><input type="email" list="email-domains" value={formData.email} onChange={(event) => updateField('email', event.target.value)} /></Field>
+          <Field label="Instagram"><input value={formData.instagram} onChange={(event) => updateField('instagram', event.target.value)} /></Field>
+          <Field label="Site"><input value={formData.site} onChange={(event) => updateField('site', event.target.value)} onBlur={(event) => updateField('site', normalizeSite(event.target.value))} /></Field>
+        </ProfileCard>
 
-          <div onClick={() => navigate('/financas')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', backgroundColor: '#1a1a1a', borderRadius: '12px', cursor: 'pointer', transition: 'background-color 0.2s', border: '1px solid #2a2a2a' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#222'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1a1a1a'}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}><div style={{ width: '50px', height: '50px', borderRadius: '50%', backgroundColor: 'rgba(212, 175, 55, 0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}><Wallet size={24} color="#d4af37" /></div><span style={{ color: '#fff', fontSize: '1.2rem', fontWeight: '500' }}>Finanças</span></div>
-            <ChevronRight size={20} color="#888" />
-          </div>
+        <ProfileCard icon={MapPin} title="Endereco">
+          <Field label="Rua"><input value={formData.rua} onChange={(event) => updateField('rua', event.target.value)} /></Field>
+          <Field label="Numero"><input value={formData.numero} onChange={(event) => updateField('numero', event.target.value)} /></Field>
+          <Field label="Bairro"><input value={formData.bairro} onChange={(event) => updateField('bairro', event.target.value)} /></Field>
+          <Field label="Cidade"><input value={formData.cidade} onChange={(event) => updateField('cidade', event.target.value)} /></Field>
+          <Field label="Estado"><input value={formData.estado} onChange={(event) => updateField('estado', event.target.value)} /></Field>
+          <Field label="CEP"><input value={formData.cep} onChange={(event) => updateField('cep', event.target.value)} inputMode="numeric" /></Field>
+          <Field label="Pais"><input value={formData.pais} onChange={(event) => updateField('pais', capitalizeName(event.target.value))} /></Field>
+        </ProfileCard>
 
-          <div onClick={() => navigate('/relatorios')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', backgroundColor: '#1a1a1a', borderRadius: '12px', cursor: 'pointer', transition: 'background-color 0.2s', border: '1px solid #2a2a2a' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#222'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1a1a1a'}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}><div style={{ width: '50px', height: '50px', borderRadius: '50%', backgroundColor: 'rgba(212, 175, 55, 0.1)', display: 'flex', justifyContent: 'center', alignItems: 'center' }}><BarChart2 size={24} color="#d4af37" /></div><span style={{ color: '#fff', fontSize: '1.2rem', fontWeight: '500' }}>Relatórios</span></div>
-            <ChevronRight size={20} color="#888" />
+        <ProfileCard icon={UserRound} title="Dados Profissionais">
+          <Field label="Fotografo responsavel"><input value={formData.fotografoResponsavel} onChange={(event) => updateField('fotografoResponsavel', event.target.value)} /></Field>
+          <Field label="Videomaker responsavel"><input value={formData.videomakerResponsavel} onChange={(event) => updateField('videomakerResponsavel', event.target.value)} /></Field>
+          <Field label="Equipe"><input value={formData.equipe} onChange={(event) => updateField('equipe', event.target.value)} /></Field>
+          <Field label="Regiao de atendimento"><input value={formData.regiaoAtendimento} onChange={(event) => updateField('regiaoAtendimento', event.target.value)} /></Field>
+          <Field label="Quilometragem gratuita"><input value={formData.quilometragemGratuita} onChange={(event) => updateField('quilometragemGratuita', onlyDigits(event.target.value))} inputMode="numeric" /></Field>
+          <Field label="Valor por KM excedente"><input value={formData.valorKmExcedente} onChange={(event) => updateField('valorKmExcedente', event.target.value)} inputMode="numeric" /></Field>
+        </ProfileCard>
+
+        <ProfileCard icon={Banknote} title="Dados Bancarios">
+          <Field label="Tipo de PIX">
+            <select value={formData.pixTipo} onChange={(event) => updatePixType(event.target.value)}>
+              {['CPF', 'CNPJ', 'Celular', 'E-mail', 'Chave Aleatoria'].map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </Field>
+          <Field label={`Chave PIX (${formData.pixTipo})`} error={errors.pixChave} helper={errors.pixChave ? 'Chave PIX invalida para o tipo selecionado.' : ''}>
+            <input value={formData.pixChave} onChange={(event) => updateField('pixChave', event.target.value)} inputMode={formData.pixTipo === 'E-mail' ? 'email' : 'text'} />
+          </Field>
+          <Field label="Banco"><input value={formData.banco} onChange={(event) => updateField('banco', event.target.value)} /></Field>
+          <Field label="Agencia"><input value={formData.agencia} onChange={(event) => updateField('agencia', event.target.value)} /></Field>
+          <Field label="Conta"><input value={formData.conta} onChange={(event) => updateField('conta', event.target.value)} /></Field>
+          <Field label="Titular"><input value={formData.titularConta} onChange={(event) => updateField('titularConta', event.target.value)} /></Field>
+        </ProfileCard>
+
+        <ProfileCard icon={Share2} title="Redes Sociais">
+          <Field label="Instagram"><input value={formData.instagram} onChange={(event) => updateField('instagram', event.target.value)} /></Field>
+          <Field label="Facebook"><input value={formData.facebook} onChange={(event) => updateField('facebook', event.target.value)} /></Field>
+          <Field label="YouTube"><input value={formData.youtube} onChange={(event) => updateField('youtube', event.target.value)} /></Field>
+          <Field label="TikTok"><input value={formData.tiktok} onChange={(event) => updateField('tiktok', event.target.value)} /></Field>
+          <Field label="Pinterest"><input value={formData.pinterest} onChange={(event) => updateField('pinterest', event.target.value)} /></Field>
+        </ProfileCard>
+
+        <ProfileCard icon={Settings} title="Configuracoes">
+          <Field label="Idioma"><select value={formData.idioma} onChange={(event) => updateField('idioma', event.target.value)}><option>Portugues</option><option>English</option><option>Espanol</option></select></Field>
+          <Field label="Formato da Data"><select value={formData.formatoData} onChange={(event) => updateField('formatoData', event.target.value)}><option>DD/MM/AAAA</option><option>MM/DD/AAAA</option><option>AAAA-MM-DD</option></select></Field>
+          <Field label="Formato da Moeda"><select value={formData.formatoMoeda} onChange={(event) => updateField('formatoMoeda', event.target.value)}><option>BRL - Real brasileiro</option><option>USD - Dolar</option><option>EUR - Euro</option></select></Field>
+          <Field label="Fuso Horario"><select value={formData.fusoHorario} onChange={(event) => updateField('fusoHorario', event.target.value)}><option>America/Sao_Paulo</option><option>America/Bahia</option><option>America/Fortaleza</option></select></Field>
+          <Field label="Tema"><select value={formData.tema} onChange={(event) => updateField('tema', event.target.value)}><option>StudioFlow Dark</option><option>Preparado para temas futuros</option></select></Field>
+        </ProfileCard>
+
+        <ProfileCard icon={Globe2} title="Assinaturas">
+          {[
+            ['adobe', 'Adobe'],
+            ['googleDrive', 'Google Drive'],
+            ['canva', 'Canva'],
+            ['chatgpt', 'ChatGPT'],
+            ['dominio', 'Dominio'],
+            ['hospedagem', 'Hospedagem'],
+            ['outras', 'Outras assinaturas'],
+          ].map(([key, label]) => (
+            <Field label={label} key={key}>
+              <input value={formData.assinaturas[key]} onChange={(event) => updateSubscription(key, event.target.value)} inputMode="numeric" />
+            </Field>
+          ))}
+        </ProfileCard>
+      </div>
+
+      <section className="sf-finance-section">
+        <div className="sf-section-header compact">
+          <div>
+            <h1>Resumo da Empresa</h1>
+            <p>Indicadores preparados para integracao completa com os modulos do sistema.</p>
           </div>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '800px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <button onClick={() => setIsEditing(false)} style={backButtonStyle}><ArrowLeft size={16}/> Voltar</button>
-              <div>
-                <h1 style={{ color: '#fff', fontSize: '2rem', fontWeight: '600', margin:0 }}>Editar Perfil</h1>
-                <p style={{ color: '#888', marginTop: '8px' }}>Gerencie suas informações pessoais e os dados cadastrais da empresa.</p>
-              </div>
-            </div>
-          </div>
-          <div className="glass" style={{ padding: '32px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '24px', backgroundColor: '#1a1a1a' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '8px' }}>
-              <label style={{ cursor: 'pointer', position: 'relative' }}>
-                <input type="file" accept="image/*" onChange={handleFotoChange} style={{ display: 'none' }} />
-                <div style={{ width: '100px', height: '100px', borderRadius: '50%', backgroundColor: '#2a2a2a', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', border: '2px dashed #d4af37', transition: 'border 0.3s' }}>
-                  {fotoPerfil ? <img src={fotoPerfil} alt="Perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Camera size={32} color="#888" />}
-                </div>
-                <div style={{ position: 'absolute', bottom: '0', right: '0', backgroundColor: '#d4af37', padding: '6px', borderRadius: '50%' }}><Camera size={14} color="#000" /></div>
-              </label>
-            </div>
-            <div>
-              <h3 style={{ color: '#fff', marginBottom: '16px', fontSize: '1.2rem', borderBottom: '1px solid #333', paddingBottom: '8px' }}>Dados Pessoais</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ position: 'relative' }}><User size={18} style={iconStyle('nome')} /><input type="text" name="nome" value={formData.nome} onChange={handleChange} style={getInputStyle('nome')} placeholder="Nome Completo *" /></div>
-                <div style={{ position: 'relative' }}><Phone size={18} style={iconStyle('telefone')} /><input type="text" name="telefone" value={formData.telefone} onChange={handleChange} style={getInputStyle('telefone')} placeholder="Telefone *" /></div>
-                <div style={{ position: 'relative', gridColumn: 'span 2' }}><Mail size={18} style={iconStyle('email')} /><input type="email" name="email" value={formData.email} onChange={handleChange} style={getInputStyle('email')} placeholder="E-mail *" /></div>
-              </div>
-            </div>
-            <div>
-              <h3 style={{ color: '#fff', marginBottom: '16px', fontSize: '1.2rem', borderBottom: '1px solid #333', paddingBottom: '8px' }}>Dados da Empresa</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ position: 'relative' }}><Camera size={18} style={iconStyle('studio')} /><input type="text" name="studio" value={formData.studio} onChange={handleChange} style={getInputStyle('studio')} placeholder="Nome da Empresa" /></div>
-                <div style={{ position: 'relative' }}><Briefcase size={18} style={iconStyle('cnpj')} /><input type="text" name="cnpj" value={formData.cnpj} onChange={handleChange} style={getInputStyle('cnpj')} placeholder="CNPJ *" /></div>
-                <div style={{ position: 'relative' }}><MapPin size={18} style={iconStyle('cep')} /><input type="text" name="cep" value={formData.cep} onChange={handleChange} style={getInputStyle('cep')} placeholder="CEP" /></div>
-                <div style={{ position: 'relative' }}><MapPin size={18} style={iconStyle('endereco')} /><input type="text" name="endereco" value={formData.endereco} onChange={handleChange} style={getInputStyle('endereco')} placeholder="Endereço" /></div>
-                <div style={{ position: 'relative' }}><MapPin size={18} style={iconStyle('numero')} /><input type="text" name="numero" value={formData.numero} onChange={handleChange} style={getInputStyle('numero')} placeholder="Número" /></div>
-                <div style={{ position: 'relative' }}><MapPin size={18} style={iconStyle('complemento')} /><input type="text" name="complemento" value={formData.complemento} onChange={handleChange} style={getInputStyle('complemento')} placeholder="Complemento" /></div>
-                <div style={{ position: 'relative', gridColumn: 'span 2' }}><MapPin size={18} style={iconStyle('bairro')} /><input type="text" name="bairro" value={formData.bairro} onChange={handleChange} style={getInputStyle('bairro')} placeholder="Bairro" /></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', gridColumn: 'span 2' }}>
-                  <select name="estado" value={formData.estado} onChange={handleEstadoChange} style={selectStyle}><option value="">Selecione o Estado</option>{estados.map((uf) => (<option key={uf.id} value={uf.sigla}>{uf.nome} ({uf.sigla})</option>))}</select>
-                  <select name="cidade" value={formData.cidade} onChange={handleChange} style={selectStyle} disabled={!formData.estado}><option value="">Selecione a Cidade</option>{cidades.map((cidade) => (<option key={cidade.id} value={cidade.nome}>{cidade.nome}</option>))}</select>
-                </div>
-              </div>
-            </div>
-            <div>
-              <h3 style={{ color: '#fff', marginBottom: '16px', fontSize: '1.2rem', borderBottom: '1px solid #333', paddingBottom: '8px' }}>Segurança</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ position: 'relative' }}><Lock size={18} style={iconStyle('senha')} /><input type="password" name="senha" value={formData.senha} onChange={handleChange} style={getInputStyle('senha')} placeholder="Nova Senha *" /></div>
-                <div style={{ position: 'relative' }}><Lock size={18} style={iconStyle('confirmarSenha')} /><input type="password" name="confirmarSenha" value={formData.confirmarSenha} onChange={handleChange} style={getInputStyle('confirmarSenha')} placeholder="Confirmar Senha *" /></div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-              <button onClick={handleSave} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#d4af37', color: '#000', padding: '12px 24px', borderRadius: '8px', border: 'none', fontWeight: '600', cursor: 'pointer' }}><Save size={18} /> Salvar Alterações</button>
-            </div>
-          </div>
+        <div className="sf-metric-grid">
+          {stats.map((item) => <StatCard key={item.label} {...item} />)}
         </div>
-      )}
-    </>
+      </section>
+
+      <datalist id="email-domains">
+        {emailDomains.map((domain) => <option value={domain} key={domain} />)}
+      </datalist>
+    </div>
   );
+}
+
+function formatPixValue(type, value) {
+  if (type === 'CPF') return maskCpf(value);
+  if (type === 'CNPJ') return maskCnpj(value);
+  if (type === 'Celular') return maskPhone(value);
+  if (type === 'E-mail') return value.trim().toLowerCase();
+  return value.trim();
+}
+
+function ProfileCard({ icon: Icon, title, children }) {
+  return (
+    <section className="sf-card sf-profile-card">
+      <div className="metric-label">
+        <Icon size={18} /> {title}
+      </div>
+      <div className="sf-profile-fields">{children}</div>
+    </section>
+  );
+}
+
+function Field({ label, children, error, helper }) {
+  return (
+    <label className={error ? 'sf-field error' : 'sf-field'}>
+      <span>{label}</span>
+      {children}
+      {helper && <small>{helper}</small>}
+    </label>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, tone = 'neutral' }) {
+  return (
+    <div className={`sf-card metric ${tone}`}>
+      <div className="metric-label">
+        <Icon size={18} /> {label}
+      </div>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function buildCompanyStats() {
+  const clients = JSON.parse(localStorage.getItem('cv_studio_clients') || '[]');
+  const equipment = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]');
+  const transactions = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]');
+  const currentYear = new Date().getFullYear();
+
+  const countByType = (terms) =>
+    clients.filter((client) => terms.some((term) => `${client.tipo || client.tipoTrabalho || ''}`.toLowerCase().includes(term))).length;
+
+  const clientsBilling = clients.reduce((sum, client) => {
+    const payments = client.pagamentos || [];
+    return sum + payments.reduce((total, payment) => {
+      const year = payment.data ? new Date(payment.data).getFullYear() : currentYear;
+      return year === currentYear ? total + parseCurrency(payment.valor) : total;
+    }, 0);
+  }, 0);
+
+  const transactionBilling = transactions
+    .filter((item) => isIncome(item) && new Date(getTransactionDate(item) || new Date()).getFullYear() === currentYear)
+    .reduce((sum, item) => sum + getTransactionValue(item), 0);
+
+  return [
+    { icon: UserRound, label: 'Total de Clientes', value: clients.length },
+    { icon: Sparkles, label: 'Total de Projetos', value: clients.length },
+    { icon: CheckCircle2, label: 'Total de Casamentos', value: countByType(['casamento']) },
+    { icon: Camera, label: 'Total de Ensaios', value: countByType(['ensaio']) },
+    { icon: Building2, label: 'Total de Formaturas', value: countByType(['formatura']) },
+    { icon: Globe2, label: 'Total de Eventos', value: countByType(['evento', 'corporativo']) },
+    { icon: Settings, label: 'Equipamentos cadastrados', value: equipment.length },
+    { icon: Banknote, label: 'Faturamento do Ano', value: formatCurrency(clientsBilling + transactionBilling), tone: 'positive' },
+    { icon: Save, label: 'Tempo medio de entrega', value: '0 dias' },
+  ];
 }

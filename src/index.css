@@ -288,6 +288,50 @@ body { background-color: var(--bg-main); color: var(--text-main); -webkit-font-s
   font-size: 1rem;
 }
 
+.sf-collapsible-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sf-collapsible-header {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-main);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sf-collapsible-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sf-collapsible-header svg.open {
+  transform: rotate(180deg);
+}
+
+.sf-collapsible-content {
+  padding: 0 20px 20px;
+  animation: sfFadeUp 0.22s ease;
+}
+
+.sf-subsection {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+@keyframes sfFadeUp {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .formula-row,
 .formula-total,
 .compact-row,
@@ -457,6 +501,321 @@ body { background-color: var(--bg-main); color: var(--text-main); -webkit-font-s
   align-items: start;
 }
 
+.sf-pricing-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  align-items: start;
+}
+
+.sf-pricing-main,
+.sf-pricing-summary,
+.sf-pricing-costs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.sf-pricing-summary {
+  position: sticky;
+  top: 20px;
+}
+
+.sf-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sf-stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  padding: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sf-stepper button span {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.sf-stepper button.active,
+.sf-stepper button:hover {
+  color: var(--color-highlight);
+  background: rgba(201, 160, 108, 0.1);
+  border-color: rgba(201, 160, 108, 0.35);
+}
+
+.sf-stepper button.active span {
+  background: var(--color-highlight);
+  color: #111;
+}
+
+.sf-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.sf-choice-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.sf-choice-grid > button,
+.sf-toggle-card {
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-main);
+  padding: 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  text-align: left;
+}
+
+.sf-choice-grid > button {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 126px;
+}
+
+.sf-choice-grid > button span {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.sf-choice-grid > button.active,
+.sf-choice-grid > button:hover,
+.sf-toggle-card.active,
+.sf-toggle-card:hover {
+  color: var(--color-highlight);
+  background: rgba(201, 160, 108, 0.1);
+  border-color: rgba(201, 160, 108, 0.35);
+}
+
+.sf-segmented.spaced {
+  margin-bottom: 18px;
+}
+
+.sf-step-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sf-step-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sf-insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 11px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+  margin-top: 8px;
+}
+
+.sf-insight.good {
+  color: var(--color-success);
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.sf-insight.bad {
+  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.sf-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sf-settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.sf-settings-group {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.sf-settings-group summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  cursor: pointer;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.sf-settings-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.sf-settings-group summary svg {
+  transition: var(--transition-fast);
+}
+
+.sf-settings-group[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.sf-settings-group .sf-config-grid {
+  margin-top: 0;
+  padding: 0 14px 14px;
+  animation: sfFadeUp 0.22s ease;
+}
+
+.sf-profile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.sf-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sf-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.sf-company-card {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.sf-company-photo {
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(201, 160, 108, 0.45);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-highlight);
+  font-weight: 800;
+  font-size: 1.45rem;
+}
+
+.sf-company-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sf-company-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sf-company-info strong {
+  font-size: 1.25rem;
+}
+
+.sf-company-info span {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.sf-profile-card {
+  min-width: 0;
+}
+
+.sf-profile-card .metric-label {
+  margin-bottom: 16px;
+}
+
+.sf-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sf-profile-fields .sf-field input,
+.sf-profile-fields .sf-field select {
+  width: 100%;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: var(--transition-fast);
+}
+
+.sf-profile-fields .sf-field input:focus,
+.sf-profile-fields .sf-field select:focus {
+  border-color: rgba(201, 160, 108, 0.5);
+  box-shadow: 0 0 0 2px rgba(201, 160, 108, 0.08);
+  outline: none;
+}
+
+.sf-profile-fields .sf-field.error input,
+.sf-profile-fields .sf-field.error select {
+  border-color: rgba(239, 68, 68, 0.65);
+}
+
+.sf-field small {
+  color: var(--color-danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.sf-section-header.compact h1 {
+  font-size: 1.4rem;
+}
+
 .sf-form-grid,
 .sf-time-grid {
   display: grid;
@@ -578,9 +937,31 @@ canvas {
   }
 
   .sf-pricing-layout,
+  .sf-pricing-shell,
   .sf-form-grid,
   .sf-time-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sf-pricing-summary {
+    position: static;
+  }
+
+  .sf-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sf-profile-grid,
+  .sf-profile-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .sf-profile-actions {
+    width: 100%;
+  }
+
+  .sf-profile-actions button {
+    flex: 1 1 180px;
   }
 
   .sf-card {
