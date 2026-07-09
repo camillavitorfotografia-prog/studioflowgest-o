@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Calendar, CalendarCheck, DollarSign, MoreVertical, Package, Smartphone } from 'lucide-react';
 import { formatMoney, getStudioData, writeProjects } from '../../utils/integratedData';
 import { FINANCE_STORAGE_KEYS } from '../../utils/financeEngine';
@@ -16,37 +16,54 @@ export default function Trabalhos() {
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [syncConfig, setSyncConfig] = useState({});
 
-  useEffect(() => {
-    const load = () => {
+  // Centralização estável do carregamento de dados
+  const load = useCallback(() => {
+    try {
       const studio = getStudioData();
       const calendarSync = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.calendarSync) || '{}');
-      setProjects(studio.projects);
+      setProjects(studio.projects || []);
       setRawProjects(JSON.parse(localStorage.getItem('cv_studio_projects') || '[]'));
       setSyncConfig(calendarSync);
-    };
+    } catch (error) {
+      console.error('Erro ao analisar dados de sincronização ou projetos:', error);
+    }
+  }, []);
 
+  useEffect(() => {
     load();
+    
+    // Ouvintes para manter reatividade automática no ecossistema e em abas paralelas
     window.addEventListener('focus', load);
     window.addEventListener('storage', load);
+    window.addEventListener('sf_storage_update', load);
+    
     return () => {
       window.removeEventListener('focus', load);
       window.removeEventListener('storage', load);
+      window.removeEventListener('sf_storage_update', load);
     };
-  }, []);
+  }, [load]);
 
-  const persistProjects = (updated) => {
+  // Persistência unificada com preservação de estado local
+  const persistProjects = useCallback((updated) => {
     setRawProjects(updated);
     writeProjects(updated);
-    setProjects(getStudioData().projects);
-  };
+    setProjects(getStudioData().projects || []);
+  }, []);
 
-  const mudarStatus = (id, novoStatus) => {
-    const updated = rawProjects.map((project) => project.id === id ? { ...project, status: novoStatus, updatedAt: new Date().toISOString() } : project);
+  // Alteração de colunas otimizada com useCallback
+  const mudarStatus = useCallback((id, novoStatus) => {
+    const updated = rawProjects.map((project) =>
+      project.id === id 
+        ? { ...project, status: novoStatus, updatedAt: new Date().toISOString() } 
+        : project
+    );
     persistProjects(updated);
     setActiveMenuId(null);
-  };
+  }, [rawProjects, persistProjects]);
 
-  const alternarSincronizacao = (id, provider) => {
+  // Gerenciador de sincronização reativo com dependências limpas
+  const alternarSincronizacao = useCallback((id, provider) => {
     const updated = rawProjects.map((project) => {
       if (project.id !== id) return project;
       return {
@@ -58,6 +75,7 @@ export default function Trabalhos() {
         },
       };
     });
+    
     const project = updated.find((item) => item.id === id);
     const nextSync = {
       ...syncConfig,
@@ -69,10 +87,32 @@ export default function Trabalhos() {
         preparedAt: new Date().toISOString(),
       },
     };
+    
     localStorage.setItem(FINANCE_STORAGE_KEYS.calendarSync, JSON.stringify(nextSync));
     setSyncConfig(nextSync);
     persistProjects(updated);
-  };
+  }, [rawProjects, syncConfig, persistProjects]);
+
+  // Agrupamento indexado e memoizado de projetos por coluna para mitigar múltiplos filtros lineares por render
+  const projectsByColumn = useMemo(() => {
+    const grouped = {
+      contrato_fechado: [],
+      fotografando: [],
+      edicao: [],
+      entregue: [],
+    };
+
+    projects.forEach((project) => {
+      const status = project.status || 'contrato_fechado';
+      if (grouped[status]) {
+        grouped[status].push(project);
+      } else {
+        grouped[status] = [project];
+      }
+    });
+
+    return grouped;
+  }, [projects]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', height: '100%' }}>
@@ -87,7 +127,7 @@ export default function Trabalhos() {
               {col.titulo}
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {projects.filter((project) => (project.status || 'contrato_fechado') === col.id).map((project) => (
+              {(projectsByColumn[col.id] || []).map((project) => (
                 <div key={project.id} className="glass" style={{ padding: '16px', borderRadius: '10px', borderLeft: '4px solid var(--color-highlight)', position: 'relative' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'flex-start' }}>
                     <span style={{ color: 'var(--text-main)', fontWeight: '600', fontSize: '0.95rem' }}>{project.clienteNome}</span>

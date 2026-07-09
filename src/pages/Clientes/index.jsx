@@ -9,22 +9,35 @@ export default function Clientes() {
   useEffect(() => {
     const load = () => setStudio(getStudioData());
     load();
+    
+    // Ouvintes para manter sincronização cross-tab e imediata através do ecossistema
     window.addEventListener('focus', load);
     window.addEventListener('storage', load);
+    window.addEventListener('sf_storage_update', load);
+    
     return () => {
       window.removeEventListener('focus', load);
       window.removeEventListener('storage', load);
+      window.removeEventListener('sf_storage_update', load);
     };
   }, []);
 
-  const clients = useMemo(() => studio.clients.map((client) => {
-    const projects = studio.projects.filter((project) => project.clientId === client.id || project.clienteId === client.id);
-    const totalInvested = projects.reduce((sum, project) => sum + Number(project.valorContratado || 0), 0);
-    const totalPaid = projects.reduce((sum, project) => sum + Number(project.valorRecebido || 0), 0);
-    return { ...client, projects, totalInvested, totalPaid };
-  }), [studio.clients, studio.projects]);
+  const clients = useMemo(() => {
+    return studio.clients.map((client) => {
+      const projects = studio.projects.filter(
+        (project) => project.clientId === client.id || project.clienteId === client.id
+      );
+      const totalInvested = projects.reduce((sum, project) => sum + Number(project.valorContratado || 0), 0);
+      const totalPaid = projects.reduce((sum, project) => sum + Number(project.valorRecebido || 0), 0);
+      
+      return { ...client, projects, totalInvested, totalPaid };
+    });
+  }, [studio.clients, studio.projects]);
 
-  const selectedClient = clients.find((client) => client.id === selectedClientId) || clients[0];
+  const selectedClient = useMemo(() => {
+    if (clients.length === 0) return null;
+    return clients.find((client) => client.id === selectedClientId) || clients[0];
+  }, [clients, selectedClientId]);
 
   return (
     <div className="sf-finance-section">
@@ -51,23 +64,40 @@ export default function Clientes() {
                 <tr key={client.id} onClick={() => setSelectedClientId(client.id)} style={{ cursor: 'pointer' }}>
                   <td>
                     <strong>{client.nome}</strong>
-                    <small><UserRound size={12} /> Cliente desde {new Date(client.clienteDesde || client.createdAt).toLocaleDateString('pt-BR')}</small>
+                    <small>
+                      <UserRound size={12} /> Cliente desde{' '}
+                      {new Date(client.clienteDesde || client.createdAt || Date.now()).toLocaleDateString('pt-BR')}
+                    </small>
                   </td>
                   <td>
                     <span>{client.whatsapp || client.telefone || '-'}</span>
                     <small>{client.instagram || client.email || client.cidade || '-'}</small>
                   </td>
                   <td>{client.projects.length}</td>
-                  <td className="positive"><strong>{formatMoney(client.totalInvested)}</strong></td>
+                  <td className="positive">
+                    <strong>{formatMoney(client.totalInvested)}</strong>
+                  </td>
                 </tr>
               ))}
-              {clients.length === 0 && <tr><td colSpan="4" className="empty">Nenhum cliente integrado ainda.</td></tr>}
+              {clients.length === 0 && (
+                <tr>
+                  <td colSpan="4" className="empty">
+                    Nenhum cliente integrado ainda.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
         <aside className="sf-pricing-summary">
-          {selectedClient ? <ClientPanel client={selectedClient} /> : <div className="sf-card"><p className="sf-muted">Aprove um lead no CRM para criar cliente e projeto automaticamente.</p></div>}
+          {selectedClient ? (
+            <ClientPanel client={selectedClient} />
+          ) : (
+            <div className="sf-card">
+              <p className="sf-muted">Aprove um lead no CRM para criar cliente e projeto automaticamente.</p>
+            </div>
+          )}
         </aside>
       </div>
     </div>
@@ -75,11 +105,32 @@ export default function Clientes() {
 }
 
 function ClientPanel({ client }) {
-  const payments = client.projects.flatMap((project) => (project.financeiro?.receitas || []).map((payment) => ({ ...payment, projectName: project.tipoServico })));
-  const timeline = client.projects.flatMap((project) => project.timelineCompleta || []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-  const contracts = client.projects.filter((project) => project.contrato && Object.keys(project.contrato).length > 0);
-  const questionnaires = client.projects.filter((project) => project.questionario && Object.keys(project.questionario).length > 0);
-  const files = client.projects.flatMap((project) => project.arquivos || []);
+  const payments = useMemo(() => {
+    return client.projects.flatMap((project) =>
+      (project.financeiro?.receitas || []).map((payment) => ({
+        ...payment,
+        projectName: project.tipoServico,
+      }))
+    );
+  }, [client.projects]);
+
+  const timeline = useMemo(() => {
+    return client.projects
+      .flatMap((project) => project.timelineCompleta || [])
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+  }, [client.projects]);
+
+  const contracts = useMemo(() => {
+    return client.projects.filter((project) => project.contrato && Object.keys(project.contrato).length > 0);
+  }, [client.projects]);
+
+  const questionnaires = useMemo(() => {
+    return client.projects.filter((project) => project.questionario && Object.keys(project.questionario).length > 0);
+  }, [client.projects]);
+
+  const files = useMemo(() => {
+    return client.projects.flatMap((project) => project.arquivos || []);
+  }, [client.projects]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -100,12 +151,50 @@ function ClientPanel({ client }) {
         <Metric label="Recebido" value={formatMoney(client.totalPaid)} />
       </div>
 
-      <InfoBlock icon={Phone} title="Contato" rows={[client.telefone || '-', client.whatsapp || '-', client.instagram || '-']} />
-      <InfoBlock icon={FolderOpen} title="Projetos" rows={client.projects.map((project) => `${project.tipoServico} - ${project.data || 'Sem data'} - ${formatMoney(project.valorContratado)}`)} empty="Nenhum projeto vinculado." />
-      <InfoBlock icon={MessageCircle} title="Pagamentos" rows={payments.map((payment) => `${payment.projectName}: ${formatMoney(payment.valor)} em ${payment.data || '-'}`)} empty="Nenhum pagamento registrado." />
-      <InfoBlock icon={FileText} title="Contratos e questionarios" rows={[...contracts.map((project) => `Contrato: ${project.tipoServico}`), ...questionnaires.map((project) => `Questionario: ${project.tipoServico}`)]} empty="Sem contratos ou questionarios vinculados." />
-      <InfoBlock icon={Image} title="Arquivos" rows={files.map((file) => file.nome || file.name || 'Arquivo')} empty="Nenhum arquivo vinculado." />
-      <InfoBlock icon={CalendarDays} title="Linha do tempo" rows={timeline.slice(0, 8).map((item) => `${item.date ? new Date(item.date).toLocaleDateString('pt-BR') : '-'} - ${item.title}`)} empty="Sem movimentacoes ainda." />
+      <InfoBlock
+        icon={Phone}
+        title="Contato"
+        rows={[client.telefone || '-', client.whatsapp || '-', client.instagram || '-']}
+      />
+      <InfoBlock
+        icon={FolderOpen}
+        title="Projetos"
+        rows={client.projects.map(
+          (project) => `${project.tipoServico} - ${project.data || 'Sem data'} - ${formatMoney(project.valorContratado)}`
+        )}
+        empty="Nenhum projeto vinculado."
+      />
+      <InfoBlock
+        icon={MessageCircle}
+        title="Pagamentos"
+        rows={payments.map((payment) => `${payment.projectName}: ${formatMoney(payment.valor)} em ${payment.data || '-'}`)}
+        empty="Nenhum pagamento registrado."
+      />
+      <InfoBlock
+        icon={FileText}
+        title="Contratos e questionarios"
+        rows={[
+          ...contracts.map((project) => `Contrato: ${project.tipoServico}`),
+          ...questionnaires.map((project) => `Questionario: ${project.tipoServico}`),
+        ]}
+        empty="Sem contratos ou questionarios vinculados."
+      />
+      <InfoBlock
+        icon={Image}
+        title="Arquivos"
+        rows={files.map((file) => file.nome || file.name || 'Arquivo')}
+        empty="Nenhum arquivo vinculado."
+      />
+      <InfoBlock
+        icon={CalendarDays}
+        title="Linha do tempo"
+        rows={timeline
+          .slice(0, 8)
+          .map(
+            (item) => `${item.date ? new Date(item.date).toLocaleDateString('pt-BR') : '-'} - ${item.title}`
+          )}
+        empty="Sem movimentacoes ainda."
+      />
     </div>
   );
 }
@@ -120,12 +209,19 @@ function Metric({ label, value }) {
 }
 
 function InfoBlock({ icon: Icon, title, rows, empty = 'Sem dados.' }) {
-  const visibleRows = rows.filter(Boolean);
+  const visibleRows = useMemo(() => rows.filter(Boolean), [rows]);
+  
   return (
     <div className="sf-card">
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Icon size={17} /> {title}</h3>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Icon size={17} /> {title}
+      </h3>
       {visibleRows.length === 0 && <p className="sf-muted">{empty}</p>}
-      {visibleRows.map((row, index) => <div className="compact-row" key={`${title}-${index}`}><span>{row}</span></div>)}
+      {visibleRows.map((row, index) => (
+        <div className="compact-row" key={`${title}-${index}`}>
+          <span>{row}</span>
+        </div>
+      ))}
     </div>
   );
 }

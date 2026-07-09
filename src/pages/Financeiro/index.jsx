@@ -79,19 +79,42 @@ function useFinanceData() {
   const [saldos, setSaldos] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
   );
-  const [studio] = useState(() => getStudioData());
-  const clientes = studio.projects.map((project) => ({
-    ...project.cliente,
-    id: project.clientId,
-    projectId: project.id,
-    nome: project.clienteNome,
-    valorTotal: project.valorContratado,
-    pagamentos: project.financeiro?.receitas || project.pagamentos || [],
-    dataTrabalho: project.data,
-    tipo: project.tipoServico,
-  }));
-  const [transacoes] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'));
-  const [equipamentos] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'));
+  const [studio, setStudio] = useState(() => getStudioData());
+  const [transacoes, setTransacoes] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'));
+  const [equipamentos, setEquipamentos] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'));
+
+  useEffect(() => {
+    const loadAll = () => {
+      setFinancasConfig(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'));
+      setSaldos(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'));
+      setStudio(getStudioData());
+      setTransacoes(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'));
+      setEquipamentos(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'));
+    };
+
+    window.addEventListener('focus', loadAll);
+    window.addEventListener('storage', loadAll);
+    window.addEventListener('sf_storage_update', loadAll);
+
+    return () => {
+      window.removeEventListener('focus', loadAll);
+      window.removeEventListener('storage', loadAll);
+      window.removeEventListener('sf_storage_update', loadAll);
+    };
+  }, []);
+
+  const clientes = useMemo(() => {
+    return (studio.projects || []).map((project) => ({
+      ...project.cliente,
+      id: project.clientId,
+      projectId: project.id,
+      nome: project.clienteNome,
+      valorTotal: project.valorContratado,
+      pagamentos: project.financeiro?.receitas || project.pagamentos || [],
+      dataTrabalho: project.data,
+      tipo: project.tipoServico,
+    }));
+  }, [studio.projects]);
 
   const data = useMemo(() => {
     const now = new Date();
@@ -118,7 +141,7 @@ function useFinanceData() {
     const despesasVariaveis = monthlyTotals.variable;
     const depreciacaoMensal = getEquipmentMonthlyDepreciation(equipamentos);
     const investimentoEquipamentosMes = equipamentos
-      .filter((item) => monthKey(item.dataCompra) === currentMonth)
+      .filter((item) => monthKey(item.dataCompra || item.data) === currentMonth)
       .reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0);
     const mediaVariavel = getAverageVariableExpenses(transacoes);
     const custoOperacional = despesasFixas + mediaVariavel + depreciacaoMensal;
@@ -186,6 +209,7 @@ function FinanceDashboard() {
     const normalized = normalizeDistributionConfig(data.financasConfig);
     data.setFinancasConfig(normalized);
     localStorage.setItem(FINANCE_STORAGE_KEYS.config, JSON.stringify(normalized));
+    window.dispatchEvent(new Event('sf_storage_update'));
     setConfigOpen(false);
   };
 
@@ -219,7 +243,7 @@ function FinanceDashboard() {
         ...transactions,
         {
           id: `regra-tres-${Date.now()}`,
-          descricao: 'Regra dos Tres',
+          descricao: 'Regra dos Três',
           valor: delta,
           tipo: 'distribuicao',
           tipoGeral: 'Movimentacao Interna',
@@ -230,44 +254,45 @@ function FinanceDashboard() {
     );
     setSaldos(nextBalances);
     window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new Event('sf_storage_update'));
   }, [receitaBruta, financasConfig, saldos, setSaldos]);
 
   return (
     <div className="sf-finance-section">
       <SectionHeader
         title="Painel Financeiro"
-        subtitle="Receita, lucro real, custo operacional, vencimentos e caixa em um unico lugar."
+        subtitle="Receita, lucro real, custo operacional, vencimentos e caixa em um único lugar."
         action={
           <button className="sf-secondary-button" onClick={() => setConfigOpen(true)}>
-            <Settings size={16} /> Distribuicao
+            <Settings size={16} /> Distribuição
           </button>
         }
       />
 
       <div className="sf-metric-grid">
-        <Metric icon={ArrowUpCircle} label="Receita do mes" value={data.receitaBruta} tone="positive" />
-        <Metric icon={PiggyBank} label="Lucro do mes" value={data.lucroReal} tone={data.lucroReal >= 0 ? 'positive' : 'negative'} />
-        <Metric icon={Wallet} label="Saldo disponivel" value={data.saldos.salario + data.saldos.empresa + data.saldos.reserva} tone="positive" />
+        <Metric icon={ArrowUpCircle} label="Receita do mês" value={data.receitaBruta} tone="positive" />
+        <Metric icon={PiggyBank} label="Lucro do mês" value={data.lucroReal} tone={data.lucroReal >= 0 ? 'positive' : 'negative'} />
+        <Metric icon={Wallet} label="Saldo disponível" value={data.saldos.salario + data.saldos.empresa + data.saldos.reserva} tone="positive" />
         <Metric icon={PiggyBank} label="Fundo acumulado" value={data.saldos.reserva} />
         <Metric icon={BriefcaseBusiness} label="Dinheiro da empresa" value={data.saldos.empresa} />
-        <Metric icon={CircleDollarSign} label="Salario disponivel" value={data.saldos.salario} />
+        <Metric icon={CircleDollarSign} label="Salário disponível" value={data.saldos.salario} />
         <Metric icon={Receipt} label="Despesas fixas" value={data.despesasFixas} tone="warning" />
-        <Metric icon={ArrowDownCircle} label="Despesas variaveis" value={data.despesasVariaveis} tone="negative" />
+        <Metric icon={ArrowDownCircle} label="Despesas variáveis" value={data.despesasVariaveis} tone="negative" />
         <Metric icon={Package} label="Investimento em equipamentos" value={data.investimentoEquipamentosMes} />
         <Metric icon={Wallet} label="Fluxo de caixa" value={data.fluxoCaixa} tone={data.fluxoCaixa >= 0 ? 'positive' : 'negative'} />
-        <Metric icon={LineChart} label="Previsao financeira" value={data.financeSnapshot.forecast} tone={data.financeSnapshot.forecast >= 0 ? 'positive' : 'negative'} />
+        <Metric icon={LineChart} label="Previsão financeira" value={data.financeSnapshot.forecast} tone={data.financeSnapshot.forecast >= 0 ? 'positive' : 'negative'} />
         <Metric icon={CalendarClock} label="Contas a pagar" value={data.contasAPagar} tone="warning" />
         <Metric icon={CircleDollarSign} label="Contas a receber" value={data.contasAReceber} />
       </div>
 
       <div className="sf-panel-grid">
         <div className="sf-card tall">
-          <h3>Regra dos Tres</h3>
+          <h3>Regra dos Três</h3>
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
                 data={[
-                  { name: 'Salario', value: data.financeSnapshot.distribution.salario, color: '#10b981' },
+                  { name: 'Salário', value: data.financeSnapshot.distribution.salario, color: '#10b981' },
                   { name: 'Reserva', value: data.financeSnapshot.distribution.reserva, color: '#c5a059' },
                   { name: 'Empresa', value: data.financeSnapshot.distribution.empresa, color: '#2563eb' },
                 ]}
@@ -277,25 +302,29 @@ function FinanceDashboard() {
                 paddingAngle={4}
                 stroke="none"
               >
-                {['#10b981', '#c5a059', '#2563eb'].map((color) => <Cell key={color} fill={color} />)}
+                {[
+                  { name: 'Salário', color: '#10b981' },
+                  { name: 'Reserva', color: '#c5a059' },
+                  { name: 'Empresa', color: '#2563eb' }
+                ].map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
               </Pie>
               <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} contentStyle={{ background: '#111', border: '1px solid #333', borderRadius: 8 }} />
             </PieChart>
           </ResponsiveContainer>
-          <div className="formula-row"><span>Salario</span><strong>{data.financeSnapshot.distribution.salario.toFixed(1)}%</strong></div>
+          <div className="formula-row"><span>Salário</span><strong>{data.financeSnapshot.distribution.salario.toFixed(1)}%</strong></div>
           <div className="formula-row"><span>Fundo de reserva</span><strong>{data.financeSnapshot.distribution.reserva.toFixed(1)}%</strong></div>
           <div className="formula-row"><span>Caixa da empresa</span><strong>{data.financeSnapshot.distribution.empresa.toFixed(1)}%</strong></div>
         </div>
 
         <div className="sf-card tall">
-          <h3>Fluxo e previsao</h3>
+          <h3>Fluxo e previsão</h3>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart
               data={[
                 { name: 'Receita', valor: data.receitaBruta },
                 { name: 'Fluxo', valor: data.fluxoCaixa },
                 { name: 'Lucro', valor: data.lucroReal },
-                { name: 'Previsao', valor: data.financeSnapshot.forecast },
+                { name: 'Previsão', valor: data.financeSnapshot.forecast },
               ]}
               margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
             >
@@ -310,8 +339,8 @@ function FinanceDashboard() {
         <div className="sf-card tall">
           <h3>Custo operacional</h3>
           <div className="formula-row"><span>Custo fixo mensal</span><strong>{formatCurrency(data.despesasFixas)}</strong></div>
-          <div className="formula-row"><span>Media variavel</span><strong>{formatCurrency(data.mediaVariavel)}</strong></div>
-          <div className="formula-row"><span>Depreciacao mensal</span><strong>{formatCurrency(data.depreciacaoMensal)}</strong></div>
+          <div className="formula-row"><span>Média variável</span><strong>{formatCurrency(data.mediaVariavel)}</strong></div>
+          <div className="formula-row"><span>Depreciação mensal</span><strong>{formatCurrency(data.depreciacaoMensal)}</strong></div>
           <div className="formula-total"><span>Total</span><strong>{formatCurrency(data.custoOperacional)}</strong></div>
         </div>
 
@@ -319,14 +348,14 @@ function FinanceDashboard() {
           <h3>Lucro real</h3>
           <div className="formula-row positive"><span>Receita bruta</span><strong>{formatCurrency(data.receitaBruta)}</strong></div>
           <div className="formula-row"><span>Custos fixos</span><strong>-{formatCurrency(data.despesasFixas)}</strong></div>
-          <div className="formula-row"><span>Custos variaveis</span><strong>-{formatCurrency(data.despesasVariaveis)}</strong></div>
-          <div className="formula-row"><span>Depreciacao</span><strong>-{formatCurrency(data.depreciacaoMensal)}</strong></div>
+          <div className="formula-row"><span>Custos variáveis</span><strong>-{formatCurrency(data.despesasVariaveis)}</strong></div>
+          <div className="formula-row"><span>Depreciação</span><strong>-{formatCurrency(data.depreciacaoMensal)}</strong></div>
           <div className="formula-total"><span>Lucro real</span><strong>{formatCurrency(data.lucroReal)}</strong></div>
           <p className="sf-muted">Margem de lucro: {data.margemLucro.toFixed(1)}%</p>
         </div>
 
         <div className="sf-card tall">
-          <h3>Proximos vencimentos</h3>
+          <h3>Próximos vencimentos</h3>
           {data.proximosVencimentos.length === 0 && <p className="sf-muted">Nenhum vencimento pendente.</p>}
           {data.proximosVencimentos.map((item) => (
             <div className="compact-row" key={item.id}>
@@ -341,11 +370,11 @@ function FinanceDashboard() {
         </div>
       </div>
 
-      <Modal isOpen={configOpen} onClose={() => setConfigOpen(false)} title="Configurar distribuicao">
+      <Modal isOpen={configOpen} onClose={() => setConfigOpen(false)} title="Configurar distribuição">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {['salario', 'empresa', 'reserva'].map((key) => (
-            <label key={key} style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-              {key}
+            <label key={key} style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'capitalize' }}>
+              {key === 'salario' ? 'Salário' : key === 'empresa' ? 'Empresa' : 'Reserva'} (%)
               <input
                 type="number"
                 value={data.financasConfig[key]}
@@ -354,7 +383,7 @@ function FinanceDashboard() {
               />
             </label>
           ))}
-          <button className="sf-primary-button wide" onClick={saveConfig}>Salvar configuracao</button>
+          <button className="sf-primary-button wide" onClick={saveConfig}>Salvar configuração</button>
         </div>
       </Modal>
     </div>
@@ -363,21 +392,24 @@ function FinanceDashboard() {
 
 function Receitas() {
   const { clientes, receitaBruta, contasAReceber, inadimplente } = useFinanceData();
-  const linhas = clientes.flatMap((client) =>
-    (client.pagamentos || []).map((payment, index) => ({
-      id: `${client.id || client.nome}-${index}`,
-      cliente: client.nome || client.name || 'Cliente',
-      data: payment.data || '-',
-      valor: parseCurrency(payment.valor),
-      evento: client.tipoTrabalho || client.servico || '-',
-    })),
-  );
+  
+  const linhas = useMemo(() => {
+    return clientes.flatMap((client) =>
+      (client.pagamentos || []).map((payment, index) => ({
+        id: `receita-${client.projectId || client.id || 'cli'}-${index}`,
+        cliente: client.nome || 'Cliente',
+        data: payment.data || '-',
+        valor: parseCurrency(payment.valor),
+        evento: client.tipo || '-',
+      }))
+    );
+  }, [clientes]);
 
   return (
     <div className="sf-finance-section">
       <SectionHeader title="Receitas" subtitle="Entradas vindas dos pagamentos de clientes e contas a receber." />
       <div className="sf-metric-grid">
-        <Metric icon={ArrowUpCircle} label="Receita bruta do mes" value={receitaBruta} tone="positive" />
+        <Metric icon={ArrowUpCircle} label="Receita bruta do mês" value={receitaBruta} tone="positive" />
         <Metric icon={CircleDollarSign} label="Contas a receber" value={contasAReceber} />
         <Metric icon={CalendarClock} label="Recebimentos atrasados" value={inadimplente} tone="negative" />
       </div>
@@ -393,20 +425,20 @@ function Receitas() {
 
 function Investimentos() {
   const { equipamentos } = useFinanceData();
-  const totalInvestido = equipamentos.reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0);
-  const depreciacaoMensal = getEquipmentMonthlyDepreciation(equipamentos);
-  const valorAtual = equipamentos.reduce((sum, item) => sum + calculateDepreciation(item).currentBookValue, 0);
+  const totalInvestido = useMemo(() => equipamentos.reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0), [equipamentos]);
+  const depreciacaoMensal = useMemo(() => getEquipmentMonthlyDepreciation(equipamentos), [equipamentos]);
+  const valorAtual = useMemo(() => equipamentos.reduce((sum, item) => sum + calculateDepreciation(item).currentBookValue, 0), [equipamentos]);
 
   return (
     <div className="sf-finance-section">
-      <SectionHeader title="Investimentos em Equipamentos" subtitle="Patrimonio, valor de compra, depreciacao e valor contabil atual." />
+      <SectionHeader title="Investimentos em Equipamentos" subtitle="Patrimônio, valor de compra, depreciação e valor contábil atual." />
       <div className="sf-metric-grid">
         <Metric icon={Package} label="Total investido" value={totalInvestido} />
-        <Metric icon={LineChart} label="Depreciacao mensal" value={depreciacaoMensal} tone="warning" />
+        <Metric icon={LineChart} label="Depreciação mensal" value={depreciacaoMensal} tone="warning" />
         <Metric icon={BriefcaseBusiness} label="Valor atual estimado" value={valorAtual} tone="positive" />
       </div>
       <SimpleTable
-        columns={['Equipamento', 'Compra', 'Depreciacao mensal', 'Valor atual']}
+        columns={['Equipamento', 'Compra', 'Depreciação mensal', 'Valor atual']}
         rows={equipamentos}
         render={(item) => {
           const depreciation = calculateDepreciation(item);
@@ -425,20 +457,23 @@ function Investimentos() {
 
 function RelatoriosFinanceiros() {
   const { transacoes, equipamentos } = useFinanceData();
-  const expenses = transacoes.filter(isExpense);
-  const reports = {
-    Mensal: groupBySum(expenses, (item) => monthKey(getTransactionDate(item))),
-    Categoria: groupBySum(expenses, (item) => item.categoria),
-    Evento: groupBySum(expenses, (item) => item.eventoRelacionado),
-    Fornecedor: groupBySum(expenses, (item) => item.fornecedor),
-    Equipamento: groupBySum(equipamentos, (item) => item.nome, (item) => Number(item.valorCompra ?? item.valor ?? 0)),
-  };
+  
+  const reports = useMemo(() => {
+    const expenses = transacoes.filter(isExpense);
+    return {
+      Mensal: groupBySum(expenses, (item) => monthKey(getTransactionDate(item))),
+      Categoria: groupBySum(expenses, (item) => item.categoria),
+      Evento: groupBySum(expenses, (item) => item.eventoRelacionado),
+      Fornecedor: groupBySum(expenses, (item) => item.fornecedor),
+      Equipamento: groupBySum(equipamentos, (item) => item.nome, (item) => Number(item.valorCompra ?? item.valor ?? 0)),
+    };
+  }, [transacoes, equipamentos]);
 
   return (
     <div className="sf-finance-section">
       <SectionHeader
-        title="Relatorios"
-        subtitle="Bases preparadas para exportacao futura em PDF e Excel."
+        title="Relatórios"
+        subtitle="Bases preparadas para exportação futura em PDF e Excel."
         action={<span className="sf-export-chip">PDF / Excel em breve</span>}
       />
       <div className="sf-report-grid">
@@ -498,7 +533,8 @@ function SimpleTable({ columns, rows, render, empty }) {
 }
 
 function ReportBlock({ title, data }) {
-  const entries = Object.entries(data).filter(([, value]) => value > 0).slice(0, 8);
+  const entries = useMemo(() => Object.entries(data).filter(([, value]) => value > 0).slice(0, 8), [data]);
+  
   return (
     <div className="sf-card report">
       <h3>{title}</h3>
@@ -512,4 +548,3 @@ function ReportBlock({ title, data }) {
     </div>
   );
 }
-

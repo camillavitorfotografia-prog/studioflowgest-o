@@ -84,14 +84,16 @@ export default function Equipamentos() {
 
   const equipmentUsage = useMemo(() => {
     return equipamentos.reduce((acc, equipment) => {
-      const projects = studio.projects.filter((project) => (project.equipamentos || project.equipmentIds || []).some((id) => String(id) === String(equipment.id)));
+      const projects = (studio?.projects || []).filter((project) => 
+        (project.equipamentos || project.equipmentIds || []).some((id) => String(id) === String(equipment.id))
+      );
       acc[equipment.id] = {
         quantidadeProjetos: projects.length,
         valorRecuperado: projects.reduce((sum, project) => sum + Number(project.valorContratado || 0), 0),
       };
       return acc;
     }, {});
-  }, [equipamentos, studio.projects]);
+  }, [equipamentos, studio?.projects]);
 
   const saveList = (list) => {
     setEquipamentos(list);
@@ -180,8 +182,8 @@ export default function Equipamentos() {
             <ArrowLeft size={18} /> Voltar
           </button>
           <div>
-            <h1>Equipamentos</h1>
-            <p>Patrimonio, depreciacao linear, garantia e manutencoes.</p>
+            <h1>Equipamentos & Patrimônio</h1>
+            <p>Gerencie suas lentes, câmeras, gimbals, manutenções e taxas de depreciação de ativos.</p>
           </div>
         </div>
         <button className="sf-primary-button" onClick={openNewEquipment}>
@@ -192,17 +194,17 @@ export default function Equipamentos() {
       <div className="sf-metric-grid">
         <Metric label="Valor de compra" value={totals.invested} />
         <Metric label="Valor atual estimado" value={totals.current} />
-        <Metric label="Depreciacao mensal" value={totals.monthly} />
-        <Metric label="Manutencoes" value={totals.maintenance} />
-        <Metric label="Projetos com equipamentos" value={Object.values(equipmentUsage).reduce((sum, item) => sum + item.quantidadeProjetos, 0)} isNumber />
+        <Metric label="Depreciação mensal" value={totals.monthly} />
+        <Metric label="Manutenções" value={totals.maintenance} />
+        <Metric label="Projetos vinculados" value={Object.values(equipmentUsage).reduce((sum, item) => sum + item.quantidadeProjetos, 0)} isNumber />
       </div>
 
       <div className="sf-panel-grid">
         <div className="sf-card tall">
-          <h3>Grafico de depreciacao</h3>
+          <h3>Gráfico de Depreciação</h3>
           {selectedChartItem ? (
             <>
-              <p className="sf-muted">{selectedChartItem.nome}</p>
+              <p className="sf-muted" style={{ marginBottom: '12px' }}>{selectedChartItem.nome}</p>
               <div style={{ width: '100%', height: 240 }}>
                 <ResponsiveContainer>
                   <LineChart data={chartData}>
@@ -215,7 +217,7 @@ export default function Equipamentos() {
               </div>
             </>
           ) : (
-            <p className="sf-muted">Cadastre um equipamento para visualizar a curva.</p>
+            <p className="sf-muted">Cadastre um equipamento para visualizar a curva de depreciação.</p>
           )}
         </div>
 
@@ -225,12 +227,12 @@ export default function Equipamentos() {
               <tr>
                 <th>Item</th>
                 <th>Compra</th>
-                <th>Depreciacao mensal</th>
-                <th>Valor atual</th>
-                <th>Garantia</th>
+                <th>Depreciação Mensal</th>
+                <th>Valor Atual</th>
+                <th>Garantia / Revisão</th>
                 <th>Projetos</th>
                 <th>Retorno</th>
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -240,19 +242,20 @@ export default function Equipamentos() {
                   <tr key={equipment.id}>
                     <td>
                       <strong>{equipment.nome}</strong>
-                      <small>Vida util: {depreciation.usefulLifeYears} anos | Metodo: linear</small>
+                      <br />
+                      <small className="sf-muted">Vida útil: {depreciation.usefulLifeYears} anos | Linear</small>
                     </td>
                     <td>{formatCurrency(depreciation.purchaseValue)}</td>
-                    <td>{formatCurrency(depreciation.monthlyDepreciation)}</td>
+                    <td style={{ color: 'var(--color-danger)' }}>-{formatCurrency(depreciation.monthlyDepreciation)}</td>
                     <td className="positive"><strong>{formatCurrency(depreciation.currentBookValue)}</strong></td>
-                    <td>{equipment.garantiaAte || '-'}</td>
-                    <td>{equipmentUsage[equipment.id]?.quantidadeProjetos || 0}</td>
+                    <td>{equipment.garantiaAte || equipment.proximaRevisao || '-'}</td>
+                    <td>{equipmentUsage[equipment.id]?.quantidadeProjetos || 0}x</td>
                     <td className="positive"><strong>{formatCurrency(equipmentUsage[equipment.id]?.valorRecuperado || 0)}</strong></td>
                     <td>
-                      <div className="sf-actions">
-                        <button title="Registrar manutencao" onClick={() => openMaintenance(equipment)}><Wrench size={17} /></button>
-                        <button title="Editar" onClick={() => openEditEquipment(equipment)}><Edit2 size={17} /></button>
-                        <button title="Remover" onClick={() => removerEquipamento(equipment.id)}><Trash2 size={17} /></button>
+                      <div className="sf-actions" style={{ display: 'flex', gap: '8px' }}>
+                        <button title="Registrar manutenção" className="sf-icon-button" onClick={() => openMaintenance(equipment)}><Wrench size={17} /></button>
+                        <button title="Editar" className="sf-icon-button" onClick={() => openEditEquipment(equipment)}><Edit2 size={17} /></button>
+                        <button title="Remover" className="sf-icon-button" onClick={() => removerEquipamento(equipment.id)}><Trash2 size={17} /></button>
                       </div>
                     </td>
                   </tr>
@@ -260,7 +263,9 @@ export default function Equipamentos() {
               })}
               {equipamentos.length === 0 && (
                 <tr>
-                  <td colSpan="8" className="empty">Nenhum equipamento cadastrado.</td>
+                  <td colSpan="8" className="empty" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>
+                    Nenhum equipamento cadastrado no acervo.
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -268,7 +273,8 @@ export default function Equipamentos() {
         </div>
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Gerenciar equipamento">
+      {/* Modal Gerenciar Equipamento */}
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Gerenciar Equipamento">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <input style={inputStyle} placeholder="Nome do equipamento" value={formData.nome} onChange={(event) => setFormData({ ...formData, nome: event.target.value })} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -276,21 +282,22 @@ export default function Equipamentos() {
             <input type="date" style={inputStyle} value={formData.dataCompra} onChange={(event) => setFormData({ ...formData, dataCompra: event.target.value })} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <input type="number" min="1" style={inputStyle} placeholder="Vida util em anos" value={formData.vidaUtilAnos} onChange={(event) => setFormData({ ...formData, vidaUtilAnos: event.target.value })} />
+            <input type="number" min="1" style={inputStyle} placeholder="Vida útil em anos" value={formData.vidaUtilAnos} onChange={(event) => setFormData({ ...formData, vidaUtilAnos: event.target.value })} />
             <input style={inputStyle} placeholder="Valor residual (opcional)" value={formData.valorResidual} onChange={(event) => setFormData({ ...formData, valorResidual: maskCurrency(event.target.value) })} />
           </div>
-          <input type="date" style={inputStyle} value={formData.garantiaAte} onChange={(event) => setFormData({ ...formData, garantiaAte: event.target.value })} />
-          <textarea style={{ ...inputStyle, minHeight: 90 }} placeholder="Observacoes" value={formData.observacoes} onChange={(event) => setFormData({ ...formData, observacoes: event.target.value })} />
+          <input type="date" style={inputStyle} placeholder="Garantia / Próxima Revisão" value={formData.garantiaAte || formData.proximaRevisao} onChange={(event) => setFormData({ ...formData, garantiaAte: event.target.value, proximaRevisao: event.target.value })} />
+          <textarea style={{ ...inputStyle, minHeight: 90 }} placeholder="Observações" value={formData.observacoes} onChange={(event) => setFormData({ ...formData, observacoes: event.target.value })} />
           <button className="sf-primary-button wide" onClick={salvarEquipamento}>Salvar equipamento</button>
         </div>
       </Modal>
 
-      <Modal isOpen={maintenanceModalOpen} onClose={() => setMaintenanceModalOpen(false)} title="Registrar manutencao">
+      {/* Modal Registrar Manutenção */}
+      <Modal isOpen={maintenanceModalOpen} onClose={() => setMaintenanceModalOpen(false)} title="Registrar Manutenção">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <input type="date" style={inputStyle} value={maintenance.data} onChange={(event) => setMaintenance({ ...maintenance, data: event.target.value })} />
-          <input style={inputStyle} placeholder="Descricao" value={maintenance.descricao} onChange={(event) => setMaintenance({ ...maintenance, descricao: event.target.value })} />
-          <input style={inputStyle} placeholder="Valor" value={maintenance.valor} onChange={(event) => setMaintenance({ ...maintenance, valor: maskCurrency(event.target.value) })} />
-          <button className="sf-primary-button wide" onClick={saveMaintenance}>Salvar manutencao</button>
+          <input style={inputStyle} placeholder="Descrição do reparo ou revisão" value={maintenance.descricao} onChange={(event) => setMaintenance({ ...maintenance, descricao: event.target.value })} />
+          <input style={inputStyle} placeholder="Valor do serviço" value={maintenance.valor} onChange={(event) => setMaintenance({ ...maintenance, valor: maskCurrency(event.target.value) })} />
+          <button className="sf-primary-button wide" onClick={saveMaintenance}>Salvar manutenção</button>
         </div>
       </Modal>
     </div>
@@ -300,12 +307,8 @@ export default function Equipamentos() {
 function Metric({ label, value, isNumber = false }) {
   return (
     <div className="sf-card metric">
-      <div className="metric-label">{label}</div>
-      <strong>{isNumber ? value : formatCurrency(value)}</strong>
+      <div className="metric-label" style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '4px' }}>{label}</div>
+      <strong style={{ fontSize: '1.4rem', color: '#fff' }}>{isNumber ? value : formatCurrency(value)}</strong>
     </div>
   );
 }
-
-
-
-

@@ -16,10 +16,16 @@ const formats = {
 const eventColor = { bg: 'rgba(201, 160, 108, 0.14)', text: '#D9B47C', dot: '#C9A06C', border: 'rgba(201, 160, 108, 0.35)' };
 
 const toCalendarDate = (project, fallbackHour = 14) => {
-  if (!project.data) return new Date();
-  const [year, month, day] = project.data.split('-').map(Number);
-  const hour = Number(project.horario?.slice(0, 2) || fallbackHour);
-  return new Date(year, month - 1, day, hour, 0);
+  if (!project || !project.data) return new Date();
+  try {
+    const parts = project.data.split('-');
+    if (parts.length !== 3) return new Date();
+    const [year, month, day] = parts.map(Number);
+    const hour = Number(project.horario?.slice(0, 2) || fallbackHour);
+    return new Date(year, month - 1, day, hour, 0);
+  } catch {
+    return new Date();
+  }
 };
 
 export default function Agenda() {
@@ -31,38 +37,52 @@ export default function Agenda() {
   useEffect(() => {
     const load = () => setStudio(getStudioData());
     load();
+    
+    // Ouvintes para manter sincronização cross-tab e imediata através do ecossistema reativo
     window.addEventListener('focus', load);
     window.addEventListener('storage', load);
+    window.addEventListener('sf_storage_update', load);
+    
     return () => {
       window.removeEventListener('focus', load);
       window.removeEventListener('storage', load);
+      window.removeEventListener('sf_storage_update', load);
     };
   }, []);
 
-  const events = useMemo(() => studio.projects.map((project) => {
-    const start = toCalendarDate(project);
-    const end = new Date(start);
-    end.setHours(start.getHours() + 2);
-    return {
-      id: project.id,
-      title: project.tipoServico,
-      client: project.clienteNome,
-      start,
-      end,
-      project,
-    };
-  }), [studio.projects]);
+  const events = useMemo(() => {
+    return (studio.projects || []).map((project) => {
+      const start = toCalendarDate(project);
+      const end = new Date(start);
+      end.setHours(start.getHours() + 2);
+      return {
+        id: project.id,
+        title: project.tipoServico,
+        client: project.clienteNome,
+        start,
+        end,
+        project,
+      };
+    });
+  }, [studio.projects]);
 
-  const weekLimit = new Date();
-  weekLimit.setDate(weekLimit.getDate() + 7);
-  const weekEvents = events.filter((event) => event.start >= new Date() && event.start <= weekLimit).sort((a, b) => a.start - b.start);
+  // Memoização estruturada para evitar re-filtros em renders repetitivos
+  const weekEvents = useMemo(() => {
+    const now = new Date();
+    const weekLimit = new Date();
+    weekLimit.setDate(weekLimit.getDate() + 7);
+    
+    return events
+      .filter((event) => event.start >= now && event.start <= weekLimit)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+  }, [events]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', gap: '24px' }}>
       <div className="agenda-topo" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={{ color: 'var(--text-main)', fontSize: '1.8rem', fontWeight: '600' }}>Agenda</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Projetos, eventos e entregas conectados automaticamente.</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Projetos, events e entregas conectados automaticamente.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>

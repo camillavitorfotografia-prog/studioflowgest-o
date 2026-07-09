@@ -28,7 +28,16 @@ export const readStorage = (key, fallback = []) => {
 
 export const writeStorage = (key, value) => {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    
+    // Dispara evento customizado para sincronização reativa e imediata entre contextos e módulos
+    window.dispatchEvent(new CustomEvent('sf_storage_update', { 
+      detail: { key, value } 
+    }));
+  } catch (error) {
+    console.error(`Erro crítico de persistência na chave [${key}]:`, error);
+  }
 };
 
 export const createId = (prefix = 'item') => {
@@ -50,4 +59,3 @@ export const syncLegacyLeads = () => {
 
   return legacy;
 };
-
