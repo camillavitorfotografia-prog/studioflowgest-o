@@ -14,6 +14,7 @@ import Equipamentos from './pages/Equipamentos';
 import Relatorios from './pages/Relatorios';
 import Precificacao from './pages/Precificacao';
 import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route
             path="/"
             element={(
