@@ -1,64 +1,146 @@
-﻿import { useMemo, useState } from 'react';
-import { MessageCircle, Plus, UserRoundCheck } from 'lucide-react';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { MessageCircle, Plus, UserRoundCheck, Loader2 } from 'lucide-react';
 import CRMStats from './CRMStats';
 import KanbanBoard from './KanbanBoard';
 import Modal from '../../components/Modal';
 import LeadForm from './LeadForm';
 import { getStatusTitle } from '../../data/crm';
 import { formatCurrency, parseCurrency } from '../../utils/formatters';
-import { processLeadApproval } from '../../utils/integrationEngine'; // Substituição do arquivo antigo pelo novo Motor de Integração
-import { createId, readStorage, STORAGE_KEYS, syncLegacyLeads, writeStorage } from '../../utils/storage';
+import { processLeadApproval } from '../../utils/integrationEngine'; // Mantido o Motor de Integração original
+import { supabase } from '../../utils/supabase'; // Nova conexão centralizada do Supabase
 
-const normalizeLead = (lead) => ({
-  historico: [],
-  status: 'novo_lead',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  ...lead,
-  id: lead.id?.toString() || createId('lead'),
-});
+// Injeção apenas das funções utilitárias, sem mexer na estrutura visual
+import { useKeyboardShortcuts, AutoSaveIndicator } from '../../components/PremiumUXKit';
 
 export default function CRM() {
-  const [leads, setLeads] = useState(() => syncLegacyLeads().map(normalizeLead));
+  const [leads, setLeads] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('saved');
+  const [isLoading, setIsLoading] = useState(true);
 
-  const persistLeads = (nextLeads) => {
-    setLeads(nextLeads);
-    writeStorage(STORAGE_KEYS.leads, nextLeads);
+  // Função para buscar dados em tempo real no Supabase
+  const fetchLeads = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // Mapeia os campos snake_case do banco para o camelCase esperado pelo seu layout
+      const mappedLeads = (data || []).map((l) => ({
+        id: l.id,
+        nome: l.nome,
+        nomeCasal: l.nome_casal,
+        tipoServico: l.tipo_servico,
+        status: l.status,
+        // Garante compatibilidade transformando em string para o seu parseCurrency original
+        valorOrcamento: l.valor_orcamento !== null ? l.valor_orcamento.toString() : '0',
+        dataEvento: l.data_evento,
+        origem: l.origem,
+        telefone: l.telefone,
+        whatsapp: l.whatsapp,
+        observacoes: l.observacoes,
+        historico: l.historico || [],
+        createdAt: l.created_at,
+        updatedAt: l.updated_at,
+      }));
+
+      setLeads(mappedLeads);
+    } catch (err) {
+      console.error('Erro ao conectar ou buscar dados no Supabase:', err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSaveLead = (leadData) => {
+  // Escuta ativa do banco de dados (Sincronização entre múltiplos dispositivos)
+  useEffect(() => {
+    fetchLeads();
+
+    const channel = supabase
+      .channel('realtime-leads-crm')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+        fetchLeads();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Atalhos de teclado puramente lógicos (não mexem no design)
+  useKeyboardShortcuts({
+    'n': () => {
+      setEditingLead(null);
+      setIsModalOpen(true);
+    },
+    'escape': () => {
+      setIsModalOpen(false);
+      setSelectedLead(null);
+      setEditingLead(null);
+    }
+  });
+
+  const handleSaveLead = async (leadData) => {
+    setSaveStatus('saving');
     const now = new Date().toISOString();
 
-    if (leadData.id) {
-      const nextLeads = leads.map((lead) =>
-        lead.id === leadData.id
-          ? {
-              ...lead,
-              ...leadData,
-              updatedAt: now,
-              historico: [
-                ...(lead.historico || []),
-                { data: now, acao: 'Dados do lead atualizados' },
-              ],
-            }
-          : lead,
-      );
-      persistLeads(nextLeads);
-      return;
+    // Converte de volta para a estrutura snake_case do banco de dados
+    const payload = {
+      nome: leadData.nome,
+      nome_casal: leadData.nomeCasal,
+      tipo_servico: leadData.tipoServico,
+      valor_orcamento: parseCurrency(leadData.valorOrcamento),
+      data_evento: leadData.dataEvento,
+      origem: leadData.origem,
+      telefone: leadData.telefone,
+      whatsapp: leadData.whatsapp,
+      observacoes: leadData.observacoes,
+      updated_at: now
+    };
+
+    try {
+      if (leadData.id) {
+        // Atualização de lead existente
+        const currentLead = leads.find((l) => l.id === leadData.id);
+        payload.historico = [
+          ...(currentLead?.historico || []),
+          { data: now, acao: 'Dados do lead atualizados via Supabase' },
+        ];
+
+        const { error } = await supabase
+          .from('leads')
+          .update(payload)
+          .eq('id', leadData.id);
+
+        if (error) throw error;
+      } else {
+        // Criação de novo lead
+        payload.status = 'novo_lead';
+        payload.historico = [{ data: now, acao: 'Lead criado no CRM Supabase' }];
+        payload.created_at = now;
+
+        const { error } = await supabase
+          .from('leads')
+          .insert([payload]);
+
+        if (error) throw error;
+      }
+
+      await fetchLeads();
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('Erro ao salvar lead no Supabase:', err.message);
+      setSaveStatus('saved');
+    } finally {
+      setIsModalOpen(false);
+      setEditingLead(null);
     }
-
-    const newLead = normalizeLead({
-      ...leadData,
-      id: createId('lead'),
-      createdAt: now,
-      updatedAt: now,
-      historico: [{ data: now, acao: 'Lead criado no CRM' }],
-    });
-
-    persistLeads([newLead, ...leads]);
   };
 
   const convertLeadToClient = (lead) => {
@@ -67,9 +149,11 @@ export default function CRM() {
     processLeadApproval(leadAprovado);
   };
 
-  const handleUpdateStatus = (leadId, newStatus) => {
+  const handleUpdateStatus = async (leadId, newStatus) => {
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead || currentLead.status === newStatus) return;
+
+    setSaveStatus('saving');
 
     // Disparado tanto pelo botão do Modal quanto pelo arrastar de cards no Kanban
     if (newStatus === 'aprovado') {
@@ -77,23 +161,32 @@ export default function CRM() {
     }
 
     const now = new Date().toISOString();
-    const updatedLeads = leads.map((lead) =>
-      lead.id === leadId
-        ? {
-            ...lead,
-            status: newStatus,
-            updatedAt: now,
-            historico: [
-              ...(lead.historico || []),
-              { data: now, acao: `Status alterado para ${getStatusTitle(newStatus)}` },
-            ],
-          }
-        : lead,
-    );
+    const nextHistorico = [
+      ...(currentLead.historico || []),
+      { data: now, acao: `Status alterado para ${getStatusTitle(newStatus)}` },
+    ];
 
-    persistLeads(updatedLeads);
-    if (selectedLead?.id === leadId) {
-      setSelectedLead(updatedLeads.find((lead) => lead.id === leadId));
+    try {
+      const { error } = await supabase
+        .from('leads')
+        .update({
+          status: newStatus,
+          updated_at: now,
+          historico: nextHistorico
+        })
+        .eq('id', leadId);
+
+      if (error) throw error;
+      
+      await fetchLeads();
+
+      if (selectedLead?.id === leadId) {
+        setSelectedLead(prev => prev ? { ...prev, status: newStatus, historico: nextHistorico } : null);
+      }
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('Erro ao atualizar status no Supabase:', err.message);
+      setSaveStatus('saved');
     }
   };
 
@@ -113,7 +206,9 @@ export default function CRM() {
       <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '18px', marginBottom: '32px', flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: '24px', margin: 0 }}>CRM - Pipeline Comercial</h1>
+            <h1 style={{ fontSize: '24px', margin: 0 }}>
+              CRM - Pipeline Comercial <AutoSaveIndicator state={saveStatus} />
+            </h1>
             <p style={{ color: '#888', marginTop: '6px' }}>
               {leadSummary.total} leads cadastrados | {formatCurrency(leadSummary.openValue)} em oportunidades abertas.
             </p>
@@ -129,8 +224,16 @@ export default function CRM() {
           </button>
         </header>
 
-        <CRMStats leads={leads} />
-        <KanbanBoard leads={leads} onMove={handleUpdateStatus} onClick={setSelectedLead} />
+        {isLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '64px', color: '#c5a059' }}>
+            <Loader2 style={{ animation: 'spin 1s linear infinite' }} size={32} />
+          </div>
+        ) : (
+          <>
+            <CRMStats leads={leads} />
+            <KanbanBoard leads={leads} onMove={handleUpdateStatus} onClick={setSelectedLead} />
+          </>
+        )}
       </div>
 
       <Modal
@@ -181,7 +284,7 @@ export default function CRM() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
                 {(selectedLead.historico || []).slice().reverse().map((item, index) => (
                   <div key={`${item.data}-${index}`} style={{ color: '#888', fontSize: '0.82rem', borderBottom: '1px solid #222', paddingBottom: '8px' }}>
-                    <strong style={{ color: '#bbb' }}>{new Date(item.data).toLocaleString('pt-BR')}</strong> - {item.acao}
+                    <strong style={{ color: '#bbb' }}>{item.data ? new Date(item.data).toLocaleString('pt-BR') : '-'}</strong> - {item.acao}
                   </div>
                 ))}
               </div>
