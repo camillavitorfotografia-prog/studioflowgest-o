@@ -1,22 +1,25 @@
 import { useState } from 'react';
 import { LEAD_ORIGINS, SERVICE_TYPES } from '../../data/crm';
-import { capitalizeName, maskPhone } from '../../utils/masks';
+import { capitalizeName, maskCurrency, maskPhone } from '../../utils/masks';
 
 const emptyLead = {
   nome: '',
+  email: '',
   telefone: '',
   whatsapp: '',
   cidade: '',
   tipoServico: 'Casamento',
+  valorOrcamento: '',
   dataEvento: '',
-  dataOrcamento: new Date().toISOString().split('T')[0], // Data de hoje formatada
+  dataOrcamento: new Date().toISOString().split('T')[0],
   origem: 'Instagram',
   observacoes: '',
   status: 'novo_lead',
 };
 
-export default function LeadForm({ initialData, onSave, onClose }) {
+export default function LeadForm({ initialData, onSave }) {
   const [formData, setFormData] = useState(() => ({ ...emptyLead, ...(initialData || {}) }));
+  const [isSaving, setIsSaving] = useState(false);
 
   const updateField = (field, value) => {
     setFormData((current) => ({ ...current, [field]: value }));
@@ -48,10 +51,11 @@ export default function LeadForm({ initialData, onSave, onClose }) {
 
   return (
     <form
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
-        onSave(formData);
-        onClose();
+        setIsSaving(true);
+        await onSave(formData);
+        setIsSaving(false);
       }}
       style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
     >
@@ -62,6 +66,17 @@ export default function LeadForm({ initialData, onSave, onClose }) {
           required
           value={formData.nome}
           onChange={(event) => updateField('nome', capitalizeName(event.target.value))}
+        />,
+      )}
+
+      {field(
+        'E-mail',
+        <input
+          type="email"
+          autoComplete="email"
+          style={inputStyle}
+          value={formData.email || ''}
+          onChange={(event) => updateField('email', event.target.value)}
         />,
       )}
 
@@ -96,7 +111,7 @@ export default function LeadForm({ initialData, onSave, onClose }) {
           />,
         )}
         {field(
-          'Data do orçamento',
+          'Data do orcamento',
           <input
             type="date"
             style={inputStyle}
@@ -108,7 +123,7 @@ export default function LeadForm({ initialData, onSave, onClose }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
         {field(
-          'Serviço',
+          'Servico',
           <select
             style={inputStyle}
             value={formData.tipoServico}
@@ -131,6 +146,17 @@ export default function LeadForm({ initialData, onSave, onClose }) {
       </div>
 
       {field(
+        'Valor do orcamento',
+        <input
+          style={inputStyle}
+          inputMode="numeric"
+          placeholder="R$ 0,00"
+          value={formData.valorOrcamento || ''}
+          onChange={(event) => updateField('valorOrcamento', maskCurrency(event.target.value))}
+        />,
+      )}
+
+      {field(
         'Origem',
         <select
           style={inputStyle}
@@ -144,7 +170,7 @@ export default function LeadForm({ initialData, onSave, onClose }) {
       )}
 
       {field(
-        'Observações',
+        'Observacoes',
         <textarea
           style={{ ...inputStyle, minHeight: '90px', resize: 'vertical' }}
           value={formData.observacoes}
@@ -154,6 +180,7 @@ export default function LeadForm({ initialData, onSave, onClose }) {
 
       <button
         type="submit"
+        disabled={isSaving}
         style={{
           width: '100%',
           background: '#c5a059',
@@ -162,10 +189,10 @@ export default function LeadForm({ initialData, onSave, onClose }) {
           borderRadius: '8px',
           border: 'none',
           fontWeight: 'bold',
-          cursor: 'pointer',
+          cursor: isSaving ? 'wait' : 'pointer',
         }}
       >
-        Salvar Lead
+        {isSaving ? 'Salvando...' : 'Salvar Lead'}
       </button>
     </form>
   );
