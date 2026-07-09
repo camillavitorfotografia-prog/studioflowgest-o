@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import Modal from '../../components/Modal';
+import { getStudioData } from '../../utils/integratedData';
 import Despesas from './Despesas';
 import {
   FINANCE_STORAGE_KEYS,
@@ -78,7 +79,17 @@ function useFinanceData() {
   const [saldos, setSaldos] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
   );
-  const [clientes] = useState(() => JSON.parse(localStorage.getItem('cv_studio_clients') || '[]'));
+  const [studio] = useState(() => getStudioData());
+  const clientes = studio.projects.map((project) => ({
+    ...project.cliente,
+    id: project.clientId,
+    projectId: project.id,
+    nome: project.clienteNome,
+    valorTotal: project.valorContratado,
+    pagamentos: project.financeiro?.receitas || project.pagamentos || [],
+    dataTrabalho: project.data,
+    tipo: project.tipoServico,
+  }));
   const [transacoes] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'));
   const [equipamentos] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'));
 
@@ -501,3 +512,4 @@ function ReportBlock({ title, data }) {
     </div>
   );
 }
+

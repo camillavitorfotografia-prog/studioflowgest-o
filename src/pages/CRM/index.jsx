@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { MessageCircle, Plus, UserRoundCheck } from 'lucide-react';
 import CRMStats from './CRMStats';
 import KanbanBoard from './KanbanBoard';
@@ -6,6 +6,7 @@ import Modal from '../../components/Modal';
 import LeadForm from './LeadForm';
 import { getStatusTitle } from '../../data/crm';
 import { formatCurrency, parseCurrency } from '../../utils/formatters';
+import { approveLeadToProject } from '../../utils/integratedData';
 import { createId, readStorage, STORAGE_KEYS, syncLegacyLeads, writeStorage } from '../../utils/storage';
 
 const normalizeLead = (lead) => ({
@@ -61,31 +62,7 @@ export default function CRM() {
   };
 
   const convertLeadToClient = (lead) => {
-    const clients = readStorage(STORAGE_KEYS.clients, []);
-    const alreadyExists = clients.some((client) => client.leadId === lead.id);
-    if (alreadyExists) return;
-
-    const newClient = {
-      id: createId('client'),
-      leadId: lead.id,
-      nome: lead.nome,
-      nomeCasal: lead.nomeCasal || '',
-      email: lead.email || '',
-      telefone: lead.whatsapp || lead.telefone || '',
-      whatsapp: lead.whatsapp || lead.telefone || '',
-      cidade: lead.cidade || '',
-      origem: lead.origem || '',
-      observacoes: lead.observacoes || '',
-      tipo: lead.tipoServico || 'Casamento',
-      dataTrabalho: lead.dataEvento || '',
-      valorTotal: lead.valorOrcamento || '0,00',
-      pagamentos: [],
-      restante: parseCurrency(lead.valorOrcamento),
-      status: 'ativo',
-      createdAt: new Date().toISOString(),
-    };
-
-    writeStorage(STORAGE_KEYS.clients, [newClient, ...clients]);
+    approveLeadToProject(lead);
   };
 
   const handleUpdateStatus = (leadId, newStatus) => {
@@ -93,8 +70,6 @@ export default function CRM() {
     if (!currentLead || currentLead.status === newStatus) return;
 
     if (newStatus === 'aprovado') {
-      const confirmConversion = window.confirm('O cliente aprovou o orcamento. Deseja transformar este lead em cliente ativo?');
-      if (!confirmConversion) return;
       convertLeadToClient(currentLead);
     }
 
@@ -242,3 +217,4 @@ function Info({ label, value }) {
     </div>
   );
 }
+

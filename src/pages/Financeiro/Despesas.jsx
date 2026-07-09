@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CreditCard,
@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
+import { getStudioData } from '../../utils/integratedData';
 import { maskCurrency } from '../../utils/masks';
 import {
   FINANCE_STORAGE_KEYS,
@@ -43,6 +44,7 @@ const emptyForm = {
   fornecedor: '',
   eventoRelacionado: '',
   contaOrigem: 'empresa',
+  projectId: '',
   tipo: 'fixa',
   garantiaAte: '',
   vidaUtilAnos: 5,
@@ -80,9 +82,11 @@ export default function Despesas({ area = 'fixa' }) {
   );
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [formData, setFormData] = useState({ ...emptyForm, tipo: area });
+  const [studio, setStudio] = useState(() => getStudioData());
+  const [formData, setFormData] = useState({ ...emptyForm, tipo: area, projectId: getStudioData().projects[0]?.id || '' });
 
   useEffect(() => {
+    setStudio(getStudioData());
     localStorage.setItem(FINANCE_STORAGE_KEYS.transactions, JSON.stringify(transacoes));
     localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(saldos));
     localStorage.setItem(FINANCE_STORAGE_KEYS.replacement, reposicao.toString());
@@ -129,7 +133,8 @@ export default function Despesas({ area = 'fixa' }) {
 
   const openCreateModal = () => {
     setEditingId(null);
-    setFormData({ ...emptyForm, tipo: area, status: area === 'fixa' ? 'Pendente' : 'Pago' });
+    setStudio(getStudioData());
+    setFormData({ ...emptyForm, tipo: area, status: area === 'fixa' ? 'Pendente' : 'Pago', projectId: getStudioData().projects[0]?.id || '' });
     setModalOpen(true);
   };
 
@@ -187,6 +192,11 @@ export default function Despesas({ area = 'fixa' }) {
       return;
     }
 
+    if (!formData.projectId) {
+      alert('Selecione o projeto deste lancamento.');
+      return;
+    }
+
     const baseExpense = {
       ...formData,
       id: editingId || Date.now(),
@@ -198,6 +208,7 @@ export default function Despesas({ area = 'fixa' }) {
       valorResidual: parseCurrency(formData.valorResidual),
       data: area === 'fixa' ? formData.dataVencimento || formData.data : formData.data,
       dataVencimento: area === 'fixa' ? formData.dataVencimento || formData.data : formData.data,
+      projectId: formData.projectId,
       updatedAt: new Date().toISOString(),
     };
 
@@ -481,6 +492,14 @@ export default function Despesas({ area = 'fixa' }) {
                 ))}
               </select>
             </Field>
+            <Field label="Projeto vinculado">
+              <select style={inputStyle} value={formData.projectId} onChange={(event) => setFormData({ ...formData, projectId: event.target.value })}>
+                <option value="">Selecione...</option>
+                {studio.projects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.clienteNome} - {project.tipoServico}</option>
+                ))}
+              </select>
+            </Field>
             <Field label="Fornecedor">
               <input style={inputStyle} value={formData.fornecedor} onChange={(event) => setFormData({ ...formData, fornecedor: event.target.value })} />
             </Field>
@@ -549,3 +568,6 @@ function Report({ title, data }) {
     </div>
   );
 }
+
+
+

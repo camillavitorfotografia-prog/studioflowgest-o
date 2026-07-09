@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -16,6 +16,7 @@ import { AlertCircle, CalendarDays, CheckCircle, Clock, DollarSign, Target, Tren
 import { ACTIVE_LEAD_STATUSES } from '../../data/crm';
 import { formatCurrency, formatShortDate, isCurrentMonth, parseCurrency, parseDate } from '../../utils/formatters';
 import { readStorage, STORAGE_KEYS, syncLegacyLeads } from '../../utils/storage';
+import { getStudioData } from '../../utils/integratedData';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const serviceColors = ['#c5a059', '#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
@@ -30,9 +31,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     const loadData = () => {
+      const studio = getStudioData();
       setData({
         leads: syncLegacyLeads(),
-        clients: readStorage(STORAGE_KEYS.clients, []),
+        clients: studio.projects.map((project) => ({
+          ...project.cliente,
+          id: project.id,
+          nome: project.clienteNome,
+          tipo: project.tipoServico,
+          dataTrabalho: project.data,
+          valorTotal: project.valorContratado,
+          pagamentos: project.financeiro?.receitas || project.pagamentos || [],
+          status: project.status,
+        })),
         finances: readStorage(STORAGE_KEYS.finances, []),
         agendaEvents: readStorage(STORAGE_KEYS.agendaEvents, []),
       });
@@ -284,3 +295,4 @@ function StatCard({ title, value, icon, color }) {
     </article>
   );
 }
+

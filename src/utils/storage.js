@@ -1,7 +1,12 @@
-export const STORAGE_KEYS = {
+﻿export const STORAGE_KEYS = {
   leads: 'cv_crm_leads',
   legacyLeads: 'meusLeadsData',
   clients: 'cv_studio_clients',
+  projects: 'cv_studio_projects',
+  checklists: 'cv_studio_checklists',
+  contracts: 'cv_studio_contracts',
+  questionnaires: 'cv_studio_questionnaires',
+  files: 'cv_studio_files',
   finances: 'cv_studio_financas',
   financeBalances: 'cv_finance_saldos',
   agendaEvents: 'meusEventosAgenda',
@@ -45,3 +50,4 @@ export const syncLegacyLeads = () => {
 
   return legacy;
 };
+

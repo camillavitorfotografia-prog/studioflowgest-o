@@ -1,118 +1,152 @@
-import { useNavigate } from 'react-router-dom';
-import { Download, ArrowLeft, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
-import { useState, useEffect } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { BarChart3, BriefcaseBusiness, DollarSign, Package, TrendingUp, Users } from 'lucide-react';
+import { formatMoney, getStudioData } from '../../utils/integratedData';
+
+const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 export default function Relatorios() {
-  const navigate = useNavigate();
-  const [dadosMensais, setDadosMensais] = useState([]);
+  const [studio, setStudio] = useState(() => getStudioData());
 
   useEffect(() => {
-    const carregarRelatorio = () => {
-      const clientes = JSON.parse(localStorage.getItem('cv_studio_clients') || '[]');
-      const transacoes = JSON.parse(localStorage.getItem('cv_studio_financas') || '[]');
-
-      // Objeto para agrupar dados por mês (Jan a Dez)
-      const mesesLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-      const estrutura = mesesLabels.map(mes => ({ mes, receita: 0, despesa: 0 }));
-
-      // Processar Receitas (de Clientes)
-      clientes.forEach(c => {
-        (c.pagamentos || []).forEach(p => {
-          if (p.data) {
-            const mesIdx = new Date(p.data).getMonth();
-            const valor = parseFloat(p.valor.replace(/\D/g, '')) / 100;
-            if (estrutura[mesIdx]) estrutura[mesIdx].receita += valor;
-          }
-        });
-      });
-
-      // Processar Despesas (do Financeiro)
-      transacoes.forEach(t => {
-        if (t.data) {
-          const mesIdx = new Date(t.data).getMonth();
-          const valor = parseFloat(t.valor.replace(/\D/g, '')) / 100;
-          if (estrutura[mesIdx]) estrutura[mesIdx].despesa += valor;
-        }
-      });
-
-      setDadosMensais(estrutura.filter(d => d.receita > 0 || d.despesa > 0));
+    const load = () => setStudio(getStudioData());
+    load();
+    window.addEventListener('focus', load);
+    window.addEventListener('storage', load);
+    return () => {
+      window.removeEventListener('focus', load);
+      window.removeEventListener('storage', load);
     };
-
-    carregarRelatorio();
   }, []);
 
-  const totalReceita = dadosMensais.reduce((acc, curr) => acc + curr.receita, 0);
-  const totalDespesa = dadosMensais.reduce((acc, curr) => acc + curr.despesa, 0);
-  const lucroLiquido = totalReceita - totalDespesa;
+  const reports = useMemo(() => {
+    const projects = studio.projects;
+    const revenueByMonth = Array.from({ length: 12 }, (_, index) => ({ mes: monthLabels[index], receita: 0, lucro: 0 }));
+    const byService = {};
+    const byCity = {};
+    const byOrigin = {};
+    const byClient = {};
+    const byEquipment = {};
+    const marginByService = {};
+
+    projects.forEach((project) => {
+      const service = project.tipoServico || 'Nao informado';
+      const revenue = Number(project.valorContratado || 0);
+      const profit = Number(project.financeiro?.lucro || project.valorRecebido || 0) - Number(project.financeiro?.custos || 0);
+      const margin = project.financeiro?.margem || 0;
+      const date = project.data ? new Date(project.data) : null;
+      if (date && !Number.isNaN(date.getTime())) {
+        revenueByMonth[date.getMonth()].receita += revenue;
+        revenueByMonth[date.getMonth()].lucro += profit;
+      }
+
+      byService[service] = (byService[service] || 0) + revenue;
+      byCity[project.cliente?.cidade || project.local || 'Nao informado'] = (byCity[project.cliente?.cidade || project.local || 'Nao informado'] || 0) + revenue;
+      byOrigin[project.cliente?.origem || 'Nao informado'] = (byOrigin[project.cliente?.origem || 'Nao informado'] || 0) + 1;
+      byClient[project.clienteNome || 'Cliente'] = (byClient[project.clienteNome || 'Cliente'] || 0) + revenue;
+      marginByService[service] = marginByService[service] || { total: 0, count: 0 };
+      marginByService[service].total += margin;
+      marginByService[service].count += 1;
+
+      (project.equipamentosDetalhados || []).forEach((equipment) => {
+        byEquipment[equipment.nome] = byEquipment[equipment.nome] || { projetos: 0, retorno: 0 };
+        byEquipment[equipment.nome].projetos += 1;
+        byEquipment[equipment.nome].retorno += revenue;
+      });
+    });
+
+    const top = (obj) => Object.entries(obj).sort((a, b) => Number(b[1]) - Number(a[1]))[0];
+    const equipmentEntries = Object.entries(byEquipment).sort((a, b) => b[1].retorno - a[1].retorno);
+    const serviceEntries = Object.entries(byService).sort((a, b) => b[1] - a[1]);
+
+    return {
+      totalRevenue: projects.reduce((sum, project) => sum + Number(project.valorContratado || 0), 0),
+      totalReceived: projects.reduce((sum, project) => sum + Number(project.valorRecebido || 0), 0),
+      totalProfit: projects.reduce((sum, project) => sum + Number(project.financeiro?.lucro || 0), 0),
+      projectsCount: projects.length,
+      mostProfitableService: serviceEntries[0],
+      mostSoldEssay: Object.entries(byService).filter(([name]) => name.toLowerCase().includes('ensaio') || name.toLowerCase().includes('gestante') || name.toLowerCase().includes('familia')).sort((a, b) => b[1] - a[1])[0],
+      weddings: projects.filter((project) => (project.tipoServico || '').toLowerCase().includes('casamento')).length,
+      revenueByMonth: revenueByMonth.filter((item) => item.receita > 0 || item.lucro !== 0),
+      profitByProject: projects.map((project) => [project.clienteNome, project.financeiro?.lucro || 0]).sort((a, b) => b[1] - a[1]),
+      topOrigin: top(byOrigin),
+      topCity: top(byCity),
+      topClient: top(byClient),
+      equipmentMostUsed: Object.entries(byEquipment).sort((a, b) => b[1].projetos - a[1].projetos)[0],
+      equipmentBestReturn: equipmentEntries[0],
+      marginByService: Object.entries(marginByService).map(([service, data]) => [service, data.count ? data.total / data.count : 0]),
+    };
+  }, [studio]);
 
   return (
-    <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto', color: '#fff', fontFamily: 'sans-serif' }}>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <button onClick={() => navigate(-1)} style={{ backgroundColor: 'transparent', color: '#888', border: '1px solid #333', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ArrowLeft size={16} /> Voltar
-        </button>
-        <button style={{ backgroundColor: '#d4af37', color: '#000', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Download size={18} /> Exportar PDF
-        </button>
-      </div>
-
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ color: '#fff', fontSize: '1.8rem', margin: 0 }}>Relatório Fiscal</h1>
-        <p style={{ color: '#888', margin: '8px 0 0 0' }}>Dados consolidados das suas movimentações financeiras.</p>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-        <div className="glass" style={{ padding: '20px', borderRadius: '12px', border: '1px solid #333', backgroundColor: '#1a1a1a' }}>
-          <div style={{ color: '#888', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><DollarSign size={16}/> Receita Bruta</div>
-          <h2 style={{ color: '#fff', margin: 0 }}>R$ {totalReceita.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h2>
-        </div>
-        <div className="glass" style={{ padding: '20px', borderRadius: '12px', border: '1px solid #333', backgroundColor: '#1a1a1a' }}>
-          <div style={{ color: '#888', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingDown size={16}/> Total Despesas</div>
-          <h2 style={{ color: '#ff4d4d', margin: 0 }}>R$ {totalDespesa.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h2>
-        </div>
-        <div className="glass" style={{ padding: '20px', borderRadius: '12px', border: '1px solid #333', backgroundColor: '#1a1a1a' }}>
-          <div style={{ color: '#888', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><TrendingUp size={16}/> Lucro Líquido</div>
-          <h2 style={{ color: '#34d399', margin: 0 }}>R$ {lucroLiquido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</h2>
+    <div className="sf-finance-section">
+      <div className="sf-section-header">
+        <div>
+          <h1>Relatorios</h1>
+          <p>Leitura consolidada dos projetos, clientes, financeiro e equipamentos.</p>
         </div>
       </div>
 
-      {/* GRÁFICO (FLUXO DE CAIXA) */}
-      <div className="glass" style={{ padding: '24px', borderRadius: '12px', marginBottom: '32px', backgroundColor: '#1a1a1a', border: '1px solid #333' }}>
-        <h3 style={{ color: '#fff', marginBottom: '24px' }}>Fluxo de Caixa Mensal</h3>
-        <div style={{ display: 'flex', alignItems: 'flex-end', height: '200px', gap: '15px' }}>
-          {dadosMensais.map((item, index) => (
-            <div key={index} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: '100%', height: `${(item.receita / (totalReceita || 1)) * 100}%`, backgroundColor: '#d4af37', borderRadius: '4px 4px 0 0' }}></div>
-              <span style={{ color: '#888', fontSize: '0.8rem' }}>{item.mes}</span>
-            </div>
-          ))}
-        </div>
+      <div className="sf-metric-grid">
+        <Metric icon={BriefcaseBusiness} label="Projetos" value={reports.projectsCount} raw />
+        <Metric icon={DollarSign} label="Receita contratada" value={reports.totalRevenue} />
+        <Metric icon={TrendingUp} label="Receita recebida" value={reports.totalReceived} />
+        <Metric icon={BarChart3} label="Lucro consolidado" value={reports.totalProfit} />
       </div>
 
-      <div className="glass" style={{ padding: '24px', borderRadius: '12px', backgroundColor: '#1a1a1a', border: '1px solid #333' }}>
-        <h3 style={{ color: '#fff', marginBottom: '16px' }}>Detalhamento Mensal</h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse', color: '#fff' }}>
-          <thead>
-            <tr style={{ color: '#888', textAlign: 'left', borderBottom: '1px solid #333' }}>
-              <th style={{ padding: '12px' }}>Mês</th>
-              <th style={{ padding: '12px' }}>Receita</th>
-              <th style={{ padding: '12px' }}>Despesa</th>
-              <th style={{ padding: '12px' }}>Saldo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dadosMensais.map((item, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #222' }}>
-                <td style={{ padding: '12px' }}>{item.mes}</td>
-                <td style={{ padding: '12px' }}>R$ {item.receita.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
-                <td style={{ padding: '12px', color: '#ff4d4d' }}>R$ {item.despesa.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
-                <td style={{ padding: '12px', color: '#34d399' }}>R$ {(item.receita - item.despesa).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="sf-report-grid">
+        <Report title="Servico mais lucrativo" rows={reports.mostProfitableService ? [[reports.mostProfitableService[0], formatMoney(reports.mostProfitableService[1])]] : []} />
+        <Report title="Tipo de ensaio mais vendido" rows={reports.mostSoldEssay ? [[reports.mostSoldEssay[0], formatMoney(reports.mostSoldEssay[1])]] : []} />
+        <Report title="Casamentos realizados" rows={[[`${reports.weddings} projetos`, '']]} />
+        <Report title="Origem dos clientes" rows={reports.topOrigin ? [[reports.topOrigin[0], `${reports.topOrigin[1]} clientes`]] : []} />
+        <Report title="Cidade com maior faturamento" rows={reports.topCity ? [[reports.topCity[0], formatMoney(reports.topCity[1])]] : []} />
+        <Report title="Cliente que mais investiu" rows={reports.topClient ? [[reports.topClient[0], formatMoney(reports.topClient[1])]] : []} />
+        <Report title="Equipamento mais utilizado" rows={reports.equipmentMostUsed ? [[reports.equipmentMostUsed[0], `${reports.equipmentMostUsed[1].projetos} projetos`]] : []} />
+        <Report title="Equipamento com maior retorno" rows={reports.equipmentBestReturn ? [[reports.equipmentBestReturn[0], formatMoney(reports.equipmentBestReturn[1].retorno)]] : []} />
+      </div>
+
+      <div className="sf-panel-grid">
+        <TableCard title="Receita por mes" icon={DollarSign} rows={reports.revenueByMonth.map((item) => [item.mes, formatMoney(item.receita), formatMoney(item.lucro)])} columns={['Mes', 'Receita', 'Lucro']} />
+        <TableCard title="Lucro por projeto" icon={Users} rows={reports.profitByProject.slice(0, 8).map(([name, value]) => [name, formatMoney(value)])} columns={['Projeto', 'Lucro']} />
+        <TableCard title="Margem media por servico" icon={TrendingUp} rows={reports.marginByService.map(([name, value]) => [name, `${value.toFixed(1)}%`])} columns={['Servico', 'Margem']} />
+        <TableCard title="Equipamentos por retorno" icon={Package} rows={(reports.equipmentBestReturn ? Object.entries(studio.equipment.reduce((acc, item) => ({ ...acc, [item.nome]: item.nome }), {})) : []).map(([name]) => [name])} columns={['Equipamento']} />
       </div>
     </div>
   );
 }
+
+function Metric({ icon: Icon, label, value, raw = false }) {
+  return (
+    <div className="sf-card metric">
+      <div className="metric-label"><Icon size={18} /> {label}</div>
+      <strong>{raw ? value : formatMoney(value)}</strong>
+    </div>
+  );
+}
+
+function Report({ title, rows }) {
+  return (
+    <div className="sf-card report">
+      <h3>{title}</h3>
+      {rows.length === 0 && <p className="sf-muted">Sem dados para exibir.</p>}
+      {rows.map(([label, value]) => <div className="report-row" key={`${title}-${label}`}><span>{label}</span><strong>{value}</strong></div>)}
+    </div>
+  );
+}
+
+function TableCard({ title, icon: Icon, columns, rows }) {
+  return (
+    <div className="sf-table-card">
+      <div style={{ padding: '18px 18px 0' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Icon size={18} /> {title}</h3>
+      </div>
+      <table className="sf-table">
+        <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((row, index) => <tr key={`${title}-${index}`}>{row.map((cell, cellIndex) => <td key={`${title}-${index}-${cellIndex}`}>{cell}</td>)}</tr>)}
+          {rows.length === 0 && <tr><td colSpan={columns.length} className="empty">Sem dados para exibir.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Edit2, Plus, Trash2, Wrench } from 'lucide-react';
 import {
@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import Modal from '../../components/Modal';
+import { getStudioData } from '../../utils/integratedData';
 import { maskCurrency } from '../../utils/masks';
 import {
   FINANCE_STORAGE_KEYS,
@@ -51,11 +52,13 @@ export default function Equipamentos() {
   const [maintenanceModalOpen, setMaintenanceModalOpen] = useState(false);
   const [formData, setFormData] = useState(emptyEquipment);
   const [maintenance, setMaintenance] = useState({ equipamentoId: null, data: '', descricao: '', valor: '' });
+  const [studio, setStudio] = useState(() => getStudioData());
 
   useEffect(() => {
     const syncEquipamentos = () => {
       const dados = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]');
       setEquipamentos(dados);
+      setStudio(getStudioData());
     };
 
     window.addEventListener('storage', syncEquipamentos);
@@ -78,6 +81,17 @@ export default function Equipamentos() {
       ),
     [equipamentos],
   );
+
+  const equipmentUsage = useMemo(() => {
+    return equipamentos.reduce((acc, equipment) => {
+      const projects = studio.projects.filter((project) => (project.equipamentos || project.equipmentIds || []).some((id) => String(id) === String(equipment.id)));
+      acc[equipment.id] = {
+        quantidadeProjetos: projects.length,
+        valorRecuperado: projects.reduce((sum, project) => sum + Number(project.valorContratado || 0), 0),
+      };
+      return acc;
+    }, {});
+  }, [equipamentos, studio.projects]);
 
   const saveList = (list) => {
     setEquipamentos(list);
@@ -180,6 +194,7 @@ export default function Equipamentos() {
         <Metric label="Valor atual estimado" value={totals.current} />
         <Metric label="Depreciacao mensal" value={totals.monthly} />
         <Metric label="Manutencoes" value={totals.maintenance} />
+        <Metric label="Projetos com equipamentos" value={Object.values(equipmentUsage).reduce((sum, item) => sum + item.quantidadeProjetos, 0)} isNumber />
       </div>
 
       <div className="sf-panel-grid">
@@ -213,6 +228,8 @@ export default function Equipamentos() {
                 <th>Depreciacao mensal</th>
                 <th>Valor atual</th>
                 <th>Garantia</th>
+                <th>Projetos</th>
+                <th>Retorno</th>
                 <th>Acoes</th>
               </tr>
             </thead>
@@ -229,6 +246,8 @@ export default function Equipamentos() {
                     <td>{formatCurrency(depreciation.monthlyDepreciation)}</td>
                     <td className="positive"><strong>{formatCurrency(depreciation.currentBookValue)}</strong></td>
                     <td>{equipment.garantiaAte || '-'}</td>
+                    <td>{equipmentUsage[equipment.id]?.quantidadeProjetos || 0}</td>
+                    <td className="positive"><strong>{formatCurrency(equipmentUsage[equipment.id]?.valorRecuperado || 0)}</strong></td>
                     <td>
                       <div className="sf-actions">
                         <button title="Registrar manutencao" onClick={() => openMaintenance(equipment)}><Wrench size={17} /></button>
@@ -241,7 +260,7 @@ export default function Equipamentos() {
               })}
               {equipamentos.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="empty">Nenhum equipamento cadastrado.</td>
+                  <td colSpan="8" className="empty">Nenhum equipamento cadastrado.</td>
                 </tr>
               )}
             </tbody>
@@ -278,11 +297,15 @@ export default function Equipamentos() {
   );
 }
 
-function Metric({ label, value }) {
+function Metric({ label, value, isNumber = false }) {
   return (
     <div className="sf-card metric">
       <div className="metric-label">{label}</div>
-      <strong>{formatCurrency(value)}</strong>
+      <strong>{isNumber ? value : formatCurrency(value)}</strong>
     </div>
   );
 }
+
+
+
+
