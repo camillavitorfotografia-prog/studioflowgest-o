@@ -70,10 +70,19 @@ export default function Dashboard() {
 
   const dashboard = useMemo(() => {
     const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const clients = data.clients || [];
     const leads = data.leads || [];
     const finances = data.finances || [];
 
+    // Intervalo da Semana Corrente (Domingo a Sábado)
+    const startOfWeek = new Date(todayStart);
+    startOfWeek.setDate(todayStart.getDate() - todayStart.getDay());
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    // Lista de eventos futuros para manter compatibilidade com a listagem lateral
     const futureEvents = clients
       .map((client) => ({
         id: client.id,
@@ -84,14 +93,31 @@ export default function Dashboard() {
       }))
       .filter((event) => {
         const date = parseDate(event.data);
-        return date && date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        return date && date >= todayStart;
       })
       .sort((a, b) => parseDate(a.data) - parseDate(b.data));
 
-    const eventsThisMonth = futureEvents.filter((event) => isCurrentMonth(event.data, now));
     const nextWedding = futureEvents.find((event) => (event.tipo || '').toLowerCase().includes('casamento'));
 
-    // Faturamento Mensal (Base de Caixa: focado no que de fato entrou no mês via pagamentos recebidos)
+    // --- INDICADORES INTELIGENTES REAIS ---
+
+    // 1. Projetos em andamento (Trabalhos ativos e não finalizados)
+    const emAndamento = clients.filter((client) => client.status !== 'finalizado').length;
+
+    // 2. Projetos atrasados (Projetos ativos cuja data técnica de execução já passou)
+    const projetosAtrasados = clients.filter((client) => {
+      if (client.status === 'finalizado') return false;
+      const eventDate = parseDate(client.dataTrabalho);
+      return eventDate && eventDate < todayStart;
+    }).length;
+
+    // 3. Eventos da semana (Agendados dentro dos 7 dias da semana corrente)
+    const eventosDaSemana = clients.filter((client) => {
+      const eventDate = parseDate(client.dataTrabalho);
+      return eventDate && eventDate >= startOfWeek && eventDate <= endOfWeek;
+    }).length;
+
+    // Faturamento do Mês Corrente (Base de Caixa)
     const monthlyRevenue = clients.reduce((total, client) => {
       const payments = client.pagamentos || [];
       const paidThisMonth = payments.reduce((sum, payment) => {
@@ -104,30 +130,62 @@ export default function Dashboard() {
       return total;
     }, 0);
 
+    // Despesas do Mês Corrente
     const monthlyExpenses = finances.reduce((total, transaction) => {
       if (transaction.tipoGeral !== 'Saida' || !isCurrentMonth(transaction.data, now)) return total;
       return total + parseCurrency(transaction.valor);
     }, 0);
 
-    const overduePayments = clients.reduce((total, client) => {
-      const eventDate = parseDate(client.dataTrabalho);
-      const totalValue = parseCurrency(client.valorTotal);
-      const paid = (client.pagamentos || []).reduce((sum, payment) => sum + parseCurrency(payment.valor), 0);
-      const pending = Math.max(0, totalValue - paid);
-      if (pending > 0 && eventDate && eventDate < now) return total + pending;
+    // 4. Pagamentos vencendo (Saídas agendadas para hoje ou futuro dentro do mês corrente)
+    const pagamentosVencendo = finances.reduce((total, transaction) => {
+      if (transaction.tipoGeral !== 'Saida') return total;
+      const txDate = parseDate(transaction.data);
+      if (txDate && txDate >= todayStart && isCurrentMonth(transaction.data, now)) {
+        return total + parseCurrency(transaction.valor);
+      }
       return total;
     }, 0);
 
-    const pendingRevenue = clients.reduce((total, client) => {
-      const totalValue = parseCurrency(client.valorTotal);
-      const paid = (client.pagamentos || []).reduce((sum, payment) => sum + parseCurrency(payment.valor), 0);
-      return total + Math.max(0, totalValue - paid);
+    // 5. Receitas previstas (Saldos a receber de contratos fechados com datas futuras)
+    const receitasPrevistas = clients.reduce((total, client) => {
+      const eventDate = parseDate(client.dataTrabalho);
+      if (eventDate && eventDate >= todayStart) {
+        const totalValue = parseCurrency(client.valorTotal);
+        const paid = (client.pagamentos || []).reduce((sum, payment) => sum + parseCurrency(payment.valor), 0);
+        return total + Math.max(0, totalValue - paid);
+      }
+      return total;
     }, 0);
 
-    const waitingQuotes = leads.filter((lead) => ['orcamento_enviado', 'aguardando_retorno'].includes(lead.status)).length;
-    const activeClients = clients.filter((client) => client.status !== 'finalizado').length;
+    // 6. Lucro líquido real do mês
+    const lucroLiquido = monthlyRevenue - monthlyExpenses;
 
-    // Construção dos últimos 6 meses para o gráfico
+    // 7. Fluxo de caixa (Saldo Consolidado Histórico: Total recebido real menos saídas pagas)
+    const totalHistoricoEntradas = clients.reduce((total, client) => {
+      return total + (client.pagamentos || []).reduce((sum, p) => sum + parseCurrency(p.valor), 0);
+    }, 0);
+    const totalHistoricoSaidas = finances.reduce((total, tx) => {
+      return total + (tx.tipoGeral === 'Saida' ? parseCurrency(tx.valor) : 0);
+    }, 0);
+    const saldoFluxoCaixa = totalHistoricoEntradas - totalHistoricoSaidas;
+
+    // 8. Meta mensal inteligente (Base referencial estável de R$ 25.000,00 calculado sobre o faturamento real)
+    const valorMetaMensal = 25000;
+    const percentualMeta = Math.min(Math.round((monthlyRevenue / valorMetaMensal) * 100), 100);
+
+    // 9. Leads aguardando resposta (Filtro comercial ativo no CRM)
+    const leadsAguardandoResposta = leads.filter((lead) => 
+      ['orcamento_enviado', 'aguardando_retorno', 'novo', 'em_negociacao'].includes(lead.status)
+    ).length;
+
+    // 10. Taxa de conversão (Percentual real de leads convertidos em contratos ativos/finalizados)
+    const totalLeadsHistorico = leads.length;
+    const leadsConvertidos = leads.filter((lead) => 
+      ['aprovado', 'finalizado', 'ganho', 'contrato_assinado'].includes(lead.status)
+    ).length;
+    const taxaDeConversao = totalLeadsHistorico > 0 ? Math.round((leadsConvertidos / totalLeadsHistorico) * 100) : 0;
+
+    // --- GERAÇÃO DOS GRÁFICOS (Mantendo estrutura original de 6 meses) ---
     const monthlyChart = Array.from({ length: 6 }, (_, index) => {
       const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
       return {
@@ -171,30 +229,38 @@ export default function Dashboard() {
 
     return {
       futureEvents,
-      eventsThisMonth,
+      eventsThisMonth: clients.filter((c) => isCurrentMonth(c.dataTrabalho, now)),
       nextWedding,
-      monthlyRevenue,
-      monthlyExpenses,
-      estimatedProfit: monthlyRevenue - monthlyExpenses,
-      overduePayments,
-      pendingRevenue,
-      waitingQuotes,
-      activeClients,
       monthlyChart,
       serviceChart: serviceChart.length ? serviceChart : [{ name: 'Sem dados', value: 1, color: '#333' }],
+      
+      // Retorno dos novos indicadores mapeados
+      emAndamento,
+      projetosAtrasados,
+      eventosDaSemana,
+      pagamentosVencendo,
+      receitasPrevistas,
+      lucroLiquido,
+      saldoFluxoCaixa,
+      valorMetaMensal,
+      percentualMeta,
+      leadsAguardandoResposta,
+      taxaDeConversao
     };
   }, [data]);
 
+  // Estrutura de Cards adaptada com precisão matemática aos 10 indicadores solicitados
   const cards = [
-    { title: 'Eventos Futuros', value: dashboard.futureEvents.length, icon: <CalendarDays size={22} />, color: '#60a5fa' },
-    { title: 'Eventos Este Mês', value: dashboard.eventsThisMonth.length, icon: <Clock size={22} />, color: '#c5a059' },
-    { title: 'Clientes Ativos', value: dashboard.activeClients, icon: <Users size={22} />, color: '#10b981' },
-    { title: 'Orçamentos Aguardando', value: dashboard.waitingQuotes, icon: <Target size={22} />, color: '#f59e0b' },
-    { title: 'A Receber Total', value: formatCurrency(dashboard.pendingRevenue), icon: <DollarSign size={22} />, color: '#34d399' },
-    { title: 'Pagamentos Atrasados', value: formatCurrency(dashboard.overduePayments), icon: <AlertCircle size={22} />, color: '#ef4444' },
-    { title: 'Faturamento Mensal', value: formatCurrency(dashboard.monthlyRevenue), icon: <TrendingUp size={22} />, color: '#22c55e' },
-    { title: 'Despesas Mensais', value: formatCurrency(dashboard.monthlyExpenses), icon: <TrendingDown size={22} />, color: '#f87171' },
-    { title: 'Resultado do Mês', value: formatCurrency(dashboard.estimatedProfit), icon: <CheckCircle size={22} />, color: dashboard.estimatedProfit >= 0 ? '#10b981' : '#ef4444' },
+    { title: 'Projetos em Andamento', value: dashboard.emAndamento, icon: <Clock size={22} />, color: '#60a5fa' },
+    { title: 'Projetos Atrasados', value: dashboard.projetosAtrasados, icon: <AlertCircle size={22} />, color: '#ef4444' },
+    { title: 'Eventos da Semana', value: dashboard.eventosDaSemana, icon: <CalendarDays size={22} />, color: '#c5a059' },
+    { title: 'Pagamentos Vencendo', value: formatCurrency(dashboard.pagamentosVencendo), icon: <TrendingDown size={22} />, color: '#f87171' },
+    { title: 'Receitas Previstas', value: formatCurrency(dashboard.receitasPrevistas), icon: <TrendingUp size={22} />, color: '#34d399' },
+    { title: 'Lucro Líquido', value: formatCurrency(dashboard.lucroLiquido), icon: <CheckCircle size={22} />, color: dashboard.lucroLiquido >= 0 ? '#10b981' : '#ef4444' },
+    { title: 'Fluxo de Caixa', value: formatCurrency(dashboard.saldoFluxoCaixa), icon: <DollarSign size={22} />, color: '#22c55e' },
+    { title: 'Meta Mensal', value: `${dashboard.percentualMeta}%`, icon: <Target size={22} />, color: '#eab308' },
+    { title: 'Leads s/ Resposta', value: dashboard.leadsAguardandoResposta, icon: <Users size={22} />, color: '#a855f7' },
+    { title: 'Taxa de Conversão', value: `${dashboard.taxaDeConversao}%`, icon: <Target size={22} />, color: '#14b8a6' },
   ];
 
   return (

@@ -6,7 +6,7 @@ import Modal from '../../components/Modal';
 import LeadForm from './LeadForm';
 import { getStatusTitle } from '../../data/crm';
 import { formatCurrency, parseCurrency } from '../../utils/formatters';
-import { approveLeadToProject } from '../../utils/integratedData';
+import { processLeadApproval } from '../../utils/integrationEngine'; // Substituição do arquivo antigo pelo novo Motor de Integração
 import { createId, readStorage, STORAGE_KEYS, syncLegacyLeads, writeStorage } from '../../utils/storage';
 
 const normalizeLead = (lead) => ({
@@ -62,13 +62,16 @@ export default function CRM() {
   };
 
   const convertLeadToClient = (lead) => {
-    approveLeadToProject(lead);
+    // Força a padronização do status para o motor de integração processar os outros módulos
+    const leadAprovado = { ...lead, status: 'aprovado' };
+    processLeadApproval(leadAprovado);
   };
 
   const handleUpdateStatus = (leadId, newStatus) => {
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead || currentLead.status === newStatus) return;
 
+    // Disparado tanto pelo botão do Modal quanto pelo arrastar de cards no Kanban
     if (newStatus === 'aprovado') {
       convertLeadToClient(currentLead);
     }
@@ -217,4 +220,3 @@ function Info({ label, value }) {
     </div>
   );
 }
-
