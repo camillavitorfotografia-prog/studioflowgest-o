@@ -12,9 +12,14 @@ export default function AuthCallback() {
 
   useEffect(() => {
     let isMounted = true;
+    let unsubscribe = null;
+
+    const setSafeStatus = (nextStatus) => {
+      if (isMounted) setStatus(nextStatus);
+    };
 
     const getSessionWithRetry = async () => {
-      for (let attempt = 0; attempt < 10; attempt += 1) {
+      for (let attempt = 0; attempt < 16; attempt += 1) {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (data.session?.user) return data.session;
@@ -29,17 +34,26 @@ export default function AuthCallback() {
 
       if (!isSupabaseConfigured) {
         console.log('sem sessão');
-        if (isMounted) setStatus('unauthenticated');
+        setSafeStatus('unauthenticated');
         return;
       }
 
+      const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        if (nextSession?.user) {
+          console.log('sessão encontrada');
+          setSafeStatus('authenticated');
+        }
+      });
+
+      unsubscribe = authListener?.subscription?.unsubscribe;
+
       try {
         const url = new URL(window.location.href);
-        const hasCode = url.searchParams.has('code');
+        const code = url.searchParams.get('code');
 
-        if (hasCode) {
+        if (code) {
           console.log('code encontrado');
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(window.location.href);
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
           if (exchangeError) {
             console.error('exchangeCodeForSession erro', exchangeError.message);
@@ -48,19 +62,18 @@ export default function AuthCallback() {
 
         const session = await getSessionWithRetry();
 
-        if (!isMounted) return;
         if (session?.user) {
           console.log('sessão encontrada');
-          setStatus('authenticated');
+          setSafeStatus('authenticated');
           return;
         }
 
         console.log('sem sessão');
-        setStatus('unauthenticated');
+        setSafeStatus('unauthenticated');
       } catch (error) {
         console.error('Erro ao processar callback de autenticacao:', error.message);
         console.log('sem sessão');
-        if (isMounted) setStatus('unauthenticated');
+        setSafeStatus('unauthenticated');
       }
     };
 
@@ -68,6 +81,7 @@ export default function AuthCallback() {
 
     return () => {
       isMounted = false;
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 
