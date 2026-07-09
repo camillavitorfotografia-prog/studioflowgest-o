@@ -4,7 +4,8 @@ import { format, getDay, parse, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { CalendarDays, CheckSquare, ChevronLeft, ChevronRight, DollarSign, MapPin, Package, Phone, Users } from 'lucide-react';
-import { formatMoney, getStudioData } from '../../utils/integratedData';
+import { formatMoney } from '../../utils/integratedData';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
@@ -29,24 +30,24 @@ const toCalendarDate = (project, fallbackHour = 14) => {
 };
 
 export default function Agenda() {
-  const [studio, setStudio] = useState(() => getStudioData());
+  const [studio, setStudio] = useState({ projects: [] });
   const [dataAtual, setDataAtual] = useState(new Date());
   const [viewAtual, setViewAtual] = useState('month');
   const [selectedProject, setSelectedProject] = useState(null);
 
   useEffect(() => {
-    const load = () => setStudio(getStudioData());
-    load();
-    
-    // Ouvintes para manter sincronização cross-tab e imediata através do ecossistema reativo
+    let active = true;
+    const load = async () => {
+      const data = await getDbStudioData();
+      if (active) setStudio(data);
+    };
+    setTimeout(() => { void load(); }, 0);
     window.addEventListener('focus', load);
-    window.addEventListener('storage', load);
-    window.addEventListener('sf_storage_update', load);
-    
+    const unsubscribe = subscribeDbUpdates(load);
     return () => {
+      active = false;
       window.removeEventListener('focus', load);
-      window.removeEventListener('storage', load);
-      window.removeEventListener('sf_storage_update', load);
+      unsubscribe();
     };
   }, []);
 

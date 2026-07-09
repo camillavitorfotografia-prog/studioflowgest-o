@@ -10,10 +10,10 @@ import {
   YAxis,
 } from 'recharts';
 import Modal from '../../components/Modal';
-import { getStudioData } from '../../utils/integratedData';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { supabase } from '../../utils/supabase';
 import { maskCurrency } from '../../utils/masks';
 import {
-  FINANCE_STORAGE_KEYS,
   buildDepreciationChart,
   calculateDepreciation,
   formatCurrency,
@@ -45,25 +45,30 @@ const inputStyle = {
 
 export default function Equipamentos() {
   const navigate = useNavigate();
-  const [equipamentos, setEquipamentos] = useState(() =>
-    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'),
-  );
+  const [equipamentos, setEquipamentos] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [maintenanceModalOpen, setMaintenanceModalOpen] = useState(false);
   const [formData, setFormData] = useState(emptyEquipment);
   const [maintenance, setMaintenance] = useState({ equipamentoId: null, data: '', descricao: '', valor: '' });
-  const [studio, setStudio] = useState(() => getStudioData());
+  const [studio, setStudio] = useState({ projects: [] });
 
   useEffect(() => {
-    const syncEquipamentos = () => {
-      const dados = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]');
-      setEquipamentos(dados);
-      setStudio(getStudioData());
+    let active = true;
+    const syncEquipamentos = async () => {
+      const data = await getDbStudioData();
+      if (!active) return;
+      setEquipamentos(data.equipment || []);
+      setStudio(data);
     };
 
-    window.addEventListener('storage', syncEquipamentos);
-    syncEquipamentos();
-    return () => window.removeEventListener('storage', syncEquipamentos);
+    setTimeout(() => { void syncEquipamentos(); }, 0);
+    window.addEventListener('focus', syncEquipamentos);
+    const unsubscribe = subscribeDbUpdates(syncEquipamentos);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', syncEquipamentos);
+      unsubscribe();
+    };
   }, []);
 
   const totals = useMemo(
@@ -95,9 +100,9 @@ export default function Equipamentos() {
     }, {});
   }, [equipamentos, studio?.projects]);
 
-  const saveList = (list) => {
+  const saveList = async (list) => {
     setEquipamentos(list);
-    localStorage.setItem(FINANCE_STORAGE_KEYS.equipment, JSON.stringify(list));
+    localStorage.setItem('cv_studio_equipamentos', JSON.stringify(list));
   };
 
   const openNewEquipment = () => {
@@ -116,7 +121,7 @@ export default function Equipamentos() {
     setIsModalOpen(true);
   };
 
-  const salvarEquipamento = () => {
+  const salvarEquipamento = async () => {
     const valorCompra = parseCurrency(formData.valorCompra || formData.valor);
     if (!formData.nome || valorCompra <= 0) {
       alert('Preencha o nome e o valor de compra.');
@@ -134,16 +139,37 @@ export default function Equipamentos() {
       manutencoes: formData.manutencoes || [],
     };
 
-    const updated = formData.id
-      ? equipamentos.map((item) => (item.id === formData.id ? equipamento : item))
-      : [...equipamentos, equipamento];
-    saveList(updated);
+    const payload = {
+      id: String(equipamento.id),
+      nome: equipamento.nome,
+      valor: equipamento.valor,
+      valor_compra: equipamento.valorCompra,
+      data_compra: equipamento.dataCompra || null,
+      garantia_ate: equipamento.garantiaAte || null,
+      vida_util_anos: equipamento.vidaUtilAnos,
+      valor_residual: equipamento.valorResidual,
+      metodo_depreciacao: equipamento.metodoDepreciacao,
+      observacoes: equipamento.observacoes,
+      manutencoes: equipamento.manutencoes,
+      updated_at: new Date().toISOString(),
+    };
+    const request = formData.id
+      ? supabase.from('equipamentos').update(payload).eq('id', String(formData.id))
+      : supabase.from('equipamentos').insert([{ ...payload, created_at: new Date().toISOString() }]);
+    const { error } = await request;
+    if (error) {
+      console.error('Erro ao salvar equipamento:', error.message);
+      return;
+    }
+    await saveList(formData.id ? equipamentos.map((item) => (item.id === formData.id ? equipamento : item)) : [...equipamentos, equipamento]);
     setIsModalOpen(false);
   };
 
-  const removerEquipamento = (id) => {
+  const removerEquipamento = async (id) => {
     if (!window.confirm('Deseja remover este equipamento?')) return;
-    saveList(equipamentos.filter((item) => item.id !== id));
+    const { error } = await supabase.from('equipamentos').delete().eq('id', String(id));
+    if (error) console.error('Erro ao remover equipamento:', error.message);
+    await saveList(equipamentos.filter((item) => item.id !== id));
   };
 
   const openMaintenance = (equipment) => {
@@ -151,7 +177,7 @@ export default function Equipamentos() {
     setMaintenanceModalOpen(true);
   };
 
-  const saveMaintenance = () => {
+  const saveMaintenance = async () => {
     const updated = equipamentos.map((item) => {
       if (item.id !== maintenance.equipamentoId) return item;
       return {
@@ -167,7 +193,10 @@ export default function Equipamentos() {
         ],
       };
     });
-    saveList(updated);
+    const equipment = updated.find((item) => item.id === maintenance.equipamentoId);
+    const { error } = await supabase.from('equipamentos').update({ manutencoes: equipment?.manutencoes || [], updated_at: new Date().toISOString() }).eq('id', String(maintenance.equipamentoId));
+    if (error) console.error('Erro ao salvar manutencao:', error.message);
+    await saveList(updated);
     setMaintenanceModalOpen(false);
   };
 

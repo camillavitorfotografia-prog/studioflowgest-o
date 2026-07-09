@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
+import ProtectedRoute from './components/ProtectedRoute';
+import { AuthProvider } from './contexts/AuthContext.jsx';
 
 import Dashboard from './pages/Dashboard';
 import Clientes from './pages/Clientes';
@@ -11,12 +13,22 @@ import Perfil from './pages/Perfil';
 import Equipamentos from './pages/Equipamentos';
 import Relatorios from './pages/Relatorios';
 import Precificacao from './pages/Precificacao';
+import Login from './pages/Login';
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<MainLayout />}>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/"
+            element={(
+              <ProtectedRoute>
+                <MainLayout />
+              </ProtectedRoute>
+            )}
+          >
           <Route index element={<Dashboard />} />
           <Route path="clientes" element={<Clientes />} />
           <Route path="crm" element={<CRM />} />
@@ -32,6 +44,7 @@ function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </AuthProvider>
   );
 }
 

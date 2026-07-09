@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LEAD_ORIGINS, SERVICE_TYPES } from '../../data/crm';
-import { capitalizeName, maskCurrency, maskPhone } from '../../utils/masks';
+import { capitalizeName, dateToInput, maskDate, maskPhone } from '../../utils/masks';
 
 const emptyLead = {
   nome: '',
@@ -9,7 +9,6 @@ const emptyLead = {
   whatsapp: '',
   cidade: '',
   tipoServico: 'Casamento',
-  valorOrcamento: '',
   dataEvento: '',
   dataOrcamento: new Date().toISOString().split('T')[0],
   origem: 'Instagram',
@@ -18,7 +17,12 @@ const emptyLead = {
 };
 
 export default function LeadForm({ initialData, onSave }) {
-  const [formData, setFormData] = useState(() => ({ ...emptyLead, ...(initialData || {}) }));
+  const [formData, setFormData] = useState(() => ({
+    ...emptyLead,
+    ...(initialData || {}),
+    dataEvento: dateToInput(initialData?.dataEvento || emptyLead.dataEvento),
+    dataOrcamento: dateToInput(initialData?.dataOrcamento || emptyLead.dataOrcamento),
+  }));
   const [isSaving, setIsSaving] = useState(false);
 
   const updateField = (field, value) => {
@@ -54,8 +58,11 @@ export default function LeadForm({ initialData, onSave }) {
       onSubmit={async (event) => {
         event.preventDefault();
         setIsSaving(true);
-        await onSave(formData);
-        setIsSaving(false);
+        try {
+          await onSave(formData);
+        } finally {
+          setIsSaving(false);
+        }
       }}
       style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
     >
@@ -113,10 +120,11 @@ export default function LeadForm({ initialData, onSave }) {
         {field(
           'Data do orcamento',
           <input
-            type="date"
             style={inputStyle}
+            inputMode="numeric"
+            placeholder="dd/mm/aaaa"
             value={formData.dataOrcamento}
-            onChange={(event) => updateField('dataOrcamento', event.target.value)}
+            onChange={(event) => updateField('dataOrcamento', maskDate(event.target.value))}
           />,
         )}
       </div>
@@ -137,24 +145,14 @@ export default function LeadForm({ initialData, onSave }) {
         {field(
           'Data do evento',
           <input
-            type="date"
             style={inputStyle}
+            inputMode="numeric"
+            placeholder="dd/mm/aaaa"
             value={formData.dataEvento}
-            onChange={(event) => updateField('dataEvento', event.target.value)}
+            onChange={(event) => updateField('dataEvento', maskDate(event.target.value))}
           />,
         )}
       </div>
-
-      {field(
-        'Valor do orcamento',
-        <input
-          style={inputStyle}
-          inputMode="numeric"
-          placeholder="R$ 0,00"
-          value={formData.valorOrcamento || ''}
-          onChange={(event) => updateField('valorOrcamento', maskCurrency(event.target.value))}
-        />,
-      )}
 
       {field(
         'Origem',

@@ -4,7 +4,9 @@ import Modal from '../../components/Modal';
 import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/PremiumUXKit';
 import { formatMoney, parseMoney } from '../../utils/integratedData';
 import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency, maskDate, maskInstagram, maskPhone } from '../../utils/masks';
-import { supabase } from '../../utils/supabase';
+import { isSupabaseConfigured, supabase } from '../../utils/supabase';
+import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, saveRow, upsertAgendaEvent } from '../../utils/dbData';
+import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 
 const emptyForm = {
   id: null,
@@ -42,7 +44,7 @@ const normalizeDate = (value) => dateToInput(value || '');
 const displayDate = (value) => normalizeDate(value) || '-';
 
 const readPayments = (project) => {
-  const payments = project?.pagamentos || project?.receitas || project?.financeiro?.receitas || [];
+  const payments = project?.pagamentos || project?.historico_pagamentos || project?.historicoPagamentos || project?.receitas || project?.financeiro?.receitas || [];
   return Array.isArray(payments) ? payments : [];
 };
 
@@ -60,8 +62,7 @@ const mapClientRow = (client, projects) => {
   const project = getClientProject(client, projects);
   const pagamentos = readPayments(project);
   const total = Number(project?.valorContratado ?? project?.valor_contratado ?? client.valorTotal ?? client.valor_total ?? 0);
-  const received = Number(project?.valorRecebido ?? project?.valor_recebido ?? pagamentos.reduce((sum, payment) => sum + parseMoney(payment.valor), 0));
-  const remaining = Number(project?.saldoRestante ?? project?.saldo_restante ?? client.valorRestante ?? client.valor_restante ?? Math.max(0, total - received));
+  const { valorRecebido: received, valorRestante: remaining } = calculatePaymentsSummary(pagamentos, total);
 
   return {
     ...client,
@@ -71,7 +72,7 @@ const mapClientRow = (client, projects) => {
     email: client.email || '',
     telefone: client.telefone || client.whatsapp || '',
     instagram: client.instagram || '',
-    tipoTrabalho: project?.tipoServico || project?.tipo_servico || client.tipoTrabalho || client.tipo_trabalho || '-',
+    tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
     dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || '',
     valorTotal: total,
     valorRestante: remaining,
@@ -121,7 +122,7 @@ const saveLocalMirrors = (clients, projects) => {
     const client = normalizedClients.find((item) => item.id === clientId) || {};
     const pagamentos = readPayments(project);
     const valorContratado = Number(project.valorContratado ?? project.valor_contratado ?? 0);
-    const valorRecebido = Number(project.valorRecebido ?? project.valor_recebido ?? pagamentos.reduce((sum, payment) => sum + parseMoney(payment.valor), 0));
+    const { valorRecebido, valorRestante } = calculatePaymentsSummary(pagamentos, valorContratado);
 
     return {
       id: project.id,
@@ -129,18 +130,19 @@ const saveLocalMirrors = (clients, projects) => {
       clienteId: clientId,
       clienteNome: project.clienteNome || project.cliente_nome || client.nome || '',
       cliente: client,
-      tipoServico: project.tipoServico || project.tipo_servico || project.tipoTrabalho || 'Evento',
-      categoria: project.categoria || project.tipoServico || project.tipo_servico || 'Evento',
+      tipoServico: project.tipoServico || project.tipo_servico || project.servico || project.tipoTrabalho || 'Evento',
+      categoria: project.categoria || project.tipoServico || project.tipo_servico || project.servico || 'Evento',
       status: project.status || 'contrato_fechado',
       valorContratado,
       valorRecebido,
-      saldoRestante: Number(project.saldoRestante ?? project.saldo_restante ?? Math.max(0, valorContratado - valorRecebido)),
+      saldoRestante: valorRestante,
       data: project.data || project.data_trabalho || '',
       horario: project.horario || '',
       local: project.local || client.cidade || '',
       financeiro: { receitas: pagamentos },
       receitas: pagamentos,
       pagamentos,
+      historicoPagamentos: pagamentos,
       timeline: project.timeline || [],
       createdAt: project.created_at || project.createdAt || new Date().toISOString(),
       updatedAt: project.updated_at || new Date().toISOString(),
@@ -153,6 +155,31 @@ const saveLocalMirrors = (clients, projects) => {
   window.dispatchEvent(new Event('sf_storage_update'));
 };
 
+const loadLocalStudio = () => ({
+  clients: readStorage(STORAGE_KEYS.clients, []),
+  projects: readStorage(STORAGE_KEYS.projects, []),
+});
+
+const saveLocalStudio = (clients, projects) => {
+  saveLocalMirrors(clients, projects);
+  writeStorage(STORAGE_KEYS.clients, clients);
+  writeStorage(STORAGE_KEYS.projects, projects);
+};
+
+
+const calculatePayments = (formData) => {
+  const pagamentos = (formData.pagamentos || []).map((payment) => ({
+    ...payment,
+    valor: parseMoney(payment.valor),
+    data: inputToDate(payment.data),
+    status: payment.status || 'Recebido',
+  }));
+  const valorTotal = parseMoney(formData.valorTotal);
+  const { valorRecebido, valorRestante } = calculatePaymentsSummary(pagamentos, valorTotal);
+  const status = valorRestante <= 0 && valorTotal > 0 ? 'Pago' : (formData.status || 'Pendente');
+  return { pagamentos, valorTotal, valorRecebido, valorRestante, status };
+};
+
 export default function Clientes() {
   const [studio, setStudio] = useState({ clients: [], projects: [] });
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -163,6 +190,13 @@ export default function Clientes() {
   const load = async () => {
     setSyncStatus('saving');
     try {
+      if (!isSupabaseConfigured) {
+        const localStudio = loadLocalStudio();
+        setStudio(localStudio);
+        saveLocalMirrors(localStudio.clients, localStudio.projects);
+        return;
+      }
+
       const [clientsRes, projectsRes] = await Promise.all([
         supabase.from('clientes').select('*').order('created_at', { ascending: false }),
         supabase.from('projetos').select('*'),
@@ -180,13 +214,15 @@ export default function Clientes() {
       saveLocalMirrors(nextStudio.clients, nextStudio.projects);
     } catch (error) {
       console.error('Erro ao carregar clientes:', error.message);
+      const localStudio = loadLocalStudio();
+      setStudio(localStudio);
     } finally {
       setSyncStatus('saved');
     }
   };
 
   useEffect(() => {
-    load();
+    setTimeout(() => { void load(); }, 0);
 
     window.addEventListener('focus', load);
 
@@ -203,6 +239,9 @@ export default function Clientes() {
   }, []);
 
   const clients = useMemo(() => studio.clients.map((client) => mapClientRow(client, studio.projects)), [studio.clients, studio.projects]);
+
+  const paymentSummary = useMemo(() => calculatePayments(formData), [formData]);
+  const formattedRemaining = maskCurrency(String(Math.round(paymentSummary.valorRestante * 100)));
 
   useKeyboardShortcuts({
     n: () => openNewClient(),
@@ -258,15 +297,13 @@ export default function Clientes() {
     setSyncStatus('saving');
 
     const now = new Date().toISOString();
-    const payments = formData.pagamentos.map((payment) => ({
-      ...payment,
-      valor: parseMoney(payment.valor),
-      data: inputToDate(payment.data),
-      status: payment.status || 'Recebido',
-    }));
-    const valorTotal = parseMoney(formData.valorTotal);
-    const paid = payments.reduce((sum, payment) => sum + parseMoney(payment.valor), 0);
-    const valorRestante = formData.valorRestante ? parseMoney(formData.valorRestante) : Math.max(0, valorTotal - paid);
+    const {
+      pagamentos: payments,
+      valorTotal,
+      valorRecebido: paid,
+      valorRestante,
+      status,
+    } = calculatePayments(formData);
 
     try {
       const clientPayload = {
@@ -275,36 +312,77 @@ export default function Clientes() {
         telefone: formData.telefone,
         whatsapp: formData.telefone,
         instagram: formData.instagram,
+        tipo_trabalho: formData.tipoTrabalho,
+        data_trabalho: inputToDate(formData.dataTrabalho),
+        valor_total: valorTotal,
+        valor_restante: valorRestante,
+        historico_pagamentos: payments,
+        status,
         updated_at: now,
       };
 
-      const clientRequest = formData.id
-        ? supabase.from('clientes').update(clientPayload).eq('id', formData.id).select().single()
-        : supabase.from('clientes').insert([{ ...clientPayload, created_at: now }]).select().single();
+      let savedClient;
+      let savedProject;
 
-      const { data: savedClient, error: clientError } = await clientRequest;
-      if (clientError) throw clientError;
+      if (isSupabaseConfigured) {
+        savedClient = await saveRow({
+          table: 'clientes',
+          id: formData.id,
+          payload: formData.id ? clientPayload : { ...clientPayload, created_at: now },
+        });
+      } else {
+        savedClient = {
+          id: formData.id || createId('client'),
+          ...clientPayload,
+          created_at: formData.id ? undefined : now,
+        };
+      }
 
       const projectPayload = {
         cliente_id: savedClient.id,
-
         cliente_nome: savedClient.nome,
         tipo_servico: formData.tipoTrabalho,
+        servico: formData.tipoTrabalho,
         data: inputToDate(formData.dataTrabalho),
+        data_trabalho: inputToDate(formData.dataTrabalho),
         valor_contratado: valorTotal,
+        valor_total: valorTotal,
         valor_recebido: paid,
         saldo_restante: valorRestante,
-        status: formData.status,
+        valor_restante: valorRestante,
+        status,
         pagamentos: payments,
+        historico_pagamentos: payments,
         updated_at: now,
       };
 
-      const projectRequest = formData.projectId
-        ? supabase.from('projetos').update(projectPayload).eq('id', formData.projectId)
-        : supabase.from('projetos').insert([{ ...projectPayload, created_at: now }]);
+      if (isSupabaseConfigured) {
+        savedProject = await saveRow({
+          table: 'projetos',
+          id: formData.projectId,
+          payload: formData.projectId ? projectPayload : { ...projectPayload, created_at: now },
+        });
+      } else {
+        savedProject = {
+          id: formData.projectId || createId('project'),
+          ...projectPayload,
+          created_at: formData.projectId ? undefined : now,
+        };
 
-      const { error: projectError } = await projectRequest;
-      if (projectError) throw projectError;
+        const localStudio = loadLocalStudio();
+        const nextClients = formData.id
+          ? localStudio.clients.map((client) => (client.id === formData.id ? { ...client, ...savedClient } : client))
+          : [{ ...savedClient, created_at: now }, ...localStudio.clients];
+        const nextProjects = formData.projectId
+          ? localStudio.projects.map((project) => (project.id === formData.projectId ? { ...project, ...savedProject } : project))
+          : [{ ...savedProject, created_at: now }, ...localStudio.projects];
+        saveLocalStudio(nextClients, nextProjects);
+      }
+
+      if (savedProject && isSupabaseConfigured) {
+        await createFinanceSeed(savedProject, savedClient);
+        await upsertAgendaEvent(savedProject, savedClient);
+      }
 
       setSelectedClientId(savedClient.id);
       closeModal();
@@ -321,7 +399,21 @@ export default function Clientes() {
     setSyncStatus('saving');
 
     try {
+      if (!isSupabaseConfigured) {
+        const localStudio = loadLocalStudio();
+        const nextProjects = formData.projectId
+          ? localStudio.projects.filter((project) => project.id !== formData.projectId)
+          : localStudio.projects;
+        const nextClients = localStudio.clients.filter((client) => client.id !== formData.id);
+        saveLocalStudio(nextClients, nextProjects);
+        setSelectedClientId(null);
+        closeModal();
+        await load();
+        return;
+      }
+
       if (formData.projectId) {
+        await deleteAgendaEvent(formData.projectId);
         const { error: projectError } = await supabase.from('projetos').delete().eq('id', formData.projectId);
         if (projectError) throw projectError;
       }
@@ -442,7 +534,7 @@ export default function Clientes() {
               <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formData.valorTotal} onChange={(event) => updateField('valorTotal', maskCurrency(event.target.value))} />
             </Field>
             <Field label="Valor restante">
-              <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formData.valorRestante} onChange={(event) => updateField('valorRestante', maskCurrency(event.target.value))} />
+              <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formattedRemaining} readOnly />
             </Field>
           </div>
 

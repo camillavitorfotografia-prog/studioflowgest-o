@@ -10,9 +10,13 @@
   top: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: space-between;
   padding: 0;
   z-index: 1000;
+}
+
+.sidebar-main {
+  min-height: 0;
 }
 
 .sidebar-logo {
@@ -73,6 +77,76 @@
   height: 18px;
 }
 
+.sidebar-user {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 12px;
+  border-top: 1px solid rgba(244, 241, 234, 0.08);
+  color: #f4f1ea;
+}
+
+.sidebar-user img,
+.sidebar-user > svg {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid rgba(201, 160, 108, 0.35);
+  padding: 6px;
+  color: #c9a06c;
+}
+
+.sidebar-user img {
+  padding: 0;
+}
+
+.sidebar-user div {
+  min-width: 0;
+}
+
+.sidebar-user strong,
+.sidebar-user span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user strong {
+  font-size: 0.82rem;
+}
+
+.sidebar-user span {
+  color: #a1a1aa;
+  font-size: 0.72rem;
+}
+
+.sidebar-user button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(244, 241, 234, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #d4d4d8;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.sidebar-user button:hover {
+  color: #c9a06c;
+  background: #232326;
+}
+
+.sidebar-user button svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Responsividade de Tablets e Mobile */
 @media (max-width: 768px) {
   .sidebar {
@@ -84,6 +158,13 @@
     border-right: none;
     border-bottom: 1px solid rgba(244, 241, 234, 0.08);
     overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .sidebar-main {
+    display: flex;
+    align-items: center;
+    min-width: 0;
   }
 
   .sidebar-logo {
@@ -122,5 +203,22 @@
   .nav-link.active {
     border-left: none;
     border-bottom: 3px solid #c9a06c;
+  }
+
+  .sidebar-user {
+    margin-left: auto;
+    grid-template-columns: 32px 32px;
+    padding: 8px 0 8px 8px;
+    border-top: none;
+  }
+
+  .sidebar-user div {
+    display: none;
+  }
+
+  .sidebar-user img,
+  .sidebar-user > svg {
+    width: 32px;
+    height: 32px;
   }
 }

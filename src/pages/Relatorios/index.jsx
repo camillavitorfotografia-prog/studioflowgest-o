@@ -1,20 +1,26 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, BriefcaseBusiness, DollarSign, Package, TrendingUp, Users } from 'lucide-react';
-import { formatMoney, getStudioData } from '../../utils/integratedData';
+import { formatMoney } from '../../utils/integratedData';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 
 const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 export default function Relatorios() {
-  const [studio, setStudio] = useState(() => getStudioData());
+  const [studio, setStudio] = useState({ projects: [], clients: [], transactions: [] });
 
   useEffect(() => {
-    const load = () => setStudio(getStudioData());
-    load();
+    let active = true;
+    const load = async () => {
+      const data = await getDbStudioData();
+      if (active) setStudio(data);
+    };
+    setTimeout(() => { void load(); }, 0);
     window.addEventListener('focus', load);
-    window.addEventListener('storage', load);
+    const unsubscribe = subscribeDbUpdates(load);
     return () => {
+      active = false;
       window.removeEventListener('focus', load);
-      window.removeEventListener('storage', load);
+      unsubscribe();
     };
   }, []);
 

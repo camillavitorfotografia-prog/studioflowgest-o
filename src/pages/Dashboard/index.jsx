@@ -23,11 +23,8 @@ import {
   TrendingUp, 
   Users 
 } from 'lucide-react';
-import { ACTIVE_LEAD_STATUSES } from '../../data/crm';
 import { formatCurrency, formatShortDate, isCurrentMonth, parseCurrency, parseDate } from '../../utils/formatters';
-import { readStorage, STORAGE_KEYS, syncLegacyLeads, writeStorage } from '../../utils/storage';
-import { supabase } from '../../utils/supabase';
-import { getStudioData } from '../../utils/integratedData';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 
 const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 const serviceColors = ['#c5a059', '#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
@@ -41,54 +38,36 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
-    const mapLeadFromDb = (lead) => ({
-      id: lead.id,
-      nome: lead.nome || '',
-      status: lead.status || 'novo_lead',
-      valorOrcamento: lead.valor_orcamento !== null && lead.valor_orcamento !== undefined ? String(lead.valor_orcamento) : '0',
-      tipoServico: lead.tipo_servico || lead.tipoServico || '',
-      dataEvento: lead.data_evento || lead.dataEvento || '',
-      origem: lead.origem || '',
-      telefone: lead.telefone || '',
-      createdAt: lead.created_at || lead.createdAt,
-    });
+    let active = true;
 
     const loadData = async () => {
-      const studio = getStudioData();
-      const { data: dbLeads, error } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
-      const leads = error ? (syncLegacyLeads() || []) : (dbLeads || []).map(mapLeadFromDb);
-      if (!error) writeStorage(STORAGE_KEYS.leads, leads);
-
+      const studio = await getDbStudioData();
+      if (!active) return;
       setData({
-        leads,
-        clients: (studio?.projects || []).map((project) => ({
+        leads: studio.leads || [],
+        clients: (studio.projects || []).map((project) => ({
           ...project.cliente,
           id: project.id,
           nome: project.clienteNome || 'Cliente sem nome',
-          tipo: project.tipoServico || 'Não especificado',
+          tipo: project.tipoServico || 'N?o especificado',
           dataTrabalho: project.data,
           valorTotal: project.valorContratado,
           pagamentos: project.financeiro?.receitas || project.pagamentos || [],
           status: project.status,
         })),
-        finances: readStorage(STORAGE_KEYS.finances, []),
-        agendaEvents: readStorage(STORAGE_KEYS.agendaEvents, []),
+        finances: studio.transactions || [],
+        agendaEvents: [],
       });
     };
 
-    loadData();
+    setTimeout(() => { void loadData(); }, 0);
     window.addEventListener('focus', loadData);
-    window.addEventListener('storage', loadData);
-
-    const channel = supabase
-      .channel('dashboard-leads')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, loadData)
-      .subscribe();
+    const unsubscribe = subscribeDbUpdates(loadData);
 
     return () => {
+      active = false;
       window.removeEventListener('focus', loadData);
-      window.removeEventListener('storage', loadData);
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, []);
 

@@ -5,40 +5,19 @@ import KanbanBoard from './KanbanBoard';
 import Modal from '../../components/Modal';
 import LeadForm from './LeadForm';
 import { getStatusTitle } from '../../data/crm';
-import { formatCurrency, parseCurrency } from '../../utils/formatters';
-import { approveLeadToProject } from '../../utils/integratedData';
-import { writeStorage, STORAGE_KEYS } from '../../utils/storage';
-import { supabase } from '../../utils/supabase';
+import { isSupabaseConfigured, supabase } from '../../utils/supabase';
+import { convertLeadToClientProject, emitDbUpdate, mapLeadFromDb, saveRow } from '../../utils/dbData';
+import { inputToDate } from '../../utils/masks';
+import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 import { useKeyboardShortcuts, AutoSaveIndicator } from '../../components/PremiumUXKit';
-
-const mapLeadFromDb = (lead) => ({
-  id: lead.id,
-  nome: lead.nome || '',
-  email: lead.email || '',
-  nomeCasal: lead.nome_casal || lead.nomeCasal || '',
-  tipoServico: lead.tipo_servico || lead.tipoServico || 'Casamento',
-  status: lead.status || 'novo_lead',
-  valorOrcamento: lead.valor_orcamento !== null && lead.valor_orcamento !== undefined ? String(lead.valor_orcamento) : (lead.valorOrcamento || '0'),
-  dataEvento: lead.data_evento || lead.dataEvento || '',
-  dataOrcamento: lead.data_orcamento || lead.dataOrcamento || '',
-  origem: lead.origem || 'Instagram',
-  telefone: lead.telefone || '',
-  whatsapp: lead.whatsapp || lead.telefone || '',
-  cidade: lead.cidade || '',
-  observacoes: lead.observacoes || '',
-  historico: lead.historico || [],
-  createdAt: lead.created_at || lead.createdAt,
-  updatedAt: lead.updated_at || lead.updatedAt,
-});
 
 const leadPayload = (leadData, now) => ({
   nome: leadData.nome || '',
   email: leadData.email || '',
-  nome_casal: leadData.nomeCasal || '',
   tipo_servico: leadData.tipoServico || 'Casamento',
-  valor_orcamento: parseCurrency(leadData.valorOrcamento),
-  data_evento: leadData.dataEvento || null,
-  data_orcamento: leadData.dataOrcamento || null,
+  servico: leadData.tipoServico || 'Casamento',
+  data_evento: inputToDate(leadData.dataEvento) || null,
+  data_orcamento: inputToDate(leadData.dataOrcamento) || null,
   origem: leadData.origem || 'Instagram',
   telefone: leadData.telefone || '',
   whatsapp: leadData.whatsapp || leadData.telefone || '',
@@ -46,6 +25,31 @@ const leadPayload = (leadData, now) => ({
   observacoes: leadData.observacoes || '',
   updated_at: now,
 });
+
+
+const saveLeadToDb = async ({ id, payload }) => {
+  return saveRow({ table: 'leads', id, payload });
+};
+
+const readLocalLeads = () => readStorage(STORAGE_KEYS.leads, []).map(mapLeadFromDb);
+
+const saveLeadLocal = ({ id, payload }) => {
+  const leads = readLocalLeads();
+  const now = payload.updated_at || new Date().toISOString();
+  const nextLead = mapLeadFromDb({
+    id: id || createId('lead'),
+    ...payload,
+    created_at: payload.created_at || now,
+    updated_at: now,
+  });
+
+  const nextLeads = id
+    ? leads.map((lead) => (lead.id === id ? nextLead : lead))
+    : [nextLead, ...leads];
+
+  writeStorage(STORAGE_KEYS.leads, nextLeads);
+  return nextLead;
+};
 
 export default function CRM() {
   const [leads, setLeads] = useState([]);
@@ -57,6 +61,13 @@ export default function CRM() {
 
   const fetchLeads = async () => {
     try {
+      if (!isSupabaseConfigured) {
+        const localLeads = readLocalLeads();
+        setLeads(localLeads);
+        emitDbUpdate();
+        return localLeads;
+      }
+
       const { data, error } = await supabase
         .from('leads')
         .select('*')
@@ -66,23 +77,25 @@ export default function CRM() {
 
       const mappedLeads = (data || []).map(mapLeadFromDb);
       setLeads(mappedLeads);
-      writeStorage(STORAGE_KEYS.leads, mappedLeads);
+      emitDbUpdate();
       return mappedLeads;
     } catch (err) {
       console.error('Erro ao buscar leads no Supabase:', err.message);
-      return [];
+      const localLeads = readLocalLeads();
+      setLeads(localLeads);
+      return localLeads;
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchLeads();
+    setTimeout(() => { void fetchLeads(); }, 0);
 
     const channel = supabase
       .channel('realtime-leads-crm')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-        fetchLeads();
+        setTimeout(() => { void fetchLeads(); }, 0);
       })
       .subscribe();
 
@@ -116,93 +129,44 @@ export default function CRM() {
           { data: now, acao: 'Dados do lead atualizados' },
         ];
 
-        const { error } = await supabase
-          .from('leads')
-          .update(payload)
-          .eq('id', leadData.id);
-
-        if (error) throw error;
+        if (isSupabaseConfigured) {
+          await saveLeadToDb({ id: leadData.id, payload });
+        } else {
+          saveLeadLocal({ id: leadData.id, payload });
+        }
       } else {
         payload.status = 'novo_lead';
         payload.historico = [{ data: now, acao: 'Lead criado no CRM' }];
         payload.created_at = now;
 
-        const { error } = await supabase
-          .from('leads')
-          .insert([payload])
-          .select();
-
-        if (error) throw error;
+        if (isSupabaseConfigured) {
+          await saveLeadToDb({ payload });
+        } else {
+          saveLeadLocal({ payload });
+        }
       }
 
       await fetchLeads();
-      setSaveStatus('saved');
       setIsModalOpen(false);
       setEditingLead(null);
     } catch (err) {
       console.error('Erro ao salvar lead no Supabase:', err.message);
+      saveLeadLocal({ id: leadData.id, payload });
+      await fetchLeads();
+      setIsModalOpen(false);
+      setEditingLead(null);
+    } finally {
       setSaveStatus('saved');
     }
   };
 
   const convertLeadToClient = async (lead) => {
-    approveLeadToProject({ ...lead, status: 'aprovado' });
-
     try {
-      const cleanPhone = (lead.telefone || lead.whatsapp || '').replace(/\D/g, '');
-      const { data: existingClients } = await supabase
-        .from('clientes')
-        .select('*')
-        .or(`telefone.ilike.%${cleanPhone}%,whatsapp.ilike.%${cleanPhone}%,email.eq.${lead.email || 'sem-email'}`)
-        .limit(1);
-
-      const existing = existingClients?.[0];
-      const clientPayload = {
-        nome: lead.nome || 'Cliente sem nome',
-        email: lead.email || '',
-        telefone: lead.telefone || '',
-        whatsapp: lead.whatsapp || lead.telefone || '',
-        cidade: lead.cidade || '',
-        origem: lead.origem || '',
-        observacoes: lead.observacoes || '',
-        updated_at: new Date().toISOString(),
-      };
-
-      const clientResult = existing
-        ? await supabase.from('clientes').update(clientPayload).eq('id', existing.id).select().single()
-        : await supabase.from('clientes').insert([{ ...clientPayload, created_at: new Date().toISOString() }]).select().single();
-
-      if (clientResult.error) throw clientResult.error;
-
-      const client = clientResult.data;
-      const valor = parseCurrency(lead.valorOrcamento);
-      const projectPayload = {
-        cliente_id: client.id,
-        cliente_nome: client.nome,
-        tipo_servico: lead.tipoServico || 'Casamento',
-        data: lead.dataEvento || null,
-        valor_contratado: valor,
-        valor_recebido: 0,
-        saldo_restante: valor,
-        status: 'contrato_fechado',
-        lead_id: lead.id,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data: existingProjects } = await supabase
-        .from('projetos')
-        .select('id')
-        .eq('lead_id', lead.id)
-        .limit(1);
-
-      const projectRequest = existingProjects?.[0]
-        ? supabase.from('projetos').update(projectPayload).eq('id', existingProjects[0].id)
-        : supabase.from('projetos').insert([{ ...projectPayload, created_at: new Date().toISOString() }]);
-
-      const { error: projectError } = await projectRequest;
-      if (projectError) throw projectError;
+      await convertLeadToClientProject(lead);
+      return true;
     } catch (error) {
       console.error('Erro ao converter lead em cliente/projeto no Supabase:', error.message);
+      return false;
     }
   };
 
@@ -213,7 +177,11 @@ export default function CRM() {
     setSaveStatus('saving');
 
     if (newStatus === 'aprovado') {
-      await convertLeadToClient(currentLead);
+      const converted = await convertLeadToClient(currentLead);
+      if (!converted) {
+        setSaveStatus('saved');
+        return;
+      }
     }
 
     const now = new Date().toISOString();
@@ -223,37 +191,32 @@ export default function CRM() {
     ];
 
     try {
-      const { error } = await supabase
-        .from('leads')
-        .update({
-          status: newStatus,
-          updated_at: now,
-          historico: nextHistorico,
-        })
-        .eq('id', leadId);
-
-      if (error) throw error;
+      const statusPayload = {
+        status: newStatus,
+        updated_at: now,
+        historico: nextHistorico,
+      };
+      if (isSupabaseConfigured) {
+        await saveRow({ table: 'leads', id: leadId, payload: statusPayload });
+      } else {
+        saveLeadLocal({ id: leadId, payload: { ...currentLead, ...statusPayload } });
+      }
 
       await fetchLeads();
 
       if (selectedLead?.id === leadId) {
         setSelectedLead((prev) => (prev ? { ...prev, status: newStatus, historico: nextHistorico } : null));
       }
-      setSaveStatus('saved');
     } catch (err) {
       console.error('Erro ao atualizar status no Supabase:', err.message);
+    } finally {
       setSaveStatus('saved');
     }
   };
 
   const leadSummary = useMemo(() => {
-    const openValue = leads
-      .filter((lead) => !['aprovado', 'evento_realizado', 'finalizado', 'perdido'].includes(lead.status))
-      .reduce((total, lead) => total + parseCurrency(lead.valorOrcamento), 0);
-
     return {
       total: leads.length,
-      openValue,
     };
   }, [leads]);
 
@@ -266,7 +229,7 @@ export default function CRM() {
               CRM - Pipeline Comercial <AutoSaveIndicator state={saveStatus} />
             </h1>
             <p style={{ color: '#888', marginTop: '6px' }}>
-              {leadSummary.total} leads cadastrados | {formatCurrency(leadSummary.openValue)} em oportunidades abertas.
+              {leadSummary.total} leads cadastrados.
             </p>
           </div>
           <button
@@ -313,7 +276,6 @@ export default function CRM() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <Info label="Status" value={getStatusTitle(selectedLead.status)} />
-              <Info label="Valor" value={formatCurrency(parseCurrency(selectedLead.valorOrcamento))} />
               <Info label="Data do evento" value={selectedLead.dataEvento || 'Nao informada'} />
               <Info label="Origem" value={selectedLead.origem || 'Nao informada'} />
               <Info label="Telefone" value={selectedLead.telefone || 'Nao informado'} />

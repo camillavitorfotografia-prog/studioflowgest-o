@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { useEffect, useState } from 'react';
 import { X, CheckCircle, AlertCircle, RefreshCw, FolderOpen } from 'lucide-react';
 
 /* ==========================================
@@ -29,13 +30,17 @@ export function Drawer({ isOpen, onClose, title, children }) {
 
   useEffect(() => {
     if (isOpen) {
-      setMounted(true);
+      const mountTimer = setTimeout(() => setMounted(true), 0);
       document.body.style.overflow = 'hidden';
-    } else {
-      const timer = setTimeout(() => setMounted(false), 200);
-      document.body.style.overflow = '';
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(mountTimer);
+        document.body.style.overflow = '';
+      };
     }
+
+    const timer = setTimeout(() => setMounted(false), 200);
+    document.body.style.overflow = '';
+    return () => clearTimeout(timer);
   }, [isOpen]);
 
   if (!isOpen && !mounted) return null;

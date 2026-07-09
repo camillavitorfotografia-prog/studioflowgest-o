@@ -1,7 +1,9 @@
-﻿import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Calendar, CalendarCheck, DollarSign, MoreVertical, Package, Smartphone } from 'lucide-react';
-import { formatMoney, getStudioData, writeProjects } from '../../utils/integratedData';
+import { formatMoney } from '../../utils/integratedData';
 import { FINANCE_STORAGE_KEYS } from '../../utils/financeEngine';
+import { getDbStudioData, subscribeDbUpdates, upsertAgendaEvent } from '../../utils/dbData';
+import { supabase } from '../../utils/supabase';
 
 const colunas = [
   { id: 'contrato_fechado', titulo: 'Contrato Fechado' },
@@ -16,53 +18,47 @@ export default function Trabalhos() {
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [syncConfig, setSyncConfig] = useState({});
 
-  // Centralização estável do carregamento de dados
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     try {
-      const studio = getStudioData();
+      const studio = await getDbStudioData();
       const calendarSync = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.calendarSync) || '{}');
       setProjects(studio.projects || []);
-      setRawProjects(JSON.parse(localStorage.getItem('cv_studio_projects') || '[]'));
+      setRawProjects(studio.projects || []);
       setSyncConfig(calendarSync);
     } catch (error) {
-      console.error('Erro ao analisar dados de sincronização ou projetos:', error);
+      console.error('Erro ao carregar projetos:', error);
     }
   }, []);
 
   useEffect(() => {
-    load();
-    
-    // Ouvintes para manter reatividade automática no ecossistema e em abas paralelas
+    setTimeout(() => { void load(); }, 0);
     window.addEventListener('focus', load);
-    window.addEventListener('storage', load);
-    window.addEventListener('sf_storage_update', load);
-    
+    const unsubscribe = subscribeDbUpdates(load);
     return () => {
       window.removeEventListener('focus', load);
-      window.removeEventListener('storage', load);
-      window.removeEventListener('sf_storage_update', load);
+      unsubscribe();
     };
   }, [load]);
 
-  // Persistência unificada com preservação de estado local
-  const persistProjects = useCallback((updated) => {
-    setRawProjects(updated);
-    writeProjects(updated);
-    setProjects(getStudioData().projects || []);
-  }, []);
+  const persistProject = useCallback(async (project) => {
+    const payload = {
+      status: project.status,
+      calendario_sync: project.calendarSync || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('projetos').update(payload).eq('id', project.id);
+    if (error) throw error;
+    await upsertAgendaEvent(project, project.cliente || {});
+    await setTimeout(() => { void load(); }, 0);
+  }, [load]);
 
-  // Alteração de colunas otimizada com useCallback
-  const mudarStatus = useCallback((id, novoStatus) => {
-    const updated = rawProjects.map((project) =>
-      project.id === id 
-        ? { ...project, status: novoStatus, updatedAt: new Date().toISOString() } 
-        : project
-    );
-    persistProjects(updated);
+  const mudarStatus = useCallback(async (id, novoStatus) => {
+    const project = rawProjects.find((item) => item.id === id);
+    if (!project) return;
+    await persistProject({ ...project, status: novoStatus });
     setActiveMenuId(null);
-  }, [rawProjects, persistProjects]);
+  }, [rawProjects, persistProject]);
 
-  // Gerenciador de sincronização reativo com dependências limpas
   const alternarSincronizacao = useCallback((id, provider) => {
     const updated = rawProjects.map((project) => {
       if (project.id !== id) return project;
@@ -75,7 +71,7 @@ export default function Trabalhos() {
         },
       };
     });
-    
+
     const project = updated.find((item) => item.id === id);
     const nextSync = {
       ...syncConfig,
@@ -87,13 +83,12 @@ export default function Trabalhos() {
         preparedAt: new Date().toISOString(),
       },
     };
-    
+
     localStorage.setItem(FINANCE_STORAGE_KEYS.calendarSync, JSON.stringify(nextSync));
     setSyncConfig(nextSync);
-    persistProjects(updated);
-  }, [rawProjects, syncConfig, persistProjects]);
+    if (project) persistProject(project);
+  }, [rawProjects, syncConfig, persistProject]);
 
-  // Agrupamento indexado e memoizado de projetos por coluna para mitigar múltiplos filtros lineares por render
   const projectsByColumn = useMemo(() => {
     const grouped = {
       contrato_fechado: [],
@@ -104,11 +99,8 @@ export default function Trabalhos() {
 
     projects.forEach((project) => {
       const status = project.status || 'contrato_fechado';
-      if (grouped[status]) {
-        grouped[status].push(project);
-      } else {
-        grouped[status] = [project];
-      }
+      if (grouped[status]) grouped[status].push(project);
+      else grouped[status] = [project];
     });
 
     return grouped;

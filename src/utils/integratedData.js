@@ -228,7 +228,6 @@ const enrichProject = (project, clients, transactions, equipment, checklists, co
 export const ensureIntegratedData = () => {
   const clients = safeParse(INTEGRATION_KEYS.clients, []).map(normalizeClient);
   const storedProjects = safeParse(INTEGRATION_KEYS.projects, []);
-  const transactions = safeParse(INTEGRATION_KEYS.finances, []);
   const projects = [...storedProjects];
   let changed = false;
 

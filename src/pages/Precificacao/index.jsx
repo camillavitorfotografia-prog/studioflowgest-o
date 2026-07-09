@@ -12,6 +12,7 @@ import {
   monthKey,
 } from '../../utils/financeEngine';
 import { maskCurrency } from '../../utils/masks';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 
 const categories = ['Casamento', 'Ensaio', 'Formatura', 'Corporativo', 'Eventos', 'Outro'];
 const services = ['Fotografia', 'Filmagem', 'Fotografia + Filmagem'];
@@ -300,11 +301,14 @@ export default function Precificacao() {
   const [data, setData] = useState({ clients: [], transactions: [], equipment: [], balances: {}, config: {} });
 
   useEffect(() => {
-    const loadData = () => {
-      const equipment = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]');
+    let active = true;
+    const loadData = async () => {
+      const db = await getDbStudioData();
+      const equipment = db.equipment || [];
+      if (!active) return;
       setData({
-        clients: JSON.parse(localStorage.getItem('cv_studio_clients') || '[]'),
-        transactions: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'),
+        clients: db.clients || [],
+        transactions: db.transactions || [],
         equipment,
         balances: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario":0,"empresa":0,"reserva":0}'),
         config: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario":35,"empresa":45,"reserva":20}'),
@@ -315,12 +319,13 @@ export default function Precificacao() {
       }));
     };
 
-    loadData();
+    setTimeout(() => { void loadData(); }, 0);
     window.addEventListener('focus', loadData);
-    window.addEventListener('storage', loadData);
+    const unsubscribe = subscribeDbUpdates(loadData);
     return () => {
+      active = false;
       window.removeEventListener('focus', loadData);
-      window.removeEventListener('storage', loadData);
+      unsubscribe();
     };
   }, []);
 

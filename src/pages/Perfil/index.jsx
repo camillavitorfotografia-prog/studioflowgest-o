@@ -13,8 +13,9 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { FINANCE_STORAGE_KEYS, formatCurrency, getTransactionDate, getTransactionValue, isIncome, parseCurrency } from '../../utils/financeEngine';
+import { formatCurrency, getTransactionDate, getTransactionValue, isIncome, parseCurrency } from '../../utils/financeEngine';
 import { capitalizeName, maskCurrency, maskPhone } from '../../utils/masks';
+import { getDbStudioData, loadProfileFromDb, saveProfileToDb, subscribeDbUpdates } from '../../utils/dbData';
 
 const PROFILE_KEY = 'cv_perfil_data';
 const PHOTO_KEY = 'cv_foto_perfil';
@@ -84,21 +85,63 @@ const defaultProfile = {
   },
 };
 
-const migrateProfile = (saved = {}) => ({
-  ...defaultProfile,
-  ...saved,
-  empresaNome: saved.empresaNome || saved.studio || defaultProfile.empresaNome,
-  nomeFantasia: saved.nomeFantasia || saved.studio || defaultProfile.nomeFantasia,
-  responsavelNome: saved.responsavelNome || saved.nome || defaultProfile.responsavelNome,
-  telefone: saved.telefone || defaultProfile.telefone,
-  email: saved.email || defaultProfile.email,
-  cnpj: saved.cnpj || defaultProfile.cnpj,
-  cep: saved.cep || defaultProfile.cep,
-  rua: saved.rua || saved.endereco || defaultProfile.rua,
-  bairro: saved.bairro || defaultProfile.bairro,
-  cidade: saved.cidade || defaultProfile.cidade,
-  estado: saved.estado || defaultProfile.estado,
-  assinaturas: { ...defaultProfile.assinaturas, ...(saved.assinaturas || {}) },
+const migrateProfile = (saved = {}) => {
+  const redesSociais = saved.redesSociais || {};
+  const pix = saved.pix || {};
+  const configuracoes = saved.configuracoes || {};
+
+  return {
+    ...defaultProfile,
+    ...saved,
+    empresaNome: saved.empresaNome || saved.nomeEmpresa || saved.studio || defaultProfile.empresaNome,
+    nomeFantasia: saved.nomeFantasia || saved.studio || defaultProfile.nomeFantasia,
+    responsavelNome: saved.responsavelNome || saved.nome || defaultProfile.responsavelNome,
+    telefone: saved.telefone || defaultProfile.telefone,
+    email: saved.email || defaultProfile.email,
+    cnpj: saved.cnpj || defaultProfile.cnpj,
+    cep: saved.cep || defaultProfile.cep,
+    rua: saved.rua || saved.endereco || defaultProfile.rua,
+    bairro: saved.bairro || defaultProfile.bairro,
+    cidade: saved.cidade || defaultProfile.cidade,
+    estado: saved.estado || defaultProfile.estado,
+    pixTipo: saved.pixTipo || pix.tipo || defaultProfile.pixTipo,
+    pixChave: saved.pixChave || pix.chave || defaultProfile.pixChave,
+    instagram: saved.instagram || redesSociais.instagram || defaultProfile.instagram,
+    facebook: saved.facebook || redesSociais.facebook || defaultProfile.facebook,
+    youtube: saved.youtube || redesSociais.youtube || defaultProfile.youtube,
+    tiktok: saved.tiktok || redesSociais.tiktok || defaultProfile.tiktok,
+    pinterest: saved.pinterest || redesSociais.pinterest || defaultProfile.pinterest,
+    idioma: saved.idioma || configuracoes.idioma || defaultProfile.idioma,
+    formatoData: saved.formatoData || configuracoes.formatoData || defaultProfile.formatoData,
+    formatoMoeda: saved.formatoMoeda || configuracoes.formatoMoeda || defaultProfile.formatoMoeda,
+    fusoHorario: saved.fusoHorario || configuracoes.fusoHorario || defaultProfile.fusoHorario,
+    tema: saved.tema || configuracoes.tema || defaultProfile.tema,
+    assinaturas: { ...defaultProfile.assinaturas, ...(saved.assinaturas || {}) },
+  };
+};
+
+const profilePayload = (profile) => ({
+  ...profile,
+  nomeEmpresa: profile.empresaNome,
+  titular: profile.titularConta,
+  pix: {
+    tipo: profile.pixTipo,
+    chave: profile.pixChave,
+  },
+  redesSociais: {
+    instagram: profile.instagram,
+    facebook: profile.facebook,
+    youtube: profile.youtube,
+    tiktok: profile.tiktok,
+    pinterest: profile.pinterest,
+  },
+  configuracoes: {
+    idioma: profile.idioma,
+    formatoData: profile.formatoData,
+    formatoMoeda: profile.formatoMoeda,
+    fusoHorario: profile.fusoHorario,
+    tema: profile.tema,
+  },
 });
 
 const loadProfile = () => {
@@ -135,12 +178,12 @@ const maskCnpj = (value) => {
 };
 
 const normalizeInstagram = (value) => {
-  const clean = value.replace(/[^a-zA-Z0-9._]/g, '').replace(/^@+/, '');
+  const clean = String(value || '').replace(/[^a-zA-Z0-9._]/g, '').replace(/^@+/, '');
   return clean ? `@${clean}` : '';
 };
 
 const normalizeSite = (value) => {
-  const clean = value.trim();
+  const clean = String(value || '').trim();
   if (!clean) return '';
   if (/^https?:\/\//i.test(clean)) return clean;
   return `https://${clean}`;
@@ -162,8 +205,7 @@ export default function Perfil() {
   const [formData, setFormData] = useState(savedProfile);
   const [fotoPerfil, setFotoPerfil] = useState(() => localStorage.getItem(PHOTO_KEY) || null);
   const [errors, setErrors] = useState({});
-
-  // Estado dinâmico para gerenciar dados externos compartilhados com outros módulos
+  const [isSaving, setIsSaving] = useState(false);
   const [externalData, setExternalData] = useState({
     clients: [],
     equipment: [],
@@ -171,29 +213,45 @@ export default function Perfil() {
   });
 
   useEffect(() => {
-    const syncData = () => {
-      setSavedProfile(loadProfile());
+    let active = true;
+    const syncData = async () => {
+      const localProfile = loadProfile();
+      setSavedProfile(localProfile);
       try {
+        const [dbProfile, db] = await Promise.all([
+          loadProfileFromDb().catch((error) => {
+            console.error('Falha ao carregar perfil do banco:', error.message);
+            return null;
+          }),
+          getDbStudioData(),
+        ]);
+        if (!active) return;
+        if (dbProfile) {
+          const migratedProfile = migrateProfile(dbProfile);
+          localStorage.setItem(PROFILE_KEY, JSON.stringify(migratedProfile));
+          setSavedProfile(migratedProfile);
+          setFormData(migratedProfile);
+        }
         setExternalData({
-          clients: JSON.parse(localStorage.getItem('cv_studio_clients') || '[]'),
-          equipment: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'),
-          transactions: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'),
+          clients: db.clients || [],
+          equipment: db.equipment || [],
+          transactions: db.transactions || [],
         });
       } catch (e) {
         console.error('Falha ao ler sincronização de dados do perfil:', e);
       }
     };
 
-    syncData();
+    setTimeout(() => { void syncData(); }, 0);
     window.addEventListener('focus', syncData);
-    window.addEventListener('storage', syncData);
+    const unsubscribe = subscribeDbUpdates(syncData);
     return () => {
+      active = false;
       window.removeEventListener('focus', syncData);
-      window.removeEventListener('storage', syncData);
+      unsubscribe();
     };
   }, []);
 
-  // Recalcula indicadores se houver mutações no storage ou no formulário salvo
   const stats = useMemo(() => {
     return buildCompanyStats(externalData.clients, externalData.equipment, externalData.transactions);
   }, [externalData]);
@@ -246,25 +304,33 @@ export default function Perfil() {
     return nextErrors;
   };
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
     const nextErrors = validate();
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
       return;
     }
 
-    const normalized = {
-      ...formData,
-      site: normalizeSite(formData.site),
-      instagram: normalizeInstagram(formData.instagram),
-      facebook: normalizeInstagram(formData.facebook),
-      tiktok: normalizeInstagram(formData.tiktok),
-    };
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(normalized));
-    setFormData(normalized);
-    setSavedProfile(normalized);
-    setErrors({});
-    window.dispatchEvent(new Event('storage'));
+    setIsSaving(true);
+    try {
+      const normalized = profilePayload({
+        ...formData,
+        site: normalizeSite(formData.site),
+        instagram: normalizeInstagram(formData.instagram),
+        facebook: normalizeInstagram(formData.facebook),
+        tiktok: normalizeInstagram(formData.tiktok),
+      });
+      const saved = migrateProfile(await saveProfileToDb(normalized));
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(saved));
+      setFormData(saved);
+      setSavedProfile(saved);
+      setErrors({});
+      window.dispatchEvent(new Event('storage'));
+    } catch (error) {
+      console.error('Erro ao salvar perfil no Supabase:', error.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const cancelChanges = () => {
@@ -283,7 +349,7 @@ export default function Perfil() {
           <button className="sf-secondary-button" onClick={cancelChanges}>
             <X size={17} /> Cancelar
           </button>
-          <button className="sf-primary-button" onClick={saveProfile}>
+          <button className="sf-primary-button" onClick={saveProfile} disabled={isSaving}>
             <Save size={17} /> Salvar Alterações
           </button>
         </div>
@@ -457,7 +523,6 @@ function buildCompanyStats(clients = [], equipment = [], transactions = []) {
     const payments = client.pagamentos || [];
     return sum + payments.reduce((total, payment) => {
       if (!payment.data) return total;
-      // Normalização de string para evitar mutações de data por fuso horário
       const safeDateStr = String(payment.data).replace(/-/g, '/');
       const date = new Date(safeDateStr);
       const year = !Number.isNaN(date.getTime()) ? date.getFullYear() : currentYear;

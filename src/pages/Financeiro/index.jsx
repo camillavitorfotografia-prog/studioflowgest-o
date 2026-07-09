@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import Modal from '../../components/Modal';
-import { getStudioData } from '../../utils/integratedData';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { supabase } from '../../utils/supabase';
 import Despesas from './Despesas';
 import {
   FINANCE_STORAGE_KEYS,
@@ -79,27 +80,30 @@ function useFinanceData() {
   const [saldos, setSaldos] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
   );
-  const [studio, setStudio] = useState(() => getStudioData());
-  const [transacoes, setTransacoes] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'));
-  const [equipamentos, setEquipamentos] = useState(() => JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'));
+  const [studio, setStudio] = useState({ projects: [], clients: [], transactions: [], equipment: [] });
+  const [transacoes, setTransacoes] = useState([]);
+  const [equipamentos, setEquipamentos] = useState([]);
 
   useEffect(() => {
-    const loadAll = () => {
+    let active = true;
+    const loadAll = async () => {
       setFinancasConfig(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'));
       setSaldos(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'));
-      setStudio(getStudioData());
-      setTransacoes(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'));
-      setEquipamentos(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.equipment) || '[]'));
+      const db = await getDbStudioData();
+      if (!active) return;
+      setStudio(db);
+      setTransacoes(db.transactions || []);
+      setEquipamentos(db.equipment || []);
     };
 
+    setTimeout(() => { void loadAll(); }, 0);
     window.addEventListener('focus', loadAll);
-    window.addEventListener('storage', loadAll);
-    window.addEventListener('sf_storage_update', loadAll);
+    const unsubscribe = subscribeDbUpdates(loadAll);
 
     return () => {
+      active = false;
       window.removeEventListener('focus', loadAll);
-      window.removeEventListener('storage', loadAll);
-      window.removeEventListener('sf_storage_update', loadAll);
+      unsubscribe();
     };
   }, []);
 
@@ -232,29 +236,20 @@ function FinanceDashboard() {
       empresa: Number(saldos.empresa || 0) + distribution.empresa,
       reserva: Number(saldos.reserva || 0) + distribution.reserva,
     };
-    const transactions = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]');
-
     ledger[currentMonth] = alreadyDistributed + delta;
     localStorage.setItem(FINANCE_STORAGE_KEYS.distributionLedger, JSON.stringify(ledger));
     localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(nextBalances));
-    localStorage.setItem(
-      FINANCE_STORAGE_KEYS.transactions,
-      JSON.stringify([
-        ...transactions,
-        {
-          id: `regra-tres-${Date.now()}`,
-          descricao: 'Regra dos Três',
-          valor: delta,
-          tipo: 'distribuicao',
-          tipoGeral: 'Movimentacao Interna',
-          detalhes: distribution,
-          data: new Date().toISOString().slice(0, 10),
-        },
-      ]),
-    );
+    supabase.from('financas').upsert([{
+      id: `regra-tres-${currentMonth}`,
+      descricao: 'Regra dos Tres',
+      valor: delta,
+      tipo: 'distribuicao',
+      tipo_geral: 'Movimentacao Interna',
+      detalhes: distribution,
+      data: new Date().toISOString().slice(0, 10),
+      updated_at: new Date().toISOString(),
+    }], { onConflict: 'id' }).then(() => window.dispatchEvent(new Event('sf_storage_update')));
     setSaldos(nextBalances);
-    window.dispatchEvent(new Event('storage'));
-    window.dispatchEvent(new Event('sf_storage_update'));
   }, [receitaBruta, financasConfig, saldos, setSaldos]);
 
   return (

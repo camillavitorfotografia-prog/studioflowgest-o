@@ -9,7 +9,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
-import { getStudioData } from '../../utils/integratedData';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { supabase } from '../../utils/supabase';
 import { maskCurrency } from '../../utils/masks';
 import {
   FINANCE_STORAGE_KEYS,
@@ -71,9 +72,7 @@ const labelStyle = {
 };
 
 export default function Despesas({ area = 'fixa' }) {
-  const [transacoes, setTransacoes] = useState(() =>
-    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.transactions) || '[]'),
-  );
+  const [transacoes, setTransacoes] = useState([]);
   const [saldos, setSaldos] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
   );
@@ -82,15 +81,32 @@ export default function Despesas({ area = 'fixa' }) {
   );
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [studio, setStudio] = useState(() => getStudioData());
-  const [formData, setFormData] = useState({ ...emptyForm, tipo: area, projectId: getStudioData().projects[0]?.id || '' });
+  const [studio, setStudio] = useState({ projects: [] });
+  const [formData, setFormData] = useState({ ...emptyForm, tipo: area, projectId: '' });
 
   useEffect(() => {
-    setStudio(getStudioData());
-    localStorage.setItem(FINANCE_STORAGE_KEYS.transactions, JSON.stringify(transacoes));
+    let active = true;
+    const load = async () => {
+      const db = await getDbStudioData();
+      if (!active) return;
+      setStudio(db);
+      setTransacoes(db.transactions || []);
+      setFormData((current) => ({ ...current, projectId: current.projectId || db.projects?.[0]?.id || '' }));
+    };
+    setTimeout(() => { void load(); }, 0);
+    const unsubscribe = subscribeDbUpdates(load);
+    window.addEventListener('focus', load);
+    return () => {
+      active = false;
+      unsubscribe();
+      window.removeEventListener('focus', load);
+    };
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(saldos));
     localStorage.setItem(FINANCE_STORAGE_KEYS.replacement, reposicao.toString());
-  }, [transacoes, saldos, reposicao]);
+  }, [saldos, reposicao]);
 
   const despesas = useMemo(
     () => transacoes.filter((item) => item.tipoGeral === 'Saida' && item.tipo === area),
@@ -133,8 +149,7 @@ export default function Despesas({ area = 'fixa' }) {
 
   const openCreateModal = () => {
     setEditingId(null);
-    setStudio(getStudioData());
-    setFormData({ ...emptyForm, tipo: area, status: area === 'fixa' ? 'Pendente' : 'Pago', projectId: getStudioData().projects[0]?.id || '' });
+    setFormData({ ...emptyForm, tipo: area, status: area === 'fixa' ? 'Pendente' : 'Pago', projectId: studio.projects[0]?.id || '' });
     setModalOpen(true);
   };
 
@@ -184,7 +199,7 @@ export default function Despesas({ area = 'fixa' }) {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const saveExpense = () => {
+  const saveExpense = async () => {
     const value = parseCurrency(formData.valor);
     const description = area === 'fixa' ? formData.nome : formData.descricao;
     if (!description || value <= 0) {
@@ -215,58 +230,75 @@ export default function Despesas({ area = 'fixa' }) {
     const shouldChargeNow = !editingId && (area === 'variavel' || baseExpense.status === 'Pago');
     if (shouldChargeNow && updateBalance(value, formData.contaOrigem) === null) return;
 
+    const toDbPayload = (expense) => ({
+      id: String(expense.id),
+      project_id: expense.projectId,
+      descricao: expense.descricao,
+      nome: expense.nome,
+      categoria: expense.categoria,
+      valor: expense.valor,
+      data: expense.data,
+      data_vencimento: expense.dataVencimento,
+      tipo: expense.tipo,
+      tipo_geral: expense.tipoGeral,
+      status: expense.status,
+      forma_pagamento: expense.formaPagamento,
+      conta_origem: expense.contaOrigem,
+      fornecedor: expense.fornecedor,
+      evento_relacionado: expense.eventoRelacionado,
+      observacoes: expense.observacoes,
+      updated_at: new Date().toISOString(),
+    });
+
     if (editingId) {
-      const editRecurrence = baseExpense.recurrenceId
-        ? window.confirm('Deseja aplicar esta edicao a recorrencia futura tambem?')
-        : false;
-      setTransacoes((current) =>
-        current.map((item) => {
-          if (item.id === editingId) return { ...item, ...baseExpense };
-          if (editRecurrence && item.recurrenceId === baseExpense.recurrenceId && getTransactionStatus(item) !== 'Pago') {
-            return {
-              ...item,
-              categoria: baseExpense.categoria,
-              valor: baseExpense.valor,
-              formaPagamento: baseExpense.formaPagamento,
-              observacoes: baseExpense.observacoes,
-              fornecedor: baseExpense.fornecedor,
-            };
-          }
-          return item;
-        }),
-      );
+      const { error } = await supabase.from('financas').update(toDbPayload(baseExpense)).eq('id', String(editingId));
+      if (error) {
+        console.error('Erro ao salvar lancamento:', error.message);
+        return;
+      }
     } else {
-      const newEntries =
-        area === 'fixa' ? gerarLancamentosRecorrentes(baseExpense) : [{ ...baseExpense, status: baseExpense.status || 'Pago' }];
-      setTransacoes((current) => [...current, ...newEntries]);
+      const newEntries = area === 'fixa' ? gerarLancamentosRecorrentes(baseExpense) : [{ ...baseExpense, status: baseExpense.status || 'Pago' }];
+      const { error } = await supabase.from('financas').insert(newEntries.map(toDbPayload));
+      if (error) {
+        console.error('Erro ao criar lancamento:', error.message);
+        return;
+      }
       maybeCreateEquipment(baseExpense);
     }
 
+    const db = await getDbStudioData();
+    setTransacoes(db.transactions || []);
     setModalOpen(false);
+    window.dispatchEvent(new Event('sf_storage_update'));
   };
 
-  const removeExpense = (expense) => {
+  const removeExpense = async (expense) => {
     const isRecurring = Boolean(expense.recurrenceId);
     const message = isRecurring
       ? 'Deseja cancelar esta recorrencia futura? O historico pago sera preservado.'
       : 'Deseja remover esta despesa? O saldo nao sera devolvido automaticamente.';
     if (!window.confirm(message)) return;
 
-    setTransacoes((current) =>
-      current.filter((item) => {
-        if (!isRecurring) return item.id !== expense.id;
-        if (item.recurrenceId !== expense.recurrenceId) return true;
-        return getTransactionStatus(item) === 'Pago' || item.id === expense.id;
-      }),
-    );
+    if (!isRecurring) {
+      const { error } = await supabase.from('financas').delete().eq('id', String(expense.id));
+      if (error) console.error('Erro ao remover despesa:', error.message);
+    } else {
+      const future = transacoes.filter((item) => item.recurrenceId === expense.recurrenceId && getTransactionStatus(item) !== 'Pago' && item.id !== expense.id);
+      await Promise.all(future.map((item) => supabase.from('financas').delete().eq('id', String(item.id))));
+    }
+    const db = await getDbStudioData();
+    setTransacoes(db.transactions || []);
+    window.dispatchEvent(new Event('sf_storage_update'));
   };
 
-  const markAsPaid = (expense) => {
+  const markAsPaid = async (expense) => {
     const value = getTransactionValue(expense);
     if (updateBalance(value, expense.contaOrigem || 'empresa') === null) return;
-    setTransacoes((current) =>
-      current.map((item) => (item.id === expense.id ? { ...item, status: 'Pago', dataPagamento: new Date().toISOString() } : item)),
-    );
+    const { error } = await supabase.from('financas').update({ status: 'Pago', data_pagamento: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', String(expense.id));
+    if (error) console.error('Erro ao marcar como pago:', error.message);
+    const db = await getDbStudioData();
+    setTransacoes(db.transactions || []);
+    window.dispatchEvent(new Event('sf_storage_update'));
   };
 
   const categories = area === 'fixa' ? FIXED_EXPENSE_CATEGORIES : VARIABLE_EXPENSE_CATEGORIES;
