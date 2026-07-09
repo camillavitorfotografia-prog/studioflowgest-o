@@ -3,11 +3,26 @@ import { Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from '../utils/supabase';
 
+const wait = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
 export default function AuthCallback() {
   const [status, setStatus] = useState('loading');
 
   useEffect(() => {
     let isMounted = true;
+
+    const getSessionWithRetry = async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (data.session?.user) return data.session;
+        await wait(250);
+      }
+
+      return null;
+    };
 
     const processSession = async () => {
       console.log('auth callback iniciado');
@@ -28,16 +43,13 @@ export default function AuthCallback() {
 
           if (exchangeError) {
             console.error('exchangeCodeForSession erro', exchangeError.message);
-            if (isMounted) setStatus('unauthenticated');
-            return;
           }
         }
 
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
+        const session = await getSessionWithRetry();
 
         if (!isMounted) return;
-        if (data.session?.user) {
+        if (session?.user) {
           console.log('sessão encontrada');
           setStatus('authenticated');
           return;
