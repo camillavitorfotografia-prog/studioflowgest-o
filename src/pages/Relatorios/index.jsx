@@ -2,6 +2,7 @@
 import { BarChart3, BriefcaseBusiness, DollarSign, Package, TrendingUp, Users } from 'lucide-react';
 import { formatMoney } from '../../utils/integratedData';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import './Relatorios.css';
 
 const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -120,7 +121,7 @@ export default function Relatorios() {
   }, [studio]);
 
   return (
-    <div className="sf-finance-section">
+    <div className="sf-finance-section sf-reports-page">
       <div className="sf-section-header">
         <div>
           <h1>Relatórios Consolidados</h1>
@@ -128,14 +129,14 @@ export default function Relatorios() {
         </div>
       </div>
 
-      <div className="sf-metric-grid">
+      <div className="sf-metric-grid sf-reports-metrics">
         <Metric icon={BriefcaseBusiness} label="Projetos" value={reports.projectsCount} raw />
         <Metric icon={DollarSign} label="Receita contratada" value={reports.totalRevenue} />
         <Metric icon={TrendingUp} label="Receita recebida" value={reports.totalReceived} />
         <Metric icon={BarChart3} label="Lucro consolidado" value={reports.totalProfit} />
       </div>
 
-      <div className="sf-report-grid">
+      <div className="sf-report-grid sf-reports-summary-grid">
         <Report title="Serviço mais lucrativo" rows={reports.mostProfitableService ? [[reports.mostProfitableService[0], formatMoney(reports.mostProfitableService[1])]] : []} />
         <Report title="Tipo de ensaio mais vendido" rows={reports.mostSoldEssay ? [[reports.mostSoldEssay[0], formatMoney(reports.mostSoldEssay[1])]] : []} />
         <Report title="Casamentos realizados" rows={[[`${reports.weddings} contratos assinados`, '']]} />
@@ -146,7 +147,7 @@ export default function Relatorios() {
         <Report title="Equipamento de melhor ROI" rows={reports.equipmentBestReturn ? [[reports.equipmentBestReturn[0], formatMoney(reports.equipmentBestReturn[1].retorno)]] : []} />
       </div>
 
-      <div className="sf-panel-grid">
+      <div className="sf-panel-grid sf-reports-table-grid">
         <TableCard title="Faturamento por mês" icon={DollarSign} rows={reports.revenueByMonth.map((item) => [item.mes, formatMoney(item.receita), formatMoney(item.lucro)])} columns={['Mês', 'Receita', 'Lucro Real']} />
         <TableCard title="Rentabilidade por contrato" icon={Users} rows={reports.profitByProject.slice(0, 8).map(([name, value]) => [name, formatMoney(value)])} columns={['Projeto / Cliente', 'Lucro Líquido']} />
         <TableCard title="Margem média por serviço" icon={TrendingUp} rows={reports.marginByService.map(([name, value]) => [name, `${value.toFixed(1)}%`])} columns={['Linha de Serviço', 'Margem Operacional']} />
@@ -158,7 +159,7 @@ export default function Relatorios() {
 
 function Metric({ icon: Icon, label, value, raw = false }) {
   return (
-    <div className="sf-card metric">
+    <div className="sf-card metric sf-report-metric">
       <div className="metric-label"><Icon size={18} /> {label}</div>
       <strong>{raw ? value : formatMoney(value)}</strong>
     </div>
@@ -167,7 +168,7 @@ function Metric({ icon: Icon, label, value, raw = false }) {
 
 function Report({ title, rows }) {
   return (
-    <div className="sf-card report">
+    <div className="sf-card report sf-report-summary-card">
       <h3>{title}</h3>
       {rows.length === 0 && <p className="sf-muted">Nenhum registro computado.</p>}
       {rows.map(([label, value]) => (
@@ -182,8 +183,8 @@ function Report({ title, rows }) {
 
 function TableCard({ title, icon: Icon, columns, rows }) {
   return (
-    <div className="sf-table-card">
-      <div style={{ padding: '20px 20px 4px' }}>
+    <div className="sf-table-card sf-report-table-card">
+      <div className="sf-report-table-heading" style={{ padding: '20px 20px 4px' }}>
         <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.05rem', margin: 0, fontWeight: 600, color: 'var(--text-main)' }}>
           <Icon size={18} style={{ color: '#c5a059' }} /> {title}
         </h3>

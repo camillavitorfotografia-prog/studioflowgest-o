@@ -16,11 +16,14 @@ import {
   FINANCE_STORAGE_KEYS,
   FIXED_EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
+  PAYMENT_DISTRIBUTION_ROW_TYPE,
   VARIABLE_EXPENSE_CATEGORIES,
   createEquipmentFromExpense,
+  buildPaymentDistributionLedger,
   formatCurrency,
   gerarLancamentosRecorrentes,
   getTransactionDate,
+  getFinancialAccountsSummary,
   getTransactionStatus,
   getTransactionValue,
   groupBySum,
@@ -71,11 +74,14 @@ const labelStyle = {
   fontWeight: '600',
 };
 
+const mergeFinancialTransactions = (db) => [
+  ...(db.transactions || []).filter((item) => item.tipo !== PAYMENT_DISTRIBUTION_ROW_TYPE),
+  ...buildPaymentDistributionLedger(db.projects || []),
+];
+
 export default function Despesas({ area = 'fixa' }) {
   const [transacoes, setTransacoes] = useState([]);
-  const [saldos, setSaldos] = useState(() =>
-    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
-  );
+  const [saldos, setSaldos] = useState({ salario: 0, empresa: 0, reserva: 0 });
   const [reposicao, setReposicao] = useState(() =>
     parseFloat(localStorage.getItem(FINANCE_STORAGE_KEYS.replacement) || '0'),
   );
@@ -89,8 +95,11 @@ export default function Despesas({ area = 'fixa' }) {
     const load = async () => {
       const db = await getDbStudioData();
       if (!active) return;
+      const transactions = mergeFinancialTransactions(db);
       setStudio(db);
-      setTransacoes(db.transactions || []);
+      setTransacoes(transactions);
+      const accounts = getFinancialAccountsSummary(transactions);
+      setSaldos({ salario: accounts.salario.saldo, empresa: accounts.empresa.saldo, reserva: accounts.reserva.saldo });
       setFormData((current) => ({ ...current, projectId: current.projectId || db.projects?.[0]?.id || '' }));
     };
     setTimeout(() => { void load(); }, 0);
@@ -104,9 +113,8 @@ export default function Despesas({ area = 'fixa' }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(saldos));
     localStorage.setItem(FINANCE_STORAGE_KEYS.replacement, reposicao.toString());
-  }, [saldos, reposicao]);
+  }, [reposicao]);
 
   const despesas = useMemo(
     () => transacoes.filter((item) => item.tipoGeral === 'Saida' && item.tipo === area),
@@ -168,23 +176,24 @@ export default function Despesas({ area = 'fixa' }) {
     setModalOpen(true);
   };
 
-  const updateBalance = (value, account) => {
-    const nextBalances = { ...saldos };
-    if (nextBalances[account] < value) {
+  const validateBalance = (value, account, existingCredit = 0) => {
+    const available = Number(saldos[account] || 0) + Number(existingCredit || 0);
+    if (available < value) {
       const confirmed = window.confirm(
         `O saldo da conta "${account}" e menor que a despesa. Deseja continuar e deixar o saldo negativo?`,
       );
       if (!confirmed) return null;
     }
-    nextBalances[account] -= value;
-    setSaldos(nextBalances);
 
     if (account === 'reserva') {
-      setReposicao((current) => current + value);
-      alert(`Atencao: ${formatCurrency(value)} saiu da Reserva e entrou nas obrigacoes de reposicao.`);
+      const netReserveExit = Math.max(0, value - Number(existingCredit || 0));
+      if (netReserveExit > 0) {
+        setReposicao((current) => current + netReserveExit);
+        alert(`Atencao: ${formatCurrency(netReserveExit)} saiu da Reserva e entrou nas obrigacoes de reposicao.`);
+      }
     }
 
-    return nextBalances;
+    return true;
   };
 
   const maybeCreateEquipment = (expense) => {
@@ -227,8 +236,14 @@ export default function Despesas({ area = 'fixa' }) {
       updatedAt: new Date().toISOString(),
     };
 
-    const shouldChargeNow = !editingId && (area === 'variavel' || baseExpense.status === 'Pago');
-    if (shouldChargeNow && updateBalance(value, formData.contaOrigem) === null) return;
+    const existingExpense = editingId ? transacoes.find((item) => String(item.id) === String(editingId)) : null;
+    const shouldChargeNow = area === 'variavel' || baseExpense.status === 'Pago';
+    const existingCredit = existingExpense
+      && getTransactionStatus(existingExpense) === 'Pago'
+      && (existingExpense.contaOrigem || 'empresa') === formData.contaOrigem
+      ? getTransactionValue(existingExpense)
+      : 0;
+    if (shouldChargeNow && validateBalance(value, formData.contaOrigem, existingCredit) === null) return;
 
     const toDbPayload = (expense) => ({
       id: String(expense.id),
@@ -247,6 +262,9 @@ export default function Despesas({ area = 'fixa' }) {
       fornecedor: expense.fornecedor,
       evento_relacionado: expense.eventoRelacionado,
       observacoes: expense.observacoes,
+      recurrence_id: expense.recurrenceId || null,
+      recurrence_index: expense.recurrenceIndex ?? null,
+      recorrente: Boolean(expense.recorrente),
       updated_at: new Date().toISOString(),
     });
 
@@ -267,7 +285,10 @@ export default function Despesas({ area = 'fixa' }) {
     }
 
     const db = await getDbStudioData();
-    setTransacoes(db.transactions || []);
+    const transactions = mergeFinancialTransactions(db);
+    setTransacoes(transactions);
+    const accounts = getFinancialAccountsSummary(transactions);
+    setSaldos({ salario: accounts.salario.saldo, empresa: accounts.empresa.saldo, reserva: accounts.reserva.saldo });
     setModalOpen(false);
     window.dispatchEvent(new Event('sf_storage_update'));
   };
@@ -276,7 +297,7 @@ export default function Despesas({ area = 'fixa' }) {
     const isRecurring = Boolean(expense.recurrenceId);
     const message = isRecurring
       ? 'Deseja cancelar esta recorrencia futura? O historico pago sera preservado.'
-      : 'Deseja remover esta despesa? O saldo nao sera devolvido automaticamente.';
+      : 'Deseja remover esta despesa? A saida deixara de compor o saldo da conta.';
     if (!window.confirm(message)) return;
 
     if (!isRecurring) {
@@ -287,17 +308,23 @@ export default function Despesas({ area = 'fixa' }) {
       await Promise.all(future.map((item) => supabase.from('financas').delete().eq('id', String(item.id))));
     }
     const db = await getDbStudioData();
-    setTransacoes(db.transactions || []);
+    const transactions = mergeFinancialTransactions(db);
+    setTransacoes(transactions);
+    const accounts = getFinancialAccountsSummary(transactions);
+    setSaldos({ salario: accounts.salario.saldo, empresa: accounts.empresa.saldo, reserva: accounts.reserva.saldo });
     window.dispatchEvent(new Event('sf_storage_update'));
   };
 
   const markAsPaid = async (expense) => {
     const value = getTransactionValue(expense);
-    if (updateBalance(value, expense.contaOrigem || 'empresa') === null) return;
+    if (validateBalance(value, expense.contaOrigem || 'empresa') === null) return;
     const { error } = await supabase.from('financas').update({ status: 'Pago', data_pagamento: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', String(expense.id));
     if (error) console.error('Erro ao marcar como pago:', error.message);
     const db = await getDbStudioData();
-    setTransacoes(db.transactions || []);
+    const transactions = mergeFinancialTransactions(db);
+    setTransacoes(transactions);
+    const accounts = getFinancialAccountsSummary(transactions);
+    setSaldos({ salario: accounts.salario.saldo, empresa: accounts.empresa.saldo, reserva: accounts.reserva.saldo });
     window.dispatchEvent(new Event('sf_storage_update'));
   };
 

@@ -11,6 +11,7 @@ import { inputToDate } from '../../utils/masks';
 import { parseCurrency } from '../../utils/formatters';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 import { useKeyboardShortcuts, AutoSaveIndicator } from '../../components/PremiumUXKit';
+import './CRM.css';
 
 const leadPayload = (leadData, now) => ({
   nome: leadData.nome || '',
@@ -239,9 +240,9 @@ export default function CRM() {
   }, [leads]);
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', backgroundColor: '#050505', color: '#fff', padding: '24px', boxSizing: 'border-box' }}>
-      <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '18px', marginBottom: '32px', flexWrap: 'wrap' }}>
+    <div className="crm-responsive-page" style={{ width: '100%', minHeight: '100vh', backgroundColor: '#050505', color: '#fff', padding: '24px', boxSizing: 'border-box' }}>
+      <div className="crm-responsive-inner" style={{ maxWidth: '1600px', margin: '0 auto' }}>
+        <header className="crm-responsive-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '18px', marginBottom: '32px', flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: '24px', margin: 0 }}>
               CRM - Pipeline Comercial <AutoSaveIndicator state={saveStatus} />
@@ -251,6 +252,7 @@ export default function CRM() {
             </p>
           </div>
           <button
+            className="crm-new-lead-button"
             onClick={() => {
               setEditingLead(null);
               setIsModalOpen(true);

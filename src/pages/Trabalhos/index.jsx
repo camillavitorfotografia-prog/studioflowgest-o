@@ -1,9 +1,27 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { Calendar, CalendarCheck, DollarSign, MoreVertical, Package, Smartphone } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Calendar,
+  CalendarCheck,
+  DollarSign,
+  Edit3,
+  Eye,
+  MoreVertical,
+  Package,
+  Smartphone,
+  Trash2,
+} from 'lucide-react';
+import Modal from '../../components/Modal';
 import { formatMoney } from '../../utils/integratedData';
 import { FINANCE_STORAGE_KEYS } from '../../utils/financeEngine';
-import { getDbStudioData, subscribeDbUpdates, upsertAgendaEvent } from '../../utils/dbData';
+import {
+  deleteAgendaEvent,
+  emitDbUpdate,
+  getDbStudioData,
+  subscribeDbUpdates,
+  upsertAgendaEvent,
+} from '../../utils/dbData';
 import { supabase } from '../../utils/supabase';
+import './Trabalhos.css';
 
 const colunas = [
   { id: 'contrato_fechado', titulo: 'Contrato Fechado' },
@@ -12,18 +30,44 @@ const colunas = [
   { id: 'entregue', titulo: 'Entregue' },
 ];
 
+const uniqueProjects = (items = []) => {
+  const projectsById = new Map();
+  items.forEach((project) => {
+    if (project?.id && !projectsById.has(project.id)) projectsById.set(project.id, project);
+  });
+  return [...projectsById.values()];
+};
+
+const projectToDraft = (project) => ({
+  clienteNome: project.clienteNome || '',
+  tipoServico: project.tipoServico || '',
+  data: project.data || '',
+  horario: project.horario || '',
+  local: project.local || '',
+  valorContratado: project.valorContratado ?? 0,
+  status: project.status || 'contrato_fechado',
+});
+
 export default function Trabalhos() {
   const [projects, setProjects] = useState([]);
   const [rawProjects, setRawProjects] = useState([]);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [syncConfig, setSyncConfig] = useState({});
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [editingProject, setEditingProject] = useState(null);
+  const [projectDraft, setProjectDraft] = useState(null);
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOverColumn, setDragOverColumn] = useState(null);
+  const [savingIds, setSavingIds] = useState([]);
+  const [actionError, setActionError] = useState('');
 
   const load = useCallback(async () => {
     try {
       const studio = await getDbStudioData();
       const calendarSync = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.calendarSync) || '{}');
-      setProjects(studio.projects || []);
-      setRawProjects(studio.projects || []);
+      const loadedProjects = uniqueProjects(studio.projects || []);
+      setProjects(loadedProjects);
+      setRawProjects(loadedProjects);
       setSyncConfig(calendarSync);
     } catch (error) {
       console.error('Erro ao carregar projetos:', error);
@@ -40,116 +84,295 @@ export default function Trabalhos() {
     };
   }, [load]);
 
-  const persistProject = useCallback(async (project) => {
-    const payload = {
-      status: project.status,
-      calendario_sync: project.calendarSync || null,
-      updated_at: new Date().toISOString(),
+  const setSaving = useCallback((id, saving) => {
+    setSavingIds((current) => (
+      saving ? [...new Set([...current, id])] : current.filter((item) => item !== id)
+    ));
+  }, []);
+
+  const persistProject = useCallback(async (project, fields = {}) => {
+    const status = fields.status ?? project.status;
+    const calendarSync = fields.calendario_sync ?? project.calendarSync ?? {};
+    const horario = fields.horario ?? project.horario ?? '';
+    const local = fields.local ?? project.local ?? '';
+    const financeiro = {
+      ...(project.financeiro && typeof project.financeiro === 'object' ? project.financeiro : {}),
+      workflowStatus: status,
+      horario,
+      local,
+      calendarSync,
+      updatedAt: new Date().toISOString(),
     };
-    const { error } = await supabase.from('projetos').update(payload).eq('id', project.id);
+    const payload = {
+      financeiro,
+    };
+    if (Object.hasOwn(fields, 'tipo_servico')) payload.tipo_servico = fields.tipo_servico;
+    if (Object.hasOwn(fields, 'data')) payload.data = fields.data;
+    if (Object.hasOwn(fields, 'valor_contratado')) payload.valor_contratado = fields.valor_contratado;
+
+    const { data, error } = await supabase
+      .from('projetos')
+      .update(payload)
+      .eq('id', project.id)
+      .select('*')
+      .single();
     if (error) throw error;
-    await upsertAgendaEvent(project, project.cliente || {});
-    await setTimeout(() => { void load(); }, 0);
-  }, [load]);
+    await upsertAgendaEvent({
+      ...project,
+      status,
+      calendarSync,
+      tipoServico: fields.tipo_servico ?? project.tipoServico,
+      data: fields.data ?? project.data,
+      horario,
+      local,
+      valorContratado: fields.valor_contratado ?? project.valorContratado,
+    }, project.cliente || {});
+    emitDbUpdate();
+    return data;
+  }, []);
 
   const mudarStatus = useCallback(async (id, novoStatus) => {
     const project = rawProjects.find((item) => item.id === id);
-    if (!project) return;
-    await persistProject({ ...project, status: novoStatus });
+    if (!project || project.status === novoStatus || savingIds.includes(id)) return;
+
+    const previousProjects = projects;
+    const previousRawProjects = rawProjects;
+    const optimisticProject = { ...project, status: novoStatus };
+    const updateProject = (item) => (item.id === id ? optimisticProject : item);
+
+    setActionError('');
     setActiveMenuId(null);
-  }, [rawProjects, persistProject]);
+    setProjects((current) => uniqueProjects(current.map(updateProject)));
+    setRawProjects((current) => uniqueProjects(current.map(updateProject)));
+    setSaving(id, true);
 
-  const alternarSincronizacao = useCallback((id, provider) => {
-    const updated = rawProjects.map((project) => {
-      if (project.id !== id) return project;
-      return {
-        ...project,
-        calendarSync: {
-          google: Boolean(project.calendarSync?.google),
-          apple: Boolean(project.calendarSync?.apple),
-          [provider]: !project.calendarSync?.[provider],
-        },
-      };
-    });
+    try {
+      await persistProject(optimisticProject, { status: novoStatus });
+      await load();
+    } catch (error) {
+      console.error('Erro ao mover projeto:', error);
+      setProjects(previousProjects);
+      setRawProjects(previousRawProjects);
+      setActionError('Nao foi possivel mover o projeto. A etapa anterior foi restaurada.');
+    } finally {
+      setSaving(id, false);
+      setDraggingId(null);
+      setDragOverColumn(null);
+    }
+  }, [load, persistProject, projects, rawProjects, savingIds, setSaving]);
 
-    const project = updated.find((item) => item.id === id);
+  const alternarSincronizacao = useCallback(async (id, provider) => {
+    const project = rawProjects.find((item) => item.id === id);
+    if (!project || savingIds.includes(id)) return;
+
+    const updatedProject = {
+      ...project,
+      calendarSync: {
+        google: Boolean(project.calendarSync?.google),
+        apple: Boolean(project.calendarSync?.apple),
+        [provider]: !project.calendarSync?.[provider],
+      },
+    };
     const nextSync = {
       ...syncConfig,
       [id]: {
-        google: Boolean(project?.calendarSync?.google),
-        apple: Boolean(project?.calendarSync?.apple),
+        google: Boolean(updatedProject.calendarSync.google),
+        apple: Boolean(updatedProject.calendarSync.apple),
         providerReady: true,
         status: 'ready_for_api',
         preparedAt: new Date().toISOString(),
       },
     };
 
-    localStorage.setItem(FINANCE_STORAGE_KEYS.calendarSync, JSON.stringify(nextSync));
     setSyncConfig(nextSync);
-    if (project) persistProject(project);
-  }, [rawProjects, syncConfig, persistProject]);
+    localStorage.setItem(FINANCE_STORAGE_KEYS.calendarSync, JSON.stringify(nextSync));
+    setSaving(id, true);
+    try {
+      await persistProject(updatedProject, { calendario_sync: updatedProject.calendarSync });
+      await load();
+    } catch (error) {
+      console.error('Erro ao atualizar sincronizacao:', error);
+      setActionError('Nao foi possivel atualizar a sincronizacao do projeto.');
+    } finally {
+      setSaving(id, false);
+    }
+  }, [load, persistProject, rawProjects, savingIds, setSaving, syncConfig]);
 
-  const projectsByColumn = useMemo(() => {
-    const grouped = {
-      contrato_fechado: [],
-      fotografando: [],
-      edicao: [],
-      entregue: [],
+  const openDetails = (project) => {
+    setSelectedProject(project);
+    setActiveMenuId(null);
+  };
+
+  const openEdit = (project) => {
+    setEditingProject(project);
+    setProjectDraft(projectToDraft(project));
+    setActiveMenuId(null);
+  };
+
+  const handleSaveProject = async (event) => {
+    event.preventDefault();
+    if (!editingProject || !projectDraft || savingIds.includes(editingProject.id)) return;
+
+    const previousProjects = projects;
+    const previousRawProjects = rawProjects;
+    const editedProject = {
+      ...editingProject,
+      ...projectDraft,
+      valorContratado: Number(projectDraft.valorContratado || 0),
+    };
+    const updateProject = (item) => (item.id === editedProject.id ? editedProject : item);
+    const payload = {
+      tipo_servico: editedProject.tipoServico,
+      data: editedProject.data || null,
+      horario: editedProject.horario || null,
+      local: editedProject.local || null,
+      valor_contratado: editedProject.valorContratado,
+      status: editedProject.status,
     };
 
-    projects.forEach((project) => {
-      const status = project.status || 'contrato_fechado';
-      if (grouped[status]) grouped[status].push(project);
-      else grouped[status] = [project];
-    });
+    setActionError('');
+    setProjects((current) => uniqueProjects(current.map(updateProject)));
+    setRawProjects((current) => uniqueProjects(current.map(updateProject)));
+    setSaving(editedProject.id, true);
 
+    try {
+      await persistProject(editedProject, payload);
+      setEditingProject(null);
+      setProjectDraft(null);
+      await load();
+    } catch (error) {
+      console.error('Erro ao editar projeto:', error);
+      setProjects(previousProjects);
+      setRawProjects(previousRawProjects);
+      setActionError('Nao foi possivel salvar as alteracoes do projeto.');
+    } finally {
+      setSaving(editedProject.id, false);
+    }
+  };
+
+  const handleDeleteProject = async (project) => {
+    const confirmed = window.confirm(`Excluir o projeto de ${project.clienteNome}? Esta acao nao pode ser desfeita.`);
+    if (!confirmed) return;
+
+    const previousProjects = projects;
+    const previousRawProjects = rawProjects;
+    setActiveMenuId(null);
+    setActionError('');
+    setProjects((current) => current.filter((item) => item.id !== project.id));
+    setRawProjects((current) => current.filter((item) => item.id !== project.id));
+    setSaving(project.id, true);
+
+    try {
+      const { error } = await supabase.from('projetos').delete().eq('id', project.id);
+      if (error) throw error;
+      await deleteAgendaEvent(project.id);
+      emitDbUpdate();
+      await load();
+    } catch (error) {
+      console.error('Erro ao excluir projeto:', error);
+      setProjects(previousProjects);
+      setRawProjects(previousRawProjects);
+      setActionError('Nao foi possivel excluir o projeto. O card foi restaurado.');
+    } finally {
+      setSaving(project.id, false);
+    }
+  };
+
+  const projectsByColumn = useMemo(() => {
+    const grouped = Object.fromEntries(colunas.map((column) => [column.id, []]));
+    uniqueProjects(projects).forEach((project) => {
+      const status = grouped[project.status] ? project.status : 'contrato_fechado';
+      grouped[status].push(project);
+    });
     return grouped;
   }, [projects]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', height: '100%' }}>
+    <div className="sf-projects-page" style={{ display: 'flex', flexDirection: 'column', gap: '32px', height: '100%' }}>
       <div>
         <h1 style={{ color: 'var(--text-main)', fontSize: '2rem', fontWeight: '600' }}>Trabalhos</h1>
+        {actionError && <p className="sf-project-action-error" role="alert">{actionError}</p>}
       </div>
 
-      <div style={{ display: 'flex', gap: '20px', overflowX: 'auto', paddingBottom: '24px', flex: 1, alignItems: 'flex-start' }}>
+      <div className="sf-projects-board" style={{ display: 'flex', gap: '20px', overflowX: 'auto', paddingBottom: '24px', flex: 1, alignItems: 'flex-start' }}>
         {colunas.map((col) => (
-          <div key={col.id} style={{ minWidth: '260px', width: '260px' }}>
+          <div
+            className={`sf-projects-column${dragOverColumn === col.id ? ' drag-over' : ''}`}
+            key={col.id}
+            onDragOver={(event) => {
+              if (!draggingId) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              setDragOverColumn(col.id);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setDragOverColumn(null);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const projectId = event.dataTransfer.getData('projectId') || draggingId;
+              setDragOverColumn(null);
+              if (projectId) void mudarStatus(projectId, col.id);
+            }}
+            style={{ minWidth: '260px', width: '260px' }}
+          >
             <h3 style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
               {col.titulo}
             </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="sf-projects-card-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {(projectsByColumn[col.id] || []).map((project) => (
-                <div key={project.id} className="glass" style={{ padding: '16px', borderRadius: '10px', borderLeft: '4px solid var(--color-highlight)', position: 'relative' }}>
+                <div
+                  key={project.id}
+                  className={`glass sf-project-card${draggingId === project.id ? ' dragging' : ''}${savingIds.includes(project.id) ? ' saving' : ''}`}
+                  draggable={!savingIds.includes(project.id)}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('projectId', project.id);
+                    setDraggingId(project.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDragOverColumn(null);
+                  }}
+                  style={{ padding: '16px', borderRadius: '10px', borderLeft: '4px solid var(--color-highlight)', position: 'relative' }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'flex-start' }}>
                     <span style={{ color: 'var(--text-main)', fontWeight: '600', fontSize: '0.95rem' }}>{project.clienteNome}</span>
-                    <button onClick={() => setActiveMenuId(activeMenuId === project.id ? null : project.id)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', height: 'max-content' }}>
+                    <button
+                      type="button"
+                      aria-label={`Acoes do projeto de ${project.clienteNome}`}
+                      onClick={() => setActiveMenuId(activeMenuId === project.id ? null : project.id)}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', height: 'max-content' }}
+                    >
                       <MoreVertical size={16} color="var(--text-secondary)" />
                     </button>
                     {activeMenuId === project.id && (
-                      <div style={{ position: 'absolute', top: '32px', right: '10px', background: '#1E2127', border: '1px solid #2A2D33', borderRadius: '8px', padding: '6px', zIndex: 50, width: '180px', boxShadow: '0 8px 16px rgba(0,0,0,0.8)' }}>
-                        <div style={{ fontSize: '0.65rem', color: '#888', padding: '4px 8px', textTransform: 'uppercase', fontWeight: 'bold' }}>Mover para:</div>
+                      <div className="sf-project-menu">
+                        <button type="button" onClick={() => openDetails(project)}><Eye size={14} /> Abrir detalhes</button>
+                        <button type="button" onClick={() => openEdit(project)}><Edit3 size={14} /> Editar projeto</button>
+                        <div className="sf-project-menu-label">Mover para</div>
                         {colunas.filter((item) => item.id !== project.status).map((novaCol) => (
-                          <button key={novaCol.id} onClick={() => mudarStatus(project.id, novaCol.id)} style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#D1D5DB', padding: '8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px' }}>
+                          <button type="button" key={novaCol.id} onClick={() => void mudarStatus(project.id, novaCol.id)}>
                             {novaCol.titulo}
                           </button>
                         ))}
+                        <button type="button" className="danger" onClick={() => void handleDeleteProject(project)}><Trash2 size={14} /> Excluir projeto</button>
                       </div>
                     )}
                   </div>
 
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>{project.tipoServico}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                    <button onClick={() => alternarSincronizacao(project.id, 'google')} title="Preparar sincronizacao com Google Agenda" className={project.calendarSync?.google || syncConfig[project.id]?.google ? 'sf-sync-button active' : 'sf-sync-button'}>
+                    <button type="button" onClick={() => void alternarSincronizacao(project.id, 'google')} title="Preparar sincronizacao com Google Agenda" className={project.calendarSync?.google || syncConfig[project.id]?.google ? 'sf-sync-button active' : 'sf-sync-button'}>
                       <CalendarCheck size={13} /> Google
                     </button>
-                    <button onClick={() => alternarSincronizacao(project.id, 'apple')} title="Preparar sincronizacao com Agenda Apple iOS" className={project.calendarSync?.apple || syncConfig[project.id]?.apple ? 'sf-sync-button active' : 'sf-sync-button'}>
+                    <button type="button" onClick={() => void alternarSincronizacao(project.id, 'apple')} title="Preparar sincronizacao com Agenda Apple iOS" className={project.calendarSync?.apple || syncConfig[project.id]?.apple ? 'sf-sync-button active' : 'sf-sync-button'}>
                       <Smartphone size={13} /> Apple
                     </button>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--color-highlight)', opacity: 0.9 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12}/> {project.data || 'Sem data'}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><DollarSign size={12}/> {formatMoney(project.valorContratado)}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} /> {project.data || 'Sem data'}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><DollarSign size={12} /> {formatMoney(project.valorContratado)}</span>
                   </div>
                   <div style={{ marginTop: '10px', color: 'var(--text-secondary)', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Package size={12} /> {project.equipamentosDetalhados?.length || 0} equipamentos vinculados
@@ -160,6 +383,44 @@ export default function Trabalhos() {
           </div>
         ))}
       </div>
+
+      <Modal isOpen={Boolean(selectedProject)} onClose={() => setSelectedProject(null)} title="Detalhes do projeto">
+        {selectedProject && (
+          <div className="sf-project-details">
+            <ProjectDetail label="Cliente" value={selectedProject.clienteNome} />
+            <ProjectDetail label="Servico" value={selectedProject.tipoServico} />
+            <ProjectDetail label="Etapa" value={colunas.find((column) => column.id === selectedProject.status)?.titulo} />
+            <ProjectDetail label="Data" value={selectedProject.data || 'Nao informada'} />
+            <ProjectDetail label="Horario" value={selectedProject.horario || 'Nao informado'} />
+            <ProjectDetail label="Local" value={selectedProject.local || 'Nao informado'} />
+            <ProjectDetail label="Valor contratado" value={formatMoney(selectedProject.valorContratado)} />
+          </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={Boolean(editingProject)} onClose={() => { setEditingProject(null); setProjectDraft(null); }} title="Editar projeto">
+        {projectDraft && (
+          <form className="sf-project-edit-form" onSubmit={handleSaveProject}>
+            <label>Cliente<input value={projectDraft.clienteNome} disabled /></label>
+            <label>Servico<input required value={projectDraft.tipoServico} onChange={(event) => setProjectDraft((draft) => ({ ...draft, tipoServico: event.target.value }))} /></label>
+            <div className="sf-project-form-row">
+              <label>Data<input type="date" value={projectDraft.data} onChange={(event) => setProjectDraft((draft) => ({ ...draft, data: event.target.value }))} /></label>
+              <label>Horario<input type="time" value={projectDraft.horario} onChange={(event) => setProjectDraft((draft) => ({ ...draft, horario: event.target.value }))} /></label>
+            </div>
+            <label>Local<input value={projectDraft.local} onChange={(event) => setProjectDraft((draft) => ({ ...draft, local: event.target.value }))} /></label>
+            <label>Valor contratado<input type="number" min="0" step="0.01" value={projectDraft.valorContratado} onChange={(event) => setProjectDraft((draft) => ({ ...draft, valorContratado: event.target.value }))} /></label>
+            <label>Etapa<select value={projectDraft.status} onChange={(event) => setProjectDraft((draft) => ({ ...draft, status: event.target.value }))}>{colunas.map((column) => <option key={column.id} value={column.id}>{column.titulo}</option>)}</select></label>
+            <div className="sf-project-form-actions">
+              <button type="button" onClick={() => { setEditingProject(null); setProjectDraft(null); }}>Cancelar</button>
+              <button type="submit" className="primary" disabled={savingIds.includes(editingProject?.id)}>Salvar alteracoes</button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
+}
+
+function ProjectDetail({ label, value }) {
+  return <div><span>{label}</span><strong>{value || '-'}</strong></div>;
 }

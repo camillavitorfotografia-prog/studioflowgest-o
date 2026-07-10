@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from './supabase';
 import { parseCurrency } from './formatters';
 import { normalizeLeadStatus } from '../data/crm';
+import { isConfirmedPayment } from './financeEngine';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFILE_TABLE = 'perfil';
@@ -69,10 +70,8 @@ export const calculateProjectAmounts = (project = {}) => {
 
 export const calculatePaymentsSummary = (payments = [], total = 0) => {
   const valorTotal = normalizePaymentValue(total);
-  const ignoredStatuses = new Set(['pendente', 'cancelado', 'cancelada', 'estornado', 'estornada']);
   const valorRecebido = payments.reduce((sum, payment) => {
-    const status = String(payment.status || '').trim().toLowerCase();
-    return ignoredStatuses.has(status) ? sum : sum + normalizePaymentValue(payment.valor);
+    return isConfirmedPayment(payment) ? sum + normalizePaymentValue(payment.valor) : sum;
   }, 0);
   const valorRestante = Math.max(0, valorTotal - valorRecebido);
   return { valorTotal, valorRecebido, valorRestante };
@@ -133,6 +132,9 @@ export const mapTransactionFromDb = (transaction = {}) => ({
   formaPagamento: transaction.forma_pagamento || transaction.formaPagamento || '',
   contaOrigem: transaction.conta_origem || transaction.contaOrigem || 'empresa',
   detalhes: transaction.detalhes || {},
+  recurrenceId: transaction.recurrence_id || transaction.recurrenceId || '',
+  recurrenceIndex: transaction.recurrence_index ?? transaction.recurrenceIndex ?? null,
+  recorrente: Boolean(transaction.recorrente),
 });
 
 export const mapProjectFromDb = (project = {}, clients = [], transactions = []) => {
@@ -160,13 +162,14 @@ export const mapProjectFromDb = (project = {}, clients = [], transactions = []) 
     cliente: client,
     tipoServico: project.tipo_servico || project.servico || project.tipoServico || project.tipoTrabalho || 'Evento',
     categoria: project.categoria || project.tipo_servico || project.servico || project.tipoServico || 'Evento',
-    status: project.status || 'contrato_fechado',
+    status: project.status || project.financeiro?.workflowStatus || project.financeiro?.statusProjeto || 'contrato_fechado',
+    calendarSync: project.calendario_sync || project.calendarSync || project.financeiro?.calendarSync || {},
     valorContratado: total,
     valorRecebido: paid,
     saldoRestante: remaining,
     data: project.data || project.data_trabalho || project.dataTrabalho || '',
-    horario: project.horario || '',
-    local: project.local || client.cidade || '',
+    horario: project.horario || project.financeiro?.horario || '',
+    local: project.local || project.financeiro?.local || client.cidade || '',
     receitas: payments,
     pagamentos: payments,
     historicoPagamentos: payments,
@@ -455,16 +458,37 @@ export const convertLeadToClientProject = async (lead) => {
   });
   const { data: projectCandidates, error: projectLookupError } = await supabase
     .from('projetos')
-    .select('*')
-    .eq('cliente_id', client.id);
+    .select('*');
   if (projectLookupError) throw projectLookupError;
-  const existingProject = (projectCandidates || []).find((project) => (
-    project.financeiro?.crmLeadId === mappedLead.id
-  ));
+  const normalizedService = String(mappedLead.tipoServico || '').trim().toLowerCase();
+  const normalizedEventDate = String(mappedLead.dataEvento || '').slice(0, 10);
+  const existingProject = (projectCandidates || []).find((project) => {
+    const linkedLeadId = project.lead_id
+      || project.leadId
+      || project.crm_lead_id
+      || project.financeiro?.crmLeadId
+      || project.financeiro?.crm_lead_id;
+    if (mappedLead.id && String(linkedLeadId || '') === String(mappedLead.id)) return true;
+
+    const projectClientId = project.cliente_id || project.client_id;
+    if (String(projectClientId || '') !== String(client.id)) return false;
+
+    const projectService = String(project.tipo_servico || project.servico || '').trim().toLowerCase();
+    const projectDate = String(project.data || project.data_trabalho || '').slice(0, 10);
+    const projectTotal = Number(project.valor_contratado || 0);
+    return Boolean(
+      normalizedService
+      && normalizedEventDate
+      && projectService === normalizedService
+      && projectDate === normalizedEventDate
+      && projectTotal === total
+    );
+  });
   const currentFinance = existingProject?.financeiro && typeof existingProject.financeiro === 'object'
     ? existingProject.financeiro
     : {};
   const projectPayload = {
+    lead_id: mappedLead.id,
     cliente_id: client.id,
     tipo_servico: mappedLead.tipoServico || 'Casamento',
     data: mappedLead.dataEvento || null,

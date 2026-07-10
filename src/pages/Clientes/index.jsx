@@ -7,6 +7,17 @@ import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
 import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
+import {
+  calculateClientSalarySummary,
+  DEFAULT_SALARY_SPLIT,
+  isSalarySplitValid,
+  loadDistributionConfig,
+  normalizeSalarySplit,
+  PAYMENT_METHODS,
+  preparePaymentsWithDistribution,
+  syncProjectDistributionLedger,
+} from '../../utils/financeEngine';
+import './Clientes.css';
 
 const emptyForm = {
   id: null,
@@ -20,8 +31,13 @@ const emptyForm = {
   valorTotal: '',
   valorRestante: '',
   status: 'Ativo',
+  contrato: '',
   pagamentos: [],
+  divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
+  retiradasSalariais: [],
 };
+
+const emptyWithdrawal = { pessoa: 'camilla', valor: '', data: '', observacao: '' };
 
 const inputStyle = {
   width: '100%',
@@ -64,6 +80,9 @@ const mapClientRow = (client, projects) => {
   });
   const total = Number(project?.valorContratado ?? project?.valor_contratado ?? client.valorTotal ?? client.valor_total ?? 0);
   const { valorRecebido: received, valorRestante: remaining } = calculatePaymentsSummary(pagamentos, total);
+  const divisaoSalarios = normalizeSalarySplit(project?.financeiro?.divisaoSalarios || DEFAULT_SALARY_SPLIT);
+  const retiradasSalariais = project?.financeiro?.retiradasSalariais || [];
+  const resumoSalarios = calculateClientSalarySummary(pagamentos, retiradasSalariais);
 
   return {
     ...client,
@@ -79,7 +98,11 @@ const mapClientRow = (client, projects) => {
     valorRestante: remaining,
     valorRecebido: received,
     status: project?.financeiro?.statusFinanceiro || project?.financeiro?.status_financeiro || project?.status || client.status || 'Ativo',
+    contrato: project?.contrato?.status || project?.contrato?.numero || (typeof project?.contrato === 'string' ? project.contrato : ''),
     pagamentos,
+    divisaoSalarios,
+    retiradasSalariais,
+    resumoSalarios,
   };
 };
 
@@ -95,12 +118,22 @@ const formFromClient = (client) => ({
   valorTotal: client.valorTotal ? maskCurrency(String(Math.round(Number(client.valorTotal) * 100))) : '',
   valorRestante: client.valorRestante ? maskCurrency(String(Math.round(Number(client.valorRestante) * 100))) : '',
   status: client.status || 'Ativo',
+  contrato: client.contrato || '',
   pagamentos: (client.pagamentos || []).map((payment) => ({
     ...payment,
     id: payment.id || createId('payment'),
     valor: payment.valor ? maskCurrency(String(Math.round(parseMoney(payment.valor) * 100))) : '',
     data: normalizeDate(payment.data),
     status: payment.status || 'Recebido',
+    formaPagamento: payment.formaPagamento || payment.forma_pagamento || 'Pix',
+    observacao: payment.observacao || payment.observacoes || '',
+  })),
+  divisaoSalarios: normalizeSalarySplit(client.divisaoSalarios || DEFAULT_SALARY_SPLIT),
+  retiradasSalariais: (client.retiradasSalariais || []).map((withdrawal) => ({
+    ...withdrawal,
+    id: withdrawal.id || createId('salary-withdrawal'),
+    valor: withdrawal.valor ? maskCurrency(String(Math.round(parseMoney(withdrawal.valor) * 100))) : '',
+    data: normalizeDate(withdrawal.data),
   })),
 });
 
@@ -143,6 +176,7 @@ const saveLocalMirrors = (clients, projects) => {
       data: project.data || project.data_trabalho || '',
       horario: project.horario || '',
       local: project.local || client.cidade || '',
+      contrato: project.contrato || {},
       financeiro: {
         ...currentFinance,
         receitas: pagamentos,
@@ -150,6 +184,8 @@ const saveLocalMirrors = (clients, projects) => {
         valorRecebido,
         saldoRestante: valorRestante,
         statusFinanceiro: currentFinance.statusFinanceiro || project.status || 'Ativo',
+        divisaoSalarios: normalizeSalarySplit(currentFinance.divisaoSalarios || DEFAULT_SALARY_SPLIT),
+        retiradasSalariais: currentFinance.retiradasSalariais || [],
       },
       receitas: pagamentos,
       pagamentos,
@@ -184,6 +220,8 @@ const calculatePayments = (formData) => {
     valor: parseMoney(payment.valor),
     data: inputToDate(payment.data),
     status: payment.status || 'Recebido',
+    formaPagamento: payment.formaPagamento || payment.forma_pagamento || 'Pix',
+    observacao: payment.observacao || payment.observacoes || '',
   }));
   const valorTotal = parseMoney(formData.valorTotal);
   const { valorRecebido, valorRestante } = calculatePaymentsSummary(pagamentos, valorTotal);
@@ -199,6 +237,8 @@ export default function Clientes() {
   const [formData, setFormData] = useState(emptyForm);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState('saved');
+  const [financeConfig, setFinanceConfig] = useState({ salario: 35, empresa: 45, reserva: 20 });
+  const [withdrawalDraft, setWithdrawalDraft] = useState(emptyWithdrawal);
 
   const load = async () => {
     setSyncStatus('saving');
@@ -251,10 +291,25 @@ export default function Clientes() {
     };
   }, []);
 
+  useEffect(() => {
+    loadDistributionConfig().then(setFinanceConfig).catch((error) => {
+      console.error('Erro ao carregar configuracao de distribuicao:', error.message);
+    });
+  }, []);
+
   const clients = useMemo(() => studio.clients.map((client) => mapClientRow(client, studio.projects)), [studio.clients, studio.projects]);
 
   const paymentSummary = useMemo(() => calculatePayments(formData), [formData]);
   const formattedRemaining = maskCurrency(String(Math.round(paymentSummary.valorRestante * 100)));
+  const salaryPreviewPayments = useMemo(() => preparePaymentsWithDistribution(
+    paymentSummary.pagamentos,
+    financeConfig,
+    { salarySplit: formData.divisaoSalarios },
+  ), [financeConfig, formData.divisaoSalarios, paymentSummary.pagamentos]);
+  const salarySummary = useMemo(() => calculateClientSalarySummary(
+    salaryPreviewPayments,
+    formData.retiradasSalariais,
+  ), [formData.retiradasSalariais, salaryPreviewPayments]);
 
   useKeyboardShortcuts({
     n: () => openNewClient(),
@@ -277,7 +332,7 @@ export default function Clientes() {
   const addPayment = () => {
     setFormData((current) => ({
       ...current,
-      pagamentos: [...current.pagamentos, { id: createId('payment'), valor: '', data: '', status: 'Recebido' }],
+      pagamentos: [...current.pagamentos, { id: createId('payment'), valor: '', data: '', status: 'Recebido', formaPagamento: 'Pix', observacao: '' }],
     }));
   };
 
@@ -288,21 +343,56 @@ export default function Clientes() {
     }));
   };
 
+  const addWithdrawal = () => {
+    const value = parseMoney(withdrawalDraft.valor);
+    const available = salarySummary[withdrawalDraft.pessoa]?.disponivel || 0;
+    if (!withdrawalDraft.data || value <= 0) {
+      alert('Informe a data e o valor da retirada.');
+      return;
+    }
+    if (value > available) {
+      alert('A retirada nao pode ser maior que o salario disponivel.');
+      return;
+    }
+    setFormData((current) => ({
+      ...current,
+      retiradasSalariais: [...current.retiradasSalariais, {
+        id: createId('salary-withdrawal'),
+        pessoa: withdrawalDraft.pessoa,
+        valor: withdrawalDraft.valor,
+        data: withdrawalDraft.data,
+        observacao: withdrawalDraft.observacao,
+        status: 'Confirmada',
+      }],
+    }));
+    setWithdrawalDraft(emptyWithdrawal);
+  };
+
+  const removeWithdrawal = (id) => {
+    setFormData((current) => ({
+      ...current,
+      retiradasSalariais: current.retiradasSalariais.filter((withdrawal) => withdrawal.id !== id),
+    }));
+  };
+
   const openNewClient = () => {
     setFormData(emptyForm);
     setSelectedClientId(null);
     setIsModalOpen(true);
+    setWithdrawalDraft(emptyWithdrawal);
   };
 
   const openEditClient = (client) => {
     setSelectedClientId(client.id);
     setFormData(formFromClient(client));
     setIsModalOpen(true);
+    setWithdrawalDraft(emptyWithdrawal);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setFormData(emptyForm);
+    setWithdrawalDraft(emptyWithdrawal);
   };
 
   const saveClient = async (event) => {
@@ -314,6 +404,12 @@ export default function Clientes() {
       pagamentos: draftPayments,
       valorTotal,
     } = calculatePayments(formData);
+
+    if (!isSalarySplitValid(formData.divisaoSalarios)) {
+      alert('A divisao entre Camilla e Junior deve somar exatamente 100%.');
+      setSyncStatus('saved');
+      return;
+    }
 
     try {
       const existingClient = studio.clients.find((client) => client.id === formData.id) || {};
@@ -352,15 +448,31 @@ export default function Clientes() {
         };
       }
 
-      const payments = draftPayments.map((payment) => ({
+      const distributionConfig = await loadDistributionConfig();
+      const normalizedPayments = draftPayments.map((payment) => ({
         ...payment,
         id: payment.id || createId('payment'),
         client_id: savedClient.id,
         valor: Number(payment.valor || 0),
         data: payment.data || null,
         status: payment.status || 'Recebido',
+        formaPagamento: payment.formaPagamento || payment.forma_pagamento || 'Pix',
         observacao: payment.observacao || payment.observacoes || '',
         created_at: payment.created_at || now,
+      }));
+      const payments = preparePaymentsWithDistribution(normalizedPayments, distributionConfig, {
+        projectId: formData.projectId || '',
+        clientId: savedClient.id,
+        clientName: clientBasePayload.nome,
+        salarySplit: formData.divisaoSalarios,
+      });
+      const salaryWithdrawals = (formData.retiradasSalariais || []).map((withdrawal) => ({
+        ...withdrawal,
+        id: withdrawal.id || createId('salary-withdrawal'),
+        valor: parseMoney(withdrawal.valor),
+        data: inputToDate(withdrawal.data),
+        status: withdrawal.status || 'Confirmada',
+        observacao: withdrawal.observacao || '',
       }));
       const { valorRecebido: paid, valorRestante } = calculatePaymentsSummary(payments, persistedTotal);
       const status = valorRestante <= 0 && persistedTotal > 0
@@ -373,6 +485,10 @@ export default function Clientes() {
         data: eventDate,
         valor_contratado: persistedTotal,
         valor_recebido: paid,
+        contrato: {
+          ...(existingProject.contrato && typeof existingProject.contrato === 'object' ? existingProject.contrato : {}),
+          status: formData.contrato || 'Nao informado',
+        },
         financeiro: {
           ...currentFinance,
           receitas: payments,
@@ -380,6 +496,8 @@ export default function Clientes() {
           valorRecebido: paid,
           saldoRestante: valorRestante,
           statusFinanceiro: status,
+          divisaoSalarios: normalizeSalarySplit(formData.divisaoSalarios),
+          retiradasSalariais: salaryWithdrawals,
           updatedAt: now,
         },
       };
@@ -418,6 +536,12 @@ export default function Clientes() {
 
       if (savedProject && isSupabaseConfigured) {
         await createFinanceSeed(savedProject, savedClient);
+        await syncProjectDistributionLedger({
+          payments,
+          projectId: savedProject.id,
+          clientId: savedClient.id,
+          clientName: savedClient.nome || clientBasePayload.nome,
+        });
         await upsertAgendaEvent(savedProject, savedClient);
       }
 
@@ -535,7 +659,7 @@ export default function Clientes() {
       </div>
 
       <Modal isOpen={isModalOpen} onClose={closeModal} title={formData.id ? 'Editar Cliente' : 'Novo Cliente'}>
-        <form onSubmit={saveClient} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <form className="sf-client-form" onSubmit={saveClient} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <Field label="Nome">
             <input required style={inputStyle} value={formData.nome} onChange={(event) => updateField('nome', capitalizeName(event.target.value))} />
           </Field>
@@ -566,14 +690,32 @@ export default function Clientes() {
             </Field>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <Field label="Valor total">
-              <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formData.valorTotal} onChange={(event) => updateField('valorTotal', maskCurrency(event.target.value))} />
-            </Field>
-            <Field label="Valor restante">
-              <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formattedRemaining} readOnly />
-            </Field>
-          </div>
+          <section className="sf-client-finance-center">
+            <div className="sf-client-finance-title">
+              <div>
+                <h3>Centro Financeiro</h3>
+                <p>Contrato, recebimentos, distribuicao e retiradas deste cliente.</p>
+              </div>
+            </div>
+
+            <div className="sf-client-finance-grid">
+              <Field label="Contrato">
+                <input style={inputStyle} placeholder="Ex.: Assinado" value={formData.contrato} onChange={(event) => updateField('contrato', capitalizeFirst(event.target.value))} />
+              </Field>
+              <Field label="Valor contratado">
+                <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formData.valorTotal} onChange={(event) => updateField('valorTotal', maskCurrency(event.target.value))} />
+              </Field>
+              <Field label="Total recebido">
+                <input style={inputStyle} value={maskCurrency(String(Math.round(paymentSummary.valorRecebido * 100)))} readOnly />
+              </Field>
+              <Field label="Saldo restante">
+                <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formattedRemaining} readOnly />
+              </Field>
+              <Field label="Status financeiro">
+                <input style={inputStyle} value={paymentSummary.status} readOnly />
+              </Field>
+            </div>
+          </section>
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
@@ -584,19 +726,93 @@ export default function Clientes() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {formData.pagamentos.map((payment, index) => (
-                <div key={payment.id || index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
-                  <input style={inputStyle} inputMode="numeric" placeholder="Valor" value={payment.valor} onChange={(event) => updatePayment(index, 'valor', maskCurrency(event.target.value))} />
-                  <input style={inputStyle} inputMode="numeric" placeholder="dd/mm/aaaa" value={payment.data} onChange={(event) => updatePayment(index, 'data', maskDate(event.target.value))} />
-                  <input style={inputStyle} placeholder="Status" value={payment.status || ''} onChange={(event) => updatePayment(index, 'status', capitalizeFirst(event.target.value))} />
-                  <button type="button" className="sf-secondary-button" onClick={() => removePayment(index)} style={{ padding: '10px' }}>
-                    <Trash2 size={14} />
-                  </button>
+              {formData.pagamentos.map((payment, index) => {
+                const distribution = salaryPreviewPayments[index]?.distribuicao;
+                return (
+                <div key={payment.id || index} className="sf-client-payment">
+                  <div className="sf-client-payment-fields">
+                    <input style={inputStyle} inputMode="numeric" placeholder="Valor" value={payment.valor} onChange={(event) => updatePayment(index, 'valor', maskCurrency(event.target.value))} />
+                    <input style={inputStyle} inputMode="numeric" placeholder="dd/mm/aaaa" value={payment.data} onChange={(event) => updatePayment(index, 'data', maskDate(event.target.value))} />
+                    <select style={inputStyle} value={payment.formaPagamento || 'Pix'} onChange={(event) => updatePayment(index, 'formaPagamento', event.target.value)}>
+                      {PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
+                    </select>
+                    <select style={inputStyle} value={payment.status || 'Recebido'} onChange={(event) => updatePayment(index, 'status', event.target.value)}>
+                      <option value="Recebido">Recebido</option>
+                      <option value="Pendente">Pendente</option>
+                      <option value="Estornado">Estornado</option>
+                      <option value="Cancelado">Cancelado</option>
+                    </select>
+                    <input style={inputStyle} placeholder="Observacao" value={payment.observacao || ''} onChange={(event) => updatePayment(index, 'observacao', event.target.value)} />
+                    <button type="button" className="sf-secondary-button" onClick={() => removePayment(index)} style={{ padding: '10px' }} title="Remover pagamento">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  {distribution?.aplicada && (
+                    <div className="sf-client-distribution">
+                      <span>Fundo <strong>{formatMoney(distribution.valores.reserva)}</strong></span>
+                      <span>Empresa <strong>{formatMoney(distribution.valores.empresa)}</strong></span>
+                      <span>Salarios <strong>{formatMoney(distribution.valores.salario)}</strong></span>
+                    </div>
+                  )}
                 </div>
-              ))}
+              );})}
               {formData.pagamentos.length === 0 && <p className="sf-muted" style={{ margin: 0 }}>Nenhum pagamento registrado.</p>}
             </div>
           </div>
+
+          <section className="sf-client-salary-center">
+            <div className="sf-client-finance-title">
+              <div>
+                <h3>Divisao de Salarios</h3>
+                <p>Percentuais aplicados somente sobre a parcela destinada a salarios.</p>
+              </div>
+              <strong className={isSalarySplitValid(formData.divisaoSalarios) ? 'valid' : 'invalid'}>
+                {Number(formData.divisaoSalarios.camilla || 0) + Number(formData.divisaoSalarios.junior || 0)}%
+              </strong>
+            </div>
+
+            <div className="sf-client-salary-config">
+              <Field label="Camilla (%)">
+                <input type="number" min="0" max="100" style={inputStyle} value={formData.divisaoSalarios.camilla} onChange={(event) => updateField('divisaoSalarios', { ...formData.divisaoSalarios, camilla: Number(event.target.value) })} />
+              </Field>
+              <Field label="Junior (%)">
+                <input type="number" min="0" max="100" style={inputStyle} value={formData.divisaoSalarios.junior} onChange={(event) => updateField('divisaoSalarios', { ...formData.divisaoSalarios, junior: Number(event.target.value) })} />
+              </Field>
+            </div>
+
+            <div className="sf-client-salary-cards">
+              {['camilla', 'junior'].map((person) => (
+                <div key={person}>
+                  <h4>{person === 'camilla' ? 'Camilla' : 'Junior'}</h4>
+                  <span>Acumulado <strong>{formatMoney(salarySummary[person].acumulado)}</strong></span>
+                  <span>Retirado <strong>{formatMoney(salarySummary[person].retirado)}</strong></span>
+                  <span>Disponivel <strong>{formatMoney(salarySummary[person].disponivel)}</strong></span>
+                </div>
+              ))}
+            </div>
+
+            <div className="sf-client-withdrawal-form">
+              <select style={inputStyle} value={withdrawalDraft.pessoa} onChange={(event) => setWithdrawalDraft((current) => ({ ...current, pessoa: event.target.value }))}>
+                <option value="camilla">Camilla</option>
+                <option value="junior">Junior</option>
+              </select>
+              <input style={inputStyle} value={withdrawalDraft.valor} placeholder="Valor da retirada" onChange={(event) => setWithdrawalDraft((current) => ({ ...current, valor: maskCurrency(event.target.value) }))} />
+              <input style={inputStyle} value={withdrawalDraft.data} placeholder="dd/mm/aaaa" onChange={(event) => setWithdrawalDraft((current) => ({ ...current, data: maskDate(event.target.value) }))} />
+              <input style={inputStyle} value={withdrawalDraft.observacao} placeholder="Observacao" onChange={(event) => setWithdrawalDraft((current) => ({ ...current, observacao: event.target.value }))} />
+              <button type="button" className="sf-secondary-button" onClick={addWithdrawal}><Plus size={14} /> Registrar retirada</button>
+            </div>
+
+            <div className="sf-client-withdrawal-list">
+              {formData.retiradasSalariais.map((withdrawal) => (
+                <div key={withdrawal.id}>
+                  <span>{withdrawal.pessoa === 'camilla' ? 'Camilla' : 'Junior'} · {displayDate(withdrawal.data)} · {withdrawal.observacao || 'Sem observacao'}</span>
+                  <strong>{formatMoney(parseMoney(withdrawal.valor))}</strong>
+                  <button type="button" onClick={() => removeWithdrawal(withdrawal.id)} title="Remover retirada"><Trash2 size={14} /></button>
+                </div>
+              ))}
+              {formData.retiradasSalariais.length === 0 && <p className="sf-muted">Nenhuma retirada registrada.</p>}
+            </div>
+          </section>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
             {formData.id ? (

@@ -1,0 +1,189 @@
+.glass:has(.sf-client-form) {
+  max-width: 860px !important;
+}
+
+.sf-client-finance-center,
+.sf-client-salary-center {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+}
+
+.sf-client-finance-title {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.sf-client-finance-title h3,
+.sf-client-salary-cards h4 {
+  margin: 0;
+  color: var(--text-main);
+}
+
+.sf-client-finance-title h3 {
+  font-size: 1rem;
+}
+
+.sf-client-finance-title p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.sf-client-finance-title > strong {
+  color: var(--color-highlight);
+  font-size: 0.86rem;
+}
+
+.sf-client-finance-title > strong.invalid {
+  color: var(--color-danger);
+}
+
+.sf-client-finance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sf-client-payment {
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+}
+
+.sf-client-payment-fields {
+  display: grid;
+  grid-template-columns: 1fr 0.85fr 1fr 0.9fr 1.25fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.sf-client-distribution {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sf-client-distribution span {
+  padding: 5px 8px;
+  color: var(--text-secondary);
+  background: rgba(197, 160, 89, 0.06);
+  border: 1px solid rgba(197, 160, 89, 0.12);
+  border-radius: 6px;
+  font-size: 0.67rem;
+}
+
+.sf-client-distribution strong {
+  margin-left: 3px;
+  color: var(--color-highlight);
+}
+
+.sf-client-salary-config {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sf-client-salary-cards {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sf-client-salary-cards > div {
+  padding: 12px;
+  background: #111;
+  border: 1px solid #242424;
+  border-radius: 8px;
+}
+
+.sf-client-salary-cards h4 {
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+}
+
+.sf-client-salary-cards span {
+  padding: 4px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.sf-client-salary-cards strong {
+  color: var(--text-main);
+}
+
+.sf-client-withdrawal-form {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1fr 1.4fr auto;
+  gap: 8px;
+}
+
+.sf-client-withdrawal-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sf-client-withdrawal-list > div {
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 7px;
+  font-size: 0.72rem;
+}
+
+.sf-client-withdrawal-list strong {
+  color: var(--text-main);
+}
+
+.sf-client-withdrawal-list button {
+  padding: 4px;
+  display: inline-flex;
+  color: var(--color-danger);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .glass:has(.sf-client-form) {
+    padding: 20px !important;
+  }
+
+  .sf-client-finance-grid,
+  .sf-client-payment-fields,
+  .sf-client-withdrawal-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sf-client-payment-fields button,
+  .sf-client-withdrawal-form button {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 520px) {
+  .sf-client-finance-grid,
+  .sf-client-payment-fields,
+  .sf-client-salary-config,
+  .sf-client-salary-cards,
+  .sf-client-withdrawal-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

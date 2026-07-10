@@ -53,7 +53,7 @@
   left: 50%;
   top: 50%;
   display: block;
-  width: 300px !important;
+  width: 390px !important;
   max-width: none;
   height: auto;
   object-fit: contain;
@@ -88,11 +88,16 @@
 }
 
 .nav-link svg {
-  width: 15px !important;
-  height: 15px !important;
+  width: 19px !important;
+  height: 19px !important;
   max-width: none;
   flex: 0 0 auto;
   stroke-width: 1.7;
+}
+
+.sidebar-mobile-toggle,
+.sidebar-backdrop {
+  display: none;
 }
 
 .nav-link:hover {
@@ -134,6 +139,44 @@
 
 .sidebar-user img {
   padding: 0;
+}
+
+.sidebar-user-avatar {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  overflow: hidden;
+  color: #d2a25d;
+  background: rgba(185, 130, 60, 0.08);
+  border: 1px solid rgba(199, 150, 80, 0.28);
+  border-radius: 50%;
+}
+
+.sidebar-user-avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  display: block;
+  object-fit: cover;
+  border: 0 !important;
+  border-radius: 50%;
+}
+
+.sidebar-user-initials {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #d2a25d !important;
+  font-size: 0.64rem !important;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
 }
 
 .sidebar-user div {
@@ -222,6 +265,11 @@
     justify-content: center;
   }
 
+  .nav-link svg {
+    width: 21px !important;
+    height: 21px !important;
+  }
+
   .nav-link span,
   .sidebar-user div {
     display: none;
@@ -242,7 +290,7 @@
 @media (max-width: 768px) {
   .sidebar {
     inset: 0 auto 0 0;
-    width: 64px;
+    width: min(268px, 84vw);
     height: 100vh;
     display: flex !important;
     flex-direction: column;
@@ -250,7 +298,56 @@
     overflow: hidden;
     border-right: 1px solid rgba(220, 179, 103, 0.12);
     border-bottom: 0;
-    box-shadow: 8px 0 22px rgba(0, 0, 0, 0.18);
+    box-shadow: 16px 0 38px rgba(0, 0, 0, 0.42);
+    transform: translateX(-105%);
+    transition: transform 220ms ease;
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-mobile-toggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 1102;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #d3a55e;
+    background: rgba(10, 10, 10, 0.96);
+    border: 1px solid rgba(205, 156, 83, 0.22);
+    border-radius: 9px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+  }
+
+  .sidebar-mobile-toggle svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    display: block;
+    pointer-events: none;
+    opacity: 0;
+    background: rgba(0, 0, 0, 0.62);
+    border: 0;
+    transition: opacity 220ms ease;
+  }
+
+  .sidebar-backdrop.visible {
+    pointer-events: auto;
+    opacity: 1;
   }
 
   .sidebar-main {
@@ -262,8 +359,8 @@
   }
 
   .sidebar-logo {
-    min-height: 66px;
-    padding: 8px;
+    min-height: 72px;
+    padding: 8px 12px 8px 56px;
     justify-content: center;
     border-bottom: 1px solid rgba(255, 255, 255, 0.055);
   }
@@ -281,7 +378,7 @@
 
   .sidebar nav {
     width: 100%;
-    padding: 8px 7px;
+    padding: 8px 12px;
     flex-direction: column;
     gap: 2px;
     overflow: visible;
@@ -291,11 +388,17 @@
     width: 100%;
     min-height: 42px;
     padding: 9px 8px;
-    justify-content: center;
+    justify-content: flex-start;
+    gap: 12px;
   }
 
   .nav-link span {
-    display: none;
+    display: inline;
+  }
+
+  .nav-link svg {
+    width: 21px !important;
+    height: 21px !important;
   }
 
   .nav-link.active {
@@ -305,21 +408,31 @@
   .sidebar-user {
     width: 100%;
     min-height: 60px;
-    grid-template-columns: 30px;
-    justify-content: center;
-    padding: 9px;
+    grid-template-columns: 32px minmax(0, 1fr) 28px;
+    justify-content: stretch;
+    padding: 10px 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.055);
     background: rgba(255, 255, 255, 0.012);
   }
 
   .sidebar-user div,
   .sidebar-user button {
-    display: none;
+    display: block;
+  }
+
+  .sidebar-user button {
+    display: inline-flex;
   }
 
   .sidebar-user img,
   .sidebar-user > svg {
     width: 30px;
     height: 30px;
+  }
+
+  .sidebar-user-avatar {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
   }
 }

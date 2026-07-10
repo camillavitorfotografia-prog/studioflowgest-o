@@ -12,6 +12,7 @@ export default function KanbanBoard({ leads, onMove, onClick }) {
 
   return (
     <div
+      className="crm-kanban"
       style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(245px, 1fr))',
@@ -26,6 +27,7 @@ export default function KanbanBoard({ leads, onMove, onClick }) {
 
         return (
           <section
+            className="crm-kanban-column"
             key={column.id}
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
@@ -35,6 +37,7 @@ export default function KanbanBoard({ leads, onMove, onClick }) {
             style={{ display: 'flex', flexDirection: 'column', gap: '12px', minHeight: '140px' }}
           >
             <div
+              className="crm-kanban-column-header"
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -52,9 +55,10 @@ export default function KanbanBoard({ leads, onMove, onClick }) {
               <span style={{ fontSize: '0.8rem', color: '#888' }}>{columnLeads.length}</span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="crm-kanban-card-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {columnLeads.map((lead) => (
                 <article
+                  className="crm-kanban-card"
                   key={lead.id}
                   draggable
                   onDragStart={(event) => event.dataTransfer.setData('leadId', lead.id)}

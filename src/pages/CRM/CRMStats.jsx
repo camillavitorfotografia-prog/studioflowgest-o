@@ -45,8 +45,8 @@ export default function CRMStats({ leads }) {
   }, [leads, periodo]);
 
   return (
-    <section style={{ background: '#0a0a0a', padding: '24px', borderRadius: '16px', border: '1px solid #1a1a1a', marginBottom: '24px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
+    <section className="crm-stats-panel" style={{ background: '#0a0a0a', padding: '24px', borderRadius: '16px', border: '1px solid #1a1a1a', marginBottom: '24px' }}>
+      <div className="crm-stats-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: '1.1rem', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Target size={20} color="#c5a059" /> Indicadores de Vendas
         </h2>
@@ -62,9 +62,9 @@ export default function CRMStats({ leads }) {
         </select>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '16px' }}>
+      <div className="crm-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: '16px' }}>
         {stats.map((stat) => (
-          <div key={stat.title} style={{ background: '#111', padding: '16px', borderRadius: '12px', border: '1px solid #222', minHeight: '92px' }}>
+          <div className="crm-stat-card" key={stat.title} style={{ background: '#111', padding: '16px', borderRadius: '12px', border: '1px solid #222', minHeight: '92px' }}>
             <div style={{ color: '#888', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
               {stat.icon} {stat.title}
             </div>

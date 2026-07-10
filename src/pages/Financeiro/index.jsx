@@ -17,11 +17,11 @@ import {
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import Modal from '../../components/Modal';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
-import { supabase } from '../../utils/supabase';
 import Despesas from './Despesas';
 import {
   FINANCE_STORAGE_KEYS,
   buildFinanceSnapshot,
+  buildPaymentDistributionLedger,
   calculateDepreciation,
   formatCurrency,
   getAverageVariableExpenses,
@@ -31,10 +31,16 @@ import {
   getTransactionStatus,
   getTransactionValue,
   groupBySum,
+  getFinancialAccountsSummary,
   isExpense,
+  isConfirmedPayment,
+  isDistributionConfigValid,
+  loadDistributionConfig,
   monthKey,
-  normalizeDistributionConfig,
   parseCurrency,
+  PAYMENT_DISTRIBUTION_ROW_TYPE,
+  reconcileProjectPaymentDistributions,
+  saveDistributionConfig,
 } from '../../utils/financeEngine';
 
 const tabs = [
@@ -77,9 +83,6 @@ function useFinanceData() {
   const [financasConfig, setFinancasConfig] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'),
   );
-  const [saldos, setSaldos] = useState(() =>
-    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'),
-  );
   const [studio, setStudio] = useState({ projects: [], clients: [], transactions: [], equipment: [] });
   const [transacoes, setTransacoes] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
@@ -87,12 +90,21 @@ function useFinanceData() {
   useEffect(() => {
     let active = true;
     const loadAll = async () => {
-      setFinancasConfig(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'));
-      setSaldos(JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario": 0, "empresa": 0, "reserva": 0}'));
+      const config = await loadDistributionConfig();
+      setFinancasConfig(config);
+      const initialDb = await getDbStudioData();
+      try {
+        await reconcileProjectPaymentDistributions(initialDb.projects || [], config);
+      } catch (error) {
+        console.error('Erro ao conciliar distribuicoes financeiras:', error.message);
+      }
       const db = await getDbStudioData();
       if (!active) return;
       setStudio(db);
-      setTransacoes(db.transactions || []);
+      const paymentLedger = buildPaymentDistributionLedger(db.projects || []);
+      const nonDistributionTransactions = (db.transactions || [])
+        .filter((item) => item.tipo !== PAYMENT_DISTRIBUTION_ROW_TYPE);
+      setTransacoes([...nonDistributionTransactions, ...paymentLedger]);
       setEquipamentos(db.equipment || []);
     };
 
@@ -106,6 +118,15 @@ function useFinanceData() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const accounts = getFinancialAccountsSummary(transacoes);
+    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify({
+      reserva: accounts.reserva.saldo,
+      empresa: accounts.empresa.saldo,
+      salario: accounts.salario.saldo,
+    }));
+  }, [transacoes]);
 
   const clientes = useMemo(() => {
     return (studio.projects || []).map((project) => ({
@@ -126,21 +147,32 @@ function useFinanceData() {
     let receitaBruta = 0;
     let contasAReceber = 0;
     let inadimplente = 0;
+    let receitaContratada = 0;
+    let receitaRecebida = 0;
 
     clientes.forEach((client) => {
       const total = parseCurrency(client.valorTotal);
+      receitaContratada += total;
       const paid = (client.pagamentos || []).reduce((sum, payment) => {
+        if (!isConfirmedPayment(payment)) return sum;
         const value = parseCurrency(payment.valor);
         if (monthKey(payment.data) === currentMonth) receitaBruta += value;
         return sum + value;
       }, 0);
+      receitaRecebida += paid;
       const remaining = Math.max(0, total - paid);
       const workDate = client.dataTrabalho ? new Date(client.dataTrabalho) : null;
+      contasAReceber += remaining;
       if (remaining > 0 && workDate && workDate < now) inadimplente += remaining;
-      else contasAReceber += remaining;
     });
 
     const monthlyTotals = getMonthlyTotals(transacoes, now);
+    const contasFinanceiras = getFinancialAccountsSummary(transacoes);
+    const saldos = {
+      reserva: contasFinanceiras.reserva.saldo,
+      empresa: contasFinanceiras.empresa.saldo,
+      salario: contasFinanceiras.salario.saldo,
+    };
     const despesasFixas = monthlyTotals.fixed;
     const despesasVariaveis = monthlyTotals.variable;
     const depreciacaoMensal = getEquipmentMonthlyDepreciation(equipamentos);
@@ -159,6 +191,10 @@ function useFinanceData() {
       .filter((item) => isExpense(item) && getTransactionStatus(item) !== 'Pago')
       .sort((a, b) => new Date(getTransactionDate(a)) - new Date(getTransactionDate(b)))
       .slice(0, 5);
+    const totalDespesas = transacoes
+      .filter((item) => isExpense(item) && getTransactionStatus(item) === 'Pago')
+      .reduce((sum, item) => sum + getTransactionValue(item), 0);
+    const resultadoLiquido = receitaRecebida - totalDespesas;
     const despesasPorCategoria = groupBySum(
       transacoes.filter((item) => isExpense(item) && monthKey(getTransactionDate(item)) === currentMonth),
       (item) => item.categoria,
@@ -176,17 +212,21 @@ function useFinanceData() {
 
     return {
       saldos,
-      setSaldos,
+      contasFinanceiras,
       clientes,
       transacoes,
       equipamentos,
       financasConfig,
       setFinancasConfig,
       receitaBruta,
+      receitaContratada,
+      receitaRecebida,
       contasAReceber,
       inadimplente,
       despesasFixas,
       despesasVariaveis,
+      totalDespesas,
+      resultadoLiquido,
       depreciacaoMensal,
       investimentoEquipamentosMes,
       mediaVariavel,
@@ -199,7 +239,7 @@ function useFinanceData() {
       maiorCategoria,
       financeSnapshot,
     };
-  }, [clientes, equipamentos, financasConfig, saldos, transacoes]);
+  }, [clientes, equipamentos, financasConfig, transacoes]);
 
   return data;
 }
@@ -207,50 +247,40 @@ function useFinanceData() {
 function FinanceDashboard() {
   const data = useFinanceData();
   const [configOpen, setConfigOpen] = useState(false);
-  const { receitaBruta, financasConfig, saldos, setSaldos } = data;
+  const [configError, setConfigError] = useState('');
 
-  const saveConfig = () => {
-    const normalized = normalizeDistributionConfig(data.financasConfig);
-    data.setFinancasConfig(normalized);
-    localStorage.setItem(FINANCE_STORAGE_KEYS.config, JSON.stringify(normalized));
-    window.dispatchEvent(new Event('sf_storage_update'));
-    setConfigOpen(false);
+  const saveConfig = async () => {
+    if (!isDistributionConfigValid(data.financasConfig)) {
+      setConfigError('A soma dos percentuais deve ser exatamente 100%.');
+      return;
+    }
+    try {
+      const saved = await saveDistributionConfig(data.financasConfig);
+      data.setFinancasConfig(saved);
+      window.dispatchEvent(new Event('sf_storage_update'));
+      setConfigError('');
+      setConfigOpen(false);
+    } catch (error) {
+      setConfigError(error.message);
+    }
   };
 
-  useEffect(() => {
-    if (receitaBruta <= 0) return;
-    const currentMonth = monthKey(new Date());
-    const ledger = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.distributionLedger) || '{}');
-    const alreadyDistributed = Number(ledger[currentMonth] || 0);
-    const delta = receitaBruta - alreadyDistributed;
-    if (delta <= 0.01) return;
-
-    const config = normalizeDistributionConfig(financasConfig);
-    const distribution = {
-      salario: delta * (config.salario / 100),
-      empresa: delta * (config.empresa / 100),
-      reserva: delta * (config.reserva / 100),
-    };
-    const nextBalances = {
-      salario: Number(saldos.salario || 0) + distribution.salario,
-      empresa: Number(saldos.empresa || 0) + distribution.empresa,
-      reserva: Number(saldos.reserva || 0) + distribution.reserva,
-    };
-    ledger[currentMonth] = alreadyDistributed + delta;
-    localStorage.setItem(FINANCE_STORAGE_KEYS.distributionLedger, JSON.stringify(ledger));
-    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(nextBalances));
-    supabase.from('financas').upsert([{
-      id: `regra-tres-${currentMonth}`,
-      descricao: 'Regra dos Tres',
-      valor: delta,
-      tipo: 'distribuicao',
-      tipo_geral: 'Movimentacao Interna',
-      detalhes: distribution,
-      data: new Date().toISOString().slice(0, 10),
-      updated_at: new Date().toISOString(),
-    }], { onConflict: 'id' }).then(() => window.dispatchEvent(new Event('sf_storage_update')));
-    setSaldos(nextBalances);
-  }, [receitaBruta, financasConfig, saldos, setSaldos]);
+  const accountRows = [
+    { id: 'reserva', destino: 'Fundo / Reserva', ...data.contasFinanceiras.reserva },
+    { id: 'empresa', destino: 'Caixa da empresa', ...data.contasFinanceiras.empresa },
+    { id: 'salario', destino: 'Salarios', ...data.contasFinanceiras.salario },
+  ];
+  const movementRows = data.transacoes
+    .filter((item) => item.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE || (isExpense(item) && getTransactionStatus(item) === 'Pago'))
+    .map((item) => ({
+      ...item,
+      destino: item.detalhes?.destino || item.contaOrigem || item.categoria || 'empresa',
+      natureza: item.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE ? 'Entrada' : 'Saida',
+      origem: item.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE
+        ? `Pagamento ${item.detalhes?.paymentId || item.id}`
+        : (item.descricao || 'Despesa'),
+      cliente: item.detalhes?.clienteNome || '-',
+    }));
 
   return (
     <div className="sf-finance-section">
@@ -265,20 +295,29 @@ function FinanceDashboard() {
       />
 
       <div className="sf-metric-grid">
-        <Metric icon={ArrowUpCircle} label="Receita do mês" value={data.receitaBruta} tone="positive" />
-        <Metric icon={PiggyBank} label="Lucro do mês" value={data.lucroReal} tone={data.lucroReal >= 0 ? 'positive' : 'negative'} />
-        <Metric icon={Wallet} label="Saldo disponível" value={data.saldos.salario + data.saldos.empresa + data.saldos.reserva} tone="positive" />
-        <Metric icon={PiggyBank} label="Fundo acumulado" value={data.saldos.reserva} />
-        <Metric icon={BriefcaseBusiness} label="Dinheiro da empresa" value={data.saldos.empresa} />
-        <Metric icon={CircleDollarSign} label="Salário disponível" value={data.saldos.salario} />
-        <Metric icon={Receipt} label="Despesas fixas" value={data.despesasFixas} tone="warning" />
-        <Metric icon={ArrowDownCircle} label="Despesas variáveis" value={data.despesasVariaveis} tone="negative" />
-        <Metric icon={Package} label="Investimento em equipamentos" value={data.investimentoEquipamentosMes} />
-        <Metric icon={Wallet} label="Fluxo de caixa" value={data.fluxoCaixa} tone={data.fluxoCaixa >= 0 ? 'positive' : 'negative'} />
-        <Metric icon={LineChart} label="Previsão financeira" value={data.financeSnapshot.forecast} tone={data.financeSnapshot.forecast >= 0 ? 'positive' : 'negative'} />
-        <Metric icon={CalendarClock} label="Contas a pagar" value={data.contasAPagar} tone="warning" />
+        <Metric icon={BriefcaseBusiness} label="Receita contratada" value={data.receitaContratada} />
+        <Metric icon={ArrowUpCircle} label="Receita recebida" value={data.receitaRecebida} tone="positive" />
         <Metric icon={CircleDollarSign} label="Contas a receber" value={data.contasAReceber} />
+        <Metric icon={ArrowDownCircle} label="Total de despesas" value={data.totalDespesas} tone="negative" />
+        <Metric icon={PiggyBank} label="Fundo acumulado" value={data.saldos.reserva} />
+        <Metric icon={BriefcaseBusiness} label="Caixa da empresa" value={data.saldos.empresa} />
+        <Metric icon={CircleDollarSign} label="Salarios acumulados" value={data.saldos.salario} />
+        <Metric icon={Wallet} label="Resultado liquido" value={data.resultadoLiquido} tone={data.resultadoLiquido >= 0 ? 'positive' : 'negative'} />
       </div>
+
+      <SimpleTable
+        columns={['Destino', 'Entradas', 'Saidas', 'Saldo atual']}
+        rows={accountRows}
+        render={(row) => [row.destino, formatCurrency(row.entradas), formatCurrency(row.saidas), formatCurrency(row.saldo)]}
+        empty="Nenhuma movimentacao financeira registrada."
+      />
+
+      <SimpleTable
+        columns={['Destino', 'Movimento', 'Origem', 'Cliente', 'Valor']}
+        rows={movementRows}
+        render={(row) => [row.destino, row.natureza, row.origem, row.cliente, formatCurrency(getTransactionValue(row))]}
+        empty="Nenhuma entrada ou saida distribuida."
+      />
 
       <div className="sf-panel-grid">
         <div className="sf-card tall">
@@ -378,7 +417,12 @@ function FinanceDashboard() {
               />
             </label>
           ))}
-          <button className="sf-primary-button wide" onClick={saveConfig}>Salvar configuração</button>
+          <div className="formula-row">
+            <span>Total</span>
+            <strong>{['salario', 'empresa', 'reserva'].reduce((sum, key) => sum + Number(data.financasConfig[key] || 0), 0).toFixed(1)}%</strong>
+          </div>
+          {configError && <p className="sf-muted" style={{ color: 'var(--color-danger)', margin: 0 }}>{configError}</p>}
+          <button className="sf-primary-button wide" onClick={() => void saveConfig()}>Salvar configuração</button>
         </div>
       </Modal>
     </div>
@@ -390,7 +434,7 @@ function Receitas() {
   
   const linhas = useMemo(() => {
     return clientes.flatMap((client) =>
-      (client.pagamentos || []).map((payment, index) => ({
+      (client.pagamentos || []).filter(isConfirmedPayment).map((payment, index) => ({
         id: `receita-${client.projectId || client.id || 'cli'}-${index}`,
         cliente: client.nome || 'Cliente',
         data: payment.data || '-',

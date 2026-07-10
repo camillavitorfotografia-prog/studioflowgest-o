@@ -11,8 +11,15 @@ export default function MainLayout() {
       </main>
 
       <style>{`
+        .studioflow-shell {
+          width: 100%;
+          min-width: 0;
+          overflow-x: clip;
+        }
+
         .content-wrapper {
           width: 100%;
+          min-width: 0;
           min-height: 100vh;
           padding: 22px 24px 28px;
           margin-top: 0;
@@ -37,9 +44,9 @@ export default function MainLayout() {
         @media (max-width: 768px) {
           .content-wrapper {
             margin-top: 0 !important;
-            margin-left: 64px !important;
-            width: calc(100% - 64px) !important;
-            padding: 12px 10px 22px !important;
+            margin-left: 0 !important;
+            width: 100% !important;
+            padding: 64px 10px 22px !important;
           }
         }
       `}</style>

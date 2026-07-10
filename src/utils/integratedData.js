@@ -365,39 +365,3 @@ export const approveLeadToProject = (lead) => {
   window.dispatchEvent(new Event('storage'));
   return project;
 };
-
-export const distributeProjectIncome = (projectId, paymentValue) => {
-  const value = parseMoney(paymentValue);
-  if (value <= 0) return null;
-  const config = safeParse(INTEGRATION_KEYS.config, { salario: 35, empresa: 45, reserva: 20 });
-  const balances = safeParse(INTEGRATION_KEYS.balances, { salario: 0, empresa: 0, reserva: 0 });
-  const total = Number(config.salario || 0) + Number(config.empresa || 0) + Number(config.reserva || 0) || 100;
-  const distribution = {
-    salario: value * (Number(config.salario || 0) / total),
-    empresa: value * (Number(config.empresa || 0) / total),
-    reserva: value * (Number(config.reserva || 0) / total),
-  };
-  const nextBalances = {
-    salario: Number(balances.salario || 0) + distribution.salario,
-    empresa: Number(balances.empresa || 0) + distribution.empresa,
-    reserva: Number(balances.reserva || 0) + distribution.reserva,
-  };
-  save(INTEGRATION_KEYS.balances, nextBalances);
-
-  const transactions = safeParse(INTEGRATION_KEYS.finances, []);
-  save(INTEGRATION_KEYS.finances, [
-    ...transactions,
-    {
-      id: createId('distribution'),
-      projectId,
-      descricao: 'Regra dos 3 aplicada automaticamente',
-      valor: value,
-      tipo: 'distribuicao',
-      tipoGeral: 'Movimentacao Interna',
-      detalhes: distribution,
-      data: dateOnly(new Date()),
-    },
-  ]);
-  window.dispatchEvent(new Event('storage'));
-  return { distribution, balances: nextBalances };
-};

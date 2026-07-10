@@ -291,6 +291,7 @@ export default function Perfil() {
     reader.onloadend = () => {
       setFotoPerfil(reader.result);
       localStorage.setItem(PHOTO_KEY, reader.result);
+      window.dispatchEvent(new CustomEvent('sf_profile_photo_update', { detail: { photo: reader.result } }));
     };
     reader.readAsDataURL(file);
   };

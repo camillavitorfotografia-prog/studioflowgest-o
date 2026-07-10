@@ -19,6 +19,7 @@ import {
   formatCurrency,
   parseCurrency,
 } from '../../utils/financeEngine';
+import './Equipamentos.css';
 
 const emptyEquipment = {
   id: null,
@@ -204,23 +205,23 @@ export default function Equipamentos() {
   const chartData = selectedChartItem ? buildDepreciationChart(selectedChartItem) : [];
 
   return (
-    <div className="sf-finance-section">
-      <div className="sf-section-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-          <button onClick={() => navigate(-1)} className="sf-secondary-button">
+    <div className="sf-finance-section sf-equipment-page">
+      <div className="sf-section-header sf-equipment-header">
+        <div className="sf-equipment-title-group">
+          <button onClick={() => navigate(-1)} className="sf-secondary-button sf-equipment-back-button">
             <ArrowLeft size={18} /> Voltar
           </button>
-          <div>
+          <div className="sf-equipment-heading-copy">
             <h1>Equipamentos & Patrimônio</h1>
             <p>Gerencie suas lentes, câmeras, gimbals, manutenções e taxas de depreciação de ativos.</p>
           </div>
         </div>
-        <button className="sf-primary-button" onClick={openNewEquipment}>
+        <button className="sf-primary-button sf-equipment-new-button" onClick={openNewEquipment}>
           <Plus size={18} /> Novo equipamento
         </button>
       </div>
 
-      <div className="sf-metric-grid">
+      <div className="sf-metric-grid sf-equipment-metrics">
         <Metric label="Valor de compra" value={totals.invested} />
         <Metric label="Valor atual estimado" value={totals.current} />
         <Metric label="Depreciação mensal" value={totals.monthly} />
@@ -228,13 +229,13 @@ export default function Equipamentos() {
         <Metric label="Projetos vinculados" value={Object.values(equipmentUsage).reduce((sum, item) => sum + item.quantidadeProjetos, 0)} isNumber />
       </div>
 
-      <div className="sf-panel-grid">
-        <div className="sf-card tall">
+      <div className="sf-panel-grid sf-equipment-content-grid">
+        <div className="sf-card tall sf-equipment-chart-card">
           <h3>Gráfico de Depreciação</h3>
           {selectedChartItem ? (
             <>
               <p className="sf-muted" style={{ marginBottom: '12px' }}>{selectedChartItem.nome}</p>
-              <div style={{ width: '100%', height: 240 }}>
+              <div className="sf-equipment-chart" style={{ width: '100%', height: 240 }}>
                 <ResponsiveContainer>
                   <LineChart data={chartData}>
                     <XAxis dataKey="name" stroke="#A1A1AA" />
@@ -250,8 +251,8 @@ export default function Equipamentos() {
           )}
         </div>
 
-        <div className="sf-table-card">
-          <table className="sf-table">
+        <div className="sf-table-card sf-equipment-table-card">
+          <table className="sf-table sf-equipment-table">
             <thead>
               <tr>
                 <th>Item</th>
@@ -335,7 +336,7 @@ export default function Equipamentos() {
 
 function Metric({ label, value, isNumber = false }) {
   return (
-    <div className="sf-card metric">
+    <div className="sf-card metric sf-equipment-metric">
       <div className="metric-label" style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '4px' }}>{label}</div>
       <strong style={{ fontSize: '1.4rem', color: '#fff' }}>{isNumber ? value : formatCurrency(value)}</strong>
     </div>
