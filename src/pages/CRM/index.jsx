@@ -4,10 +4,11 @@ import CRMStats from './CRMStats';
 import KanbanBoard from './KanbanBoard';
 import Modal from '../../components/Modal';
 import LeadForm from './LeadForm';
-import { getStatusTitle } from '../../data/crm';
+import { getStatusTitle, normalizeLeadStatus } from '../../data/crm';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { convertLeadToClientProject, emitDbUpdate, mapLeadFromDb, saveRow } from '../../utils/dbData';
+import { convertLeadToClientProject, emitDbUpdate, isMissingRelationError, mapLeadFromDb, saveLeadRow } from '../../utils/dbData';
 import { inputToDate } from '../../utils/masks';
+import { parseCurrency } from '../../utils/formatters';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 import { useKeyboardShortcuts, AutoSaveIndicator } from '../../components/PremiumUXKit';
 
@@ -23,12 +24,14 @@ const leadPayload = (leadData, now) => ({
   whatsapp: leadData.whatsapp || leadData.telefone || '',
   cidade: leadData.cidade || '',
   observacoes: leadData.observacoes || '',
+  status: normalizeLeadStatus(leadData.status),
+  valor_orcamento: parseCurrency(leadData.valorOrcamento),
   updated_at: now,
 });
 
 
 const saveLeadToDb = async ({ id, payload }) => {
-  return saveRow({ table: 'leads', id, payload });
+  return saveLeadRow({ id, payload });
 };
 
 const readLocalLeads = () => readStorage(STORAGE_KEYS.leads, []).map(mapLeadFromDb);
@@ -135,7 +138,6 @@ export default function CRM() {
           saveLeadLocal({ id: leadData.id, payload });
         }
       } else {
-        payload.status = 'novo_lead';
         payload.historico = [{ data: now, acao: 'Lead criado no CRM' }];
         payload.created_at = now;
 
@@ -151,10 +153,12 @@ export default function CRM() {
       setEditingLead(null);
     } catch (err) {
       console.error('Erro ao salvar lead no Supabase:', err.message);
-      saveLeadLocal({ id: leadData.id, payload });
-      await fetchLeads();
-      setIsModalOpen(false);
-      setEditingLead(null);
+      if (!isSupabaseConfigured || isMissingRelationError(err, 'leads')) {
+        saveLeadLocal({ id: leadData.id, payload });
+        await fetchLeads();
+        setIsModalOpen(false);
+        setEditingLead(null);
+      }
     } finally {
       setSaveStatus('saved');
     }
@@ -172,11 +176,12 @@ export default function CRM() {
 
   const handleUpdateStatus = async (leadId, newStatus) => {
     const currentLead = leads.find((lead) => lead.id === leadId);
-    if (!currentLead || currentLead.status === newStatus) return;
+    const normalizedStatus = normalizeLeadStatus(newStatus);
+    if (!currentLead || currentLead.status === normalizedStatus) return;
 
     setSaveStatus('saving');
 
-    if (newStatus === 'aprovado') {
+    if (normalizedStatus === 'aprovado') {
       const converted = await convertLeadToClient(currentLead);
       if (!converted) {
         setSaveStatus('saved');
@@ -187,28 +192,41 @@ export default function CRM() {
     const now = new Date().toISOString();
     const nextHistorico = [
       ...(currentLead.historico || []),
-      { data: now, acao: `Status alterado para ${getStatusTitle(newStatus)}` },
+      { data: now, acao: `Status alterado para ${getStatusTitle(normalizedStatus)}` },
     ];
+
+    setLeads((current) => current.map((lead) => (
+      lead.id === leadId ? { ...lead, status: normalizedStatus, historico: nextHistorico } : lead
+    )));
+
+    if (selectedLead?.id === leadId) {
+      setSelectedLead((previous) => (previous ? { ...previous, status: normalizedStatus, historico: nextHistorico } : null));
+    }
 
     try {
       const statusPayload = {
-        status: newStatus,
+        status: normalizedStatus,
         updated_at: now,
         historico: nextHistorico,
       };
       if (isSupabaseConfigured) {
-        await saveRow({ table: 'leads', id: leadId, payload: statusPayload });
+        await saveLeadRow({ id: leadId, payload: statusPayload });
       } else {
         saveLeadLocal({ id: leadId, payload: { ...currentLead, ...statusPayload } });
       }
 
       await fetchLeads();
-
-      if (selectedLead?.id === leadId) {
-        setSelectedLead((prev) => (prev ? { ...prev, status: newStatus, historico: nextHistorico } : null));
-      }
     } catch (err) {
       console.error('Erro ao atualizar status no Supabase:', err.message);
+      if (isMissingRelationError(err, 'leads')) {
+        saveLeadLocal({ id: leadId, payload: { ...currentLead, status: normalizedStatus, updated_at: now, historico: nextHistorico } });
+        await fetchLeads();
+      } else {
+        setLeads((current) => current.map((lead) => (
+          lead.id === leadId ? currentLead : lead
+        )));
+        if (selectedLead?.id === leadId) setSelectedLead(currentLead);
+      }
     } finally {
       setSaveStatus('saved');
     }

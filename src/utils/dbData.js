@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from './supabase';
 import { parseCurrency } from './formatters';
+import { normalizeLeadStatus } from '../data/crm';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFILE_TABLE = 'perfil';
@@ -9,6 +10,13 @@ export const assertSupabaseConfigured = () => {
   if (!isSupabaseConfigured) {
     throw new Error('Supabase nao configurado: atualize VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no .env.');
   }
+};
+
+export const isMissingRelationError = (error, table) => {
+  const message = String(error?.message || '').toLowerCase();
+  const normalizedTable = String(table || '').toLowerCase();
+  return error?.code === 'PGRST205'
+    || (message.includes('could not find the table') && (!normalizedTable || message.includes(normalizedTable)));
 };
 
 export const emitDbUpdate = () => {
@@ -23,21 +31,49 @@ export const normalizePaymentValue = (value) => {
 };
 
 export const readPayments = (project = {}) => {
-  const payments = project.pagamentos || project.historico_pagamentos || project.historicoPagamentos || project.receitas || project.financeiro?.receitas || [];
-  return Array.isArray(payments) ? payments : [];
+  const sources = [
+    project.pagamentos,
+    project.historico_pagamentos,
+    project.historicoPagamentos,
+    project.receitas,
+    project.financeiro?.receitas,
+  ].filter(Array.isArray);
+
+  const uniquePayments = new Map();
+  sources.flat().forEach((payment) => {
+    if (!payment || typeof payment !== 'object') return;
+    const key = payment.id || [
+      payment.client_id || payment.clientId || '',
+      payment.data || '',
+      normalizePaymentValue(payment.valor),
+      payment.status || '',
+    ].join('|');
+    if (!uniquePayments.has(key)) uniquePayments.set(key, payment);
+  });
+
+  return [...uniquePayments.values()];
 };
 
 export const calculateProjectAmounts = (project = {}) => {
   const total = Number(project.valor_contratado ?? project.valorContratado ?? project.valorTotal ?? 0);
   const payments = readPayments(project);
-  const paid = Number(project.valor_recebido ?? project.valorRecebido ?? payments.reduce((sum, payment) => sum + normalizePaymentValue(payment.valor), 0));
-  const remaining = Math.max(0, Number(project.saldo_restante ?? project.saldoRestante ?? total - paid));
+  const paymentSummary = calculatePaymentsSummary(payments, total);
+  const paid = payments.length
+    ? paymentSummary.valorRecebido
+    : Number(project.valor_recebido ?? project.valorRecebido ?? 0);
+  const remaining = payments.length
+    ? paymentSummary.valorRestante
+    : Math.max(0, Number(project.saldo_restante ?? project.saldoRestante ?? total - paid));
   return { total, paid, remaining, payments };
 };
 
 export const calculatePaymentsSummary = (payments = [], total = 0) => {
   const valorTotal = normalizePaymentValue(total);
-  const valorRecebido = payments.reduce((sum, payment) => sum + normalizePaymentValue(payment.valor), 0);
+  const ignoredStatuses = new Set(['pendente', 'cancelado', 'cancelada', 'estornado', 'estornada']);
+  const valorRecebido = payments.reduce((sum, payment) => {
+    const status = String(payment.status || '').trim().toLowerCase();
+    return ignoredStatuses.has(status) ? sum : sum + normalizePaymentValue(payment.valor);
+  }, 0);
   const valorRestante = Math.max(0, valorTotal - valorRecebido);
   return { valorTotal, valorRecebido, valorRestante };
 };
@@ -48,7 +84,7 @@ export const mapLeadFromDb = (lead = {}) => ({
   email: lead.email || '',
   nomeCasal: lead.nome_casal || lead.nomeCasal || '',
   tipoServico: lead.tipo_servico || lead.servico || lead.tipoServico || 'Casamento',
-  status: lead.status || 'novo_lead',
+  status: normalizeLeadStatus(lead.status ?? lead.pipeline_status ?? lead.lead_status ?? lead.stage ?? lead.etapa),
   valorOrcamento: lead.valor_orcamento !== null && lead.valor_orcamento !== undefined ? String(lead.valor_orcamento) : (lead.valorOrcamento || '0'),
   dataEvento: lead.data_evento || lead.dataEvento || '',
   dataOrcamento: lead.data_orcamento || lead.dataOrcamento || '',
@@ -105,7 +141,13 @@ export const mapProjectFromDb = (project = {}, clients = [], transactions = []) 
   const payments = readPayments(project);
   const expenses = transactions.filter((item) => item.projectId === project.id && (item.tipoGeral === 'Saida' || item.tipo === 'fixa' || item.tipo === 'variavel'));
   const total = Number(project.valor_contratado ?? project.valorContratado ?? 0);
-  const paid = Number(project.valor_recebido ?? project.valorRecebido ?? payments.reduce((sum, payment) => sum + normalizePaymentValue(payment.valor), 0));
+  const paymentSummary = calculatePaymentsSummary(payments, total);
+  const paid = payments.length
+    ? paymentSummary.valorRecebido
+    : Number(project.valor_recebido ?? project.valorRecebido ?? 0);
+  const remaining = payments.length
+    ? paymentSummary.valorRestante
+    : Number(project.saldo_restante ?? project.saldoRestante ?? Math.max(0, total - paid));
   const costs = expenses.reduce((sum, item) => sum + normalizePaymentValue(item.valor), 0);
 
   return {
@@ -121,7 +163,7 @@ export const mapProjectFromDb = (project = {}, clients = [], transactions = []) 
     status: project.status || 'contrato_fechado',
     valorContratado: total,
     valorRecebido: paid,
-    saldoRestante: Number(project.saldo_restante ?? project.saldoRestante ?? Math.max(0, total - paid)),
+    saldoRestante: remaining,
     data: project.data || project.data_trabalho || project.dataTrabalho || '',
     horario: project.horario || '',
     local: project.local || client.cidade || '',
@@ -129,6 +171,7 @@ export const mapProjectFromDb = (project = {}, clients = [], transactions = []) 
     pagamentos: payments,
     historicoPagamentos: payments,
     financeiro: {
+      ...(project.financeiro && typeof project.financeiro === 'object' ? project.financeiro : {}),
       receitas: payments,
       despesas: expenses,
       custos: costs,
@@ -136,7 +179,7 @@ export const mapProjectFromDb = (project = {}, clients = [], transactions = []) 
       margem: paid > 0 ? ((paid - costs) / paid) * 100 : 0,
       valorContratado: total,
       valorRecebido: paid,
-      saldoRestante: Number(project.saldo_restante ?? project.saldoRestante ?? Math.max(0, total - paid)),
+      saldoRestante: remaining,
     },
     agenda: { data: project.data || '', horario: project.horario || '', local: project.local || client.cidade || '' },
     checklist: project.checklist || [],
@@ -197,6 +240,48 @@ export const saveRow = async ({ table, payload, id, match = 'id', onConflict = '
   const { data, error } = await request;
   if (error) throw error;
   return data;
+};
+
+const LEAD_STATUS_COLUMNS = ['status', 'pipeline_status', 'lead_status', 'stage', 'etapa'];
+
+export const saveLeadRow = async ({ id, payload }) => {
+  assertSupabaseConfigured();
+
+  const rawStatus = LEAD_STATUS_COLUMNS
+    .map((column) => payload[column])
+    .find((value) => value !== undefined);
+
+  if (rawStatus === undefined) {
+    return saveRow({ table: 'leads', id, payload });
+  }
+
+  const normalizedStatus = normalizeLeadStatus(rawStatus);
+  const basePayload = { ...payload };
+  LEAD_STATUS_COLUMNS.forEach((column) => delete basePayload[column]);
+  let lastError = null;
+
+  for (const statusColumn of LEAD_STATUS_COLUMNS) {
+    let body = { ...basePayload, [statusColumn]: normalizedStatus };
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const request = id
+        ? supabase.from('leads').update(body).eq('id', id).select('*').single()
+        : supabase.from('leads').insert([body]).select('*').single();
+      const { data, error } = await request;
+
+      if (!error) return data;
+
+      lastError = error;
+      const unknownColumn = getUnknownColumn(error);
+      if (unknownColumn === statusColumn) break;
+      if (!unknownColumn || !(unknownColumn in body)) throw error;
+
+      body = { ...body };
+      delete body[unknownColumn];
+    }
+  }
+
+  throw lastError || new Error('Nao foi possivel persistir o status do lead.');
 };
 
 export const upsertRow = async ({ table, payload, onConflict = 'id', returning = '*' }) => {
@@ -338,22 +423,29 @@ export const convertLeadToClientProject = async (lead) => {
   assertSupabaseConfigured();
   const now = new Date().toISOString();
   const mappedLead = mapLeadFromDb(lead);
-  const cleanPhone = (mappedLead.telefone || mappedLead.whatsapp || '').replace(/\D/g, '');
-  const existingQuery = cleanPhone
-    ? `telefone.ilike.%${cleanPhone}%,whatsapp.ilike.%${cleanPhone}%`
-    : `email.eq.${mappedLead.email || 'sem-email'}`;
-
-  const { data: existingClients } = await supabase.from('clientes').select('*').or(existingQuery).limit(1);
-  const existingClient = existingClients?.[0];
+  const cleanPhone = (mappedLead.whatsapp || mappedLead.telefone || '').replace(/\D/g, '');
+  const cleanEmail = String(mappedLead.email || '').trim().toLowerCase();
+  const cleanName = String(mappedLead.nome || '').trim().toLowerCase();
+  const { data: clientCandidates, error: clientLookupError } = await supabase.from('clientes').select('*');
+  if (clientLookupError) throw clientLookupError;
+  const existingClient = (clientCandidates || []).find((client) => {
+    const candidatePhone = String(client.whatsapp || client.telefone || '').replace(/\D/g, '');
+    const candidateEmail = String(client.email || '').trim().toLowerCase();
+    const candidateName = String(client.nome || '').trim().toLowerCase();
+    if (cleanPhone && candidatePhone === cleanPhone) return true;
+    if (cleanEmail && candidateEmail === cleanEmail) return true;
+    return Boolean(cleanName && candidateName === cleanName);
+  });
+  const total = parseCurrency(mappedLead.valorOrcamento);
+  const preserveText = (value, fallback = '') => String(value || '').trim() ? value : fallback;
   const clientPayload = {
-    nome: mappedLead.nome || 'Cliente sem nome',
-    email: mappedLead.email || '',
-    telefone: mappedLead.telefone || '',
-    whatsapp: mappedLead.whatsapp || mappedLead.telefone || '',
-    cidade: mappedLead.cidade || '',
-    origem: mappedLead.origem || '',
-    observacoes: mappedLead.observacoes || '',
-    updated_at: now,
+    nome: preserveText(mappedLead.nome, existingClient?.nome || 'Cliente sem nome'),
+    email: preserveText(mappedLead.email, existingClient?.email),
+    telefone: preserveText(mappedLead.telefone, existingClient?.telefone || existingClient?.whatsapp),
+    whatsapp: preserveText(mappedLead.whatsapp || mappedLead.telefone, existingClient?.whatsapp || existingClient?.telefone),
+    instagram: existingClient?.instagram || '',
+    cidade: preserveText(mappedLead.cidade, existingClient?.cidade),
+    cliente_desde: existingClient?.cliente_desde || now,
   };
 
   const client = await saveRow({
@@ -361,28 +453,39 @@ export const convertLeadToClientProject = async (lead) => {
     id: existingClient?.id,
     payload: existingClient ? clientPayload : { ...clientPayload, created_at: now },
   });
-  const total = parseCurrency(mappedLead.valorOrcamento);
+  const { data: projectCandidates, error: projectLookupError } = await supabase
+    .from('projetos')
+    .select('*')
+    .eq('cliente_id', client.id);
+  if (projectLookupError) throw projectLookupError;
+  const existingProject = (projectCandidates || []).find((project) => (
+    project.financeiro?.crmLeadId === mappedLead.id
+  ));
+  const currentFinance = existingProject?.financeiro && typeof existingProject.financeiro === 'object'
+    ? existingProject.financeiro
+    : {};
   const projectPayload = {
-    id: mappedLead.id,
     cliente_id: client.id,
-    cliente_nome: client.nome,
     tipo_servico: mappedLead.tipoServico || 'Casamento',
-    servico: mappedLead.tipoServico || 'Casamento',
     data: mappedLead.dataEvento || null,
     valor_contratado: total,
     valor_recebido: 0,
-    saldo_restante: total,
-    pagamentos: [],
-    status: 'contrato_fechado',
-    lead_id: mappedLead.id,
-    updated_at: now,
+    financeiro: {
+      ...currentFinance,
+      crmLeadId: mappedLead.id,
+      receitas: readPayments(existingProject || {}),
+      valorContratado: total,
+      valorRecebido: Number(existingProject?.valor_recebido || 0),
+      saldoRestante: Math.max(0, total - Number(existingProject?.valor_recebido || 0)),
+      statusFinanceiro: currentFinance.statusFinanceiro || 'Pendente',
+      updatedAt: now,
+    },
   };
 
-  const { data: existingProjects } = await supabase.from('projetos').select('id').eq('lead_id', mappedLead.id).limit(1);
   const project = await saveRow({
     table: 'projetos',
-    id: existingProjects?.[0]?.id,
-    payload: existingProjects?.[0] ? projectPayload : { ...projectPayload, created_at: now },
+    id: existingProject?.id,
+    payload: existingProject ? projectPayload : { ...projectPayload, created_at: now },
   });
 
   await createFinanceSeed(project, client);

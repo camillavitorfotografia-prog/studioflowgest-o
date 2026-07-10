@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LEAD_ORIGINS, SERVICE_TYPES } from '../../data/crm';
+import { CRM_STATUSES, LEAD_ORIGINS, SERVICE_TYPES } from '../../data/crm';
 import { capitalizeName, dateToInput, maskDate, maskPhone } from '../../utils/masks';
 
 const emptyLead = {
@@ -154,18 +154,32 @@ export default function LeadForm({ initialData, onSave }) {
         )}
       </div>
 
-      {field(
-        'Origem',
-        <select
-          style={inputStyle}
-          value={formData.origem}
-          onChange={(event) => updateField('origem', event.target.value)}
-        >
-          {LEAD_ORIGINS.map((origin) => (
-            <option key={origin} value={origin}>{origin}</option>
-          ))}
-        </select>,
-      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        {field(
+          'Origem',
+          <select
+            style={inputStyle}
+            value={formData.origem}
+            onChange={(event) => updateField('origem', event.target.value)}
+          >
+            {LEAD_ORIGINS.map((origin) => (
+              <option key={origin} value={origin}>{origin}</option>
+            ))}
+          </select>,
+        )}
+        {field(
+          'Status',
+          <select
+            style={inputStyle}
+            value={formData.status}
+            onChange={(event) => updateField('status', event.target.value)}
+          >
+            {CRM_STATUSES.map((status) => (
+              <option key={status.id} value={status.id}>{status.title}</option>
+            ))}
+          </select>,
+        )}
+      </div>
 
       {field(
         'Observacoes',

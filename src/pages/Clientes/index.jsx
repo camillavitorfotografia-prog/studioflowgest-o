@@ -5,7 +5,7 @@ import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/Premiu
 import { formatMoney, parseMoney } from '../../utils/integratedData';
 import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency, maskDate, maskInstagram, maskPhone } from '../../utils/masks';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, saveRow, upsertAgendaEvent } from '../../utils/dbData';
+import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 
 const emptyForm = {
@@ -43,11 +43,6 @@ const labelStyle = {
 const normalizeDate = (value) => dateToInput(value || '');
 const displayDate = (value) => normalizeDate(value) || '-';
 
-const readPayments = (project) => {
-  const payments = project?.pagamentos || project?.historico_pagamentos || project?.historicoPagamentos || project?.receitas || project?.financeiro?.receitas || [];
-  return Array.isArray(payments) ? payments : [];
-};
-
 const getClientProject = (client, projects) => {
   return projects.find((project) =>
     project.clientId === client.id ||
@@ -60,7 +55,13 @@ const getClientProject = (client, projects) => {
 
 const mapClientRow = (client, projects) => {
   const project = getClientProject(client, projects);
-  const pagamentos = readPayments(project);
+  const pagamentos = readProjectPayments({
+    ...(project || {}),
+    historico_pagamentos: [
+      ...(Array.isArray(project?.historico_pagamentos) ? project.historico_pagamentos : []),
+      ...(Array.isArray(client.historico_pagamentos) ? client.historico_pagamentos : []),
+    ],
+  });
   const total = Number(project?.valorContratado ?? project?.valor_contratado ?? client.valorTotal ?? client.valor_total ?? 0);
   const { valorRecebido: received, valorRestante: remaining } = calculatePaymentsSummary(pagamentos, total);
 
@@ -73,11 +74,11 @@ const mapClientRow = (client, projects) => {
     telefone: client.telefone || client.whatsapp || '',
     instagram: client.instagram || '',
     tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
-    dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || '',
+    dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || client.data_evento || '',
     valorTotal: total,
     valorRestante: remaining,
     valorRecebido: received,
-    status: project?.status || client.status || 'Ativo',
+    status: project?.financeiro?.statusFinanceiro || project?.financeiro?.status_financeiro || project?.status || client.status || 'Ativo',
     pagamentos,
   };
 };
@@ -96,6 +97,7 @@ const formFromClient = (client) => ({
   status: client.status || 'Ativo',
   pagamentos: (client.pagamentos || []).map((payment) => ({
     ...payment,
+    id: payment.id || createId('payment'),
     valor: payment.valor ? maskCurrency(String(Math.round(parseMoney(payment.valor) * 100))) : '',
     data: normalizeDate(payment.data),
     status: payment.status || 'Recebido',
@@ -120,9 +122,11 @@ const saveLocalMirrors = (clients, projects) => {
   const normalizedProjects = projects.map((project) => {
     const clientId = project.clientId || project.clienteId || project.cliente_id || project.client_id;
     const client = normalizedClients.find((item) => item.id === clientId) || {};
-    const pagamentos = readPayments(project);
+    const pagamentos = readProjectPayments(project);
     const valorContratado = Number(project.valorContratado ?? project.valor_contratado ?? 0);
     const { valorRecebido, valorRestante } = calculatePaymentsSummary(pagamentos, valorContratado);
+
+    const currentFinance = project.financeiro && typeof project.financeiro === 'object' ? project.financeiro : {};
 
     return {
       id: project.id,
@@ -132,14 +136,21 @@ const saveLocalMirrors = (clients, projects) => {
       cliente: client,
       tipoServico: project.tipoServico || project.tipo_servico || project.servico || project.tipoTrabalho || 'Evento',
       categoria: project.categoria || project.tipoServico || project.tipo_servico || project.servico || 'Evento',
-      status: project.status || 'contrato_fechado',
+      status: currentFinance.statusFinanceiro || project.status || 'Ativo',
       valorContratado,
       valorRecebido,
       saldoRestante: valorRestante,
       data: project.data || project.data_trabalho || '',
       horario: project.horario || '',
       local: project.local || client.cidade || '',
-      financeiro: { receitas: pagamentos },
+      financeiro: {
+        ...currentFinance,
+        receitas: pagamentos,
+        valorContratado,
+        valorRecebido,
+        saldoRestante: valorRestante,
+        statusFinanceiro: currentFinance.statusFinanceiro || project.status || 'Ativo',
+      },
       receitas: pagamentos,
       pagamentos,
       historicoPagamentos: pagamentos,
@@ -176,7 +187,9 @@ const calculatePayments = (formData) => {
   }));
   const valorTotal = parseMoney(formData.valorTotal);
   const { valorRecebido, valorRestante } = calculatePaymentsSummary(pagamentos, valorTotal);
-  const status = valorRestante <= 0 && valorTotal > 0 ? 'Pago' : (formData.status || 'Pendente');
+  const status = valorRestante <= 0 && valorTotal > 0
+    ? 'Quitado'
+    : (formData.status === 'Quitado' ? 'Pendente' : (formData.status || 'Pendente'));
   return { pagamentos, valorTotal, valorRecebido, valorRestante, status };
 };
 
@@ -264,7 +277,7 @@ export default function Clientes() {
   const addPayment = () => {
     setFormData((current) => ({
       ...current,
-      pagamentos: [...current.pagamentos, { id: `payment-${Date.now()}`, valor: '', data: '', status: 'Recebido' }],
+      pagamentos: [...current.pagamentos, { id: createId('payment'), valor: '', data: '', status: 'Recebido' }],
     }));
   };
 
@@ -298,27 +311,28 @@ export default function Clientes() {
 
     const now = new Date().toISOString();
     const {
-      pagamentos: payments,
+      pagamentos: draftPayments,
       valorTotal,
-      valorRecebido: paid,
-      valorRestante,
-      status,
     } = calculatePayments(formData);
 
     try {
-      const clientPayload = {
-        nome: formData.nome,
-        email: formData.email,
-        telefone: formData.telefone,
-        whatsapp: formData.telefone,
-        instagram: formData.instagram,
-        tipo_trabalho: formData.tipoTrabalho,
-        data_trabalho: inputToDate(formData.dataTrabalho),
-        valor_total: valorTotal,
-        valor_restante: valorRestante,
-        historico_pagamentos: payments,
-        status,
-        updated_at: now,
+      const existingClient = studio.clients.find((client) => client.id === formData.id) || {};
+      const existingProject = studio.projects.find((project) => project.id === formData.projectId) || {};
+      const currentFinance = existingProject.financeiro && typeof existingProject.financeiro === 'object'
+        ? existingProject.financeiro
+        : {};
+      const preserveText = (value, fallback = '') => String(value || '').trim() ? value : fallback;
+      const eventDate = inputToDate(formData.dataTrabalho) || existingProject.data || null;
+      const persistedTotal = String(formData.valorTotal || '').trim()
+        ? valorTotal
+        : Number(existingProject.valor_contratado || 0);
+      const clientBasePayload = {
+        nome: preserveText(formData.nome, existingClient.nome),
+        email: preserveText(formData.email, existingClient.email),
+        telefone: preserveText(formData.telefone, existingClient.telefone || existingClient.whatsapp),
+        whatsapp: preserveText(formData.telefone, existingClient.whatsapp || existingClient.telefone),
+        instagram: preserveText(formData.instagram, existingClient.instagram),
+        cliente_desde: existingClient.cliente_desde || existingClient.clienteDesde || now,
       };
 
       let savedClient;
@@ -328,32 +342,46 @@ export default function Clientes() {
         savedClient = await saveRow({
           table: 'clientes',
           id: formData.id,
-          payload: formData.id ? clientPayload : { ...clientPayload, created_at: now },
+          payload: formData.id ? clientBasePayload : { ...clientBasePayload, created_at: now },
         });
       } else {
         savedClient = {
           id: formData.id || createId('client'),
-          ...clientPayload,
+          ...clientBasePayload,
           created_at: formData.id ? undefined : now,
         };
       }
 
+      const payments = draftPayments.map((payment) => ({
+        ...payment,
+        id: payment.id || createId('payment'),
+        client_id: savedClient.id,
+        valor: Number(payment.valor || 0),
+        data: payment.data || null,
+        status: payment.status || 'Recebido',
+        observacao: payment.observacao || payment.observacoes || '',
+        created_at: payment.created_at || now,
+      }));
+      const { valorRecebido: paid, valorRestante } = calculatePaymentsSummary(payments, persistedTotal);
+      const status = valorRestante <= 0 && persistedTotal > 0
+        ? 'Quitado'
+        : (formData.status === 'Quitado' ? 'Pendente' : (formData.status || 'Pendente'));
+
       const projectPayload = {
         cliente_id: savedClient.id,
-        cliente_nome: savedClient.nome,
-        tipo_servico: formData.tipoTrabalho,
-        servico: formData.tipoTrabalho,
-        data: inputToDate(formData.dataTrabalho),
-        data_trabalho: inputToDate(formData.dataTrabalho),
-        valor_contratado: valorTotal,
-        valor_total: valorTotal,
+        tipo_servico: preserveText(formData.tipoTrabalho, existingProject.tipo_servico || 'Evento'),
+        data: eventDate,
+        valor_contratado: persistedTotal,
         valor_recebido: paid,
-        saldo_restante: valorRestante,
-        valor_restante: valorRestante,
-        status,
-        pagamentos: payments,
-        historico_pagamentos: payments,
-        updated_at: now,
+        financeiro: {
+          ...currentFinance,
+          receitas: payments,
+          valorContratado: persistedTotal,
+          valorRecebido: paid,
+          saldoRestante: valorRestante,
+          statusFinanceiro: status,
+          updatedAt: now,
+        },
       };
 
       if (isSupabaseConfigured) {
@@ -363,6 +391,15 @@ export default function Clientes() {
           payload: formData.projectId ? projectPayload : { ...projectPayload, created_at: now },
         });
       } else {
+        savedClient = {
+          ...savedClient,
+          tipo_trabalho: projectPayload.tipo_servico,
+          data_trabalho: eventDate,
+          valor_total: persistedTotal,
+          valor_restante: valorRestante,
+          historico_pagamentos: payments,
+          status,
+        };
         savedProject = {
           id: formData.projectId || createId('project'),
           ...projectPayload,
