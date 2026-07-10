@@ -1399,3 +1399,924 @@ img, svg, canvas { max-width: 100%; }
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* STUDIOFLOW — POLIMENTO GLOBAL PREMIUM */
+
+:root {
+  --sf-bg: #0b0b0c;
+  --sf-surface: rgba(24, 24, 27, 0.82);
+  --sf-surface-soft: rgba(32, 32, 36, 0.72);
+  --sf-border: rgba(197, 160, 89, 0.18);
+  --sf-gold: #c5a059;
+  --sf-gold-soft: rgba(197, 160, 89, 0.12);
+  --sf-text: #f5f1e8;
+  --sf-muted: #a1a1aa;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(197, 160, 89, 0.12), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(197, 160, 89, 0.08), transparent 30%),
+    var(--sf-bg) !important;
+}
+
+.glass,
+.sf-card,
+.card,
+.stat-card,
+.metric,
+.modal-content {
+  background: linear-gradient(145deg, rgba(29, 29, 32, 0.95), rgba(15, 15, 16, 0.96)) !important;
+  border: 1px solid var(--sf-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.28) !important;
+}
+
+button,
+.sf-primary-button,
+.sf-secondary-button {
+  border-radius: 10px !important;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+
+button:hover,
+.sf-primary-button:hover,
+.sf-secondary-button:hover {
+  transform: translateY(-1px);
+}
+
+input,
+select,
+textarea {
+  background: rgba(10, 10, 11, 0.78) !important;
+  border: 1px solid rgba(255,255,255,0.09) !important;
+  color: var(--sf-text) !important;
+  border-radius: 10px !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(197, 160, 89, 0.65) !important;
+  box-shadow: 0 0 0 3px rgba(197, 160, 89, 0.12) !important;
+  outline: none !important;
+}
+
+table {
+  border-collapse: separate !important;
+  border-spacing: 0 6px !important;
+}
+
+thead th {
+  color: var(--sf-muted) !important;
+  font-size: 0.72rem !important;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+tbody tr {
+  background: rgba(24, 24, 27, 0.68) !important;
+  border-radius: 12px !important;
+}
+
+.sf-section-header h1,
+h1 {
+  letter-spacing: -0.04em;
+}
+
+.sf-section-header p,
+p {
+  color: var(--sf-muted);
+}
+
+.sidebar {
+  background: rgba(11, 11, 12, 0.96) !important;
+  border-right: 1px solid rgba(197, 160, 89, 0.12) !important;
+}
+
+.nav-link.active {
+  background: rgba(197, 160, 89, 0.14) !important;
+  color: var(--sf-gold) !important;
+}
+
+.nav-link:hover {
+  background: rgba(197, 160, 89, 0.08) !important;
+  color: var(--sf-gold) !important;
+}
+
+/* =========================================================
+   STUDIOFLOW — DIREÇÃO VISUAL OFICIAL (REFERÊNCIA 2026)
+   ========================================================= */
+:root {
+  --bg-main: #080909;
+  --bg-card: #111313;
+  --bg-menu: #080909;
+  --text-main: #eeeae2;
+  --text-secondary: #888985;
+  --color-highlight: #b9823c;
+  --color-highlight-hover: #ca9650;
+  --color-success: #63b982;
+  --color-danger: #d26767;
+  --color-warning: #c99a4f;
+  --border-color: rgba(236, 228, 214, 0.075);
+  --shadow-sm: 0 8px 22px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.24);
+  --radius-sm: 7px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --sf-bg: #080909;
+  --sf-surface: #111313;
+  --sf-surface-soft: #151717;
+  --sf-border: rgba(236, 228, 214, 0.075);
+  --sf-gold: #b9823c;
+  --sf-gold-soft: rgba(185, 130, 60, 0.11);
+  --sf-text: #eeeae2;
+  --sf-muted: #888985;
+}
+
+html {
+  color-scheme: dark;
+  background: #080909;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 72% 8%, rgba(174, 119, 48, 0.045), transparent 24%),
+    linear-gradient(135deg, #090a0a 0%, #070808 54%, #0a0a09 100%) !important;
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.studioflow-shell {
+  min-height: 100vh;
+}
+
+.content-wrapper {
+  min-width: 0;
+  max-width: 100%;
+  background: transparent;
+  overflow-x: hidden;
+}
+
+.content-wrapper > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+h1,
+.sf-section-header h1 {
+  color: var(--text-main);
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+
+h2,
+.sf-section-header h2 {
+  font-size: 1.04rem;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+}
+
+h3,
+.sf-card h3 {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+p,
+.sf-section-header p,
+.sf-muted {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.glass,
+.sf-card,
+.sf-table-card,
+.card,
+.stat-card,
+.metric,
+.modal-content {
+  background: linear-gradient(145deg, rgba(18, 20, 20, 0.98), rgba(13, 14, 14, 0.98)) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 10px !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.glass:hover,
+.sf-card:hover {
+  border-color: rgba(205, 157, 88, 0.12) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18) !important;
+  transform: none;
+}
+
+.sf-card {
+  padding: 14px;
+}
+
+.sf-finance-page,
+.sf-finance-section,
+.sf-profile-page {
+  gap: 15px;
+  min-height: 0;
+}
+
+.sf-section-header {
+  gap: 12px;
+  align-items: center;
+}
+
+.sf-section-header p,
+.sf-muted {
+  margin-top: 3px;
+}
+
+.sf-metric-grid,
+.sf-panel-grid,
+.sf-report-grid {
+  gap: 11px;
+}
+
+.sf-metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+}
+
+.sf-panel-grid {
+  grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+}
+
+.sf-card.metric {
+  min-height: 76px;
+  padding: 12px 13px;
+}
+
+.sf-card.metric strong,
+.sf-card > strong {
+  margin-top: 6px;
+  font-size: 1.08rem !important;
+  line-height: 1.2;
+}
+
+.metric-label {
+  gap: 6px;
+  color: var(--text-secondary) !important;
+  font-size: 0.7rem !important;
+  font-weight: 500;
+}
+
+.metric-label svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sf-card h3 {
+  margin-bottom: 11px;
+}
+
+button,
+.sf-primary-button,
+.sf-secondary-button,
+.sf-finance-nav button,
+.sf-segmented button,
+.sf-equipment-picker button,
+.sf-sync-button {
+  min-height: 34px;
+  border-radius: 7px !important;
+  font-size: 0.72rem;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+button:hover,
+.sf-primary-button:hover,
+.sf-secondary-button:hover {
+  transform: none;
+}
+
+.sf-primary-button {
+  padding: 8px 12px;
+  color: #15120d;
+  background: linear-gradient(135deg, #c28b43, #a97031);
+  border-color: rgba(216, 170, 99, 0.45);
+  box-shadow: 0 5px 13px rgba(126, 82, 29, 0.13);
+}
+
+.sf-primary-button:hover {
+  color: #100e0a;
+  background: linear-gradient(135deg, #cd9952, #b77d36);
+  border-color: rgba(222, 181, 113, 0.55);
+  box-shadow: 0 6px 16px rgba(126, 82, 29, 0.18);
+}
+
+.sf-primary-button.wide {
+  min-height: 38px;
+  padding: 8px 13px;
+}
+
+.sf-secondary-button {
+  padding: 7px 11px;
+  color: #b4b3ae;
+  background: rgba(255, 255, 255, 0.018);
+  border-color: rgba(255, 255, 255, 0.075);
+}
+
+.sf-secondary-button:hover {
+  color: #ded9d0;
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(203, 156, 87, 0.16);
+}
+
+.sf-finance-nav {
+  gap: 3px;
+  padding-bottom: 8px;
+}
+
+.sf-finance-nav button {
+  min-height: 31px;
+  padding: 6px 10px;
+  border-color: transparent;
+}
+
+.sf-finance-nav button.active,
+.sf-finance-nav button:hover {
+  background: rgba(185, 130, 60, 0.075);
+  border-color: rgba(185, 130, 60, 0.16);
+}
+
+input,
+select,
+textarea,
+.sf-field input,
+.sf-field select,
+.sf-field textarea,
+.sf-login-field input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px !important;
+  color: #ddd9d1 !important;
+  background: #0d0f0f !important;
+  border: 1px solid rgba(238, 229, 213, 0.09) !important;
+  border-radius: 7px !important;
+  font-size: 0.76rem !important;
+  box-shadow: none !important;
+}
+
+textarea,
+.sf-field textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #565855;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.sf-field input:focus,
+.sf-field select:focus,
+.sf-field textarea:focus {
+  background: #0e1010 !important;
+  border-color: rgba(190, 137, 65, 0.62) !important;
+  box-shadow: 0 0 0 2px rgba(185, 130, 60, 0.1) !important;
+  outline: none !important;
+}
+
+.sf-field,
+.sf-login-field {
+  gap: 5px;
+  color: #8c8d89;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.sf-form-grid,
+.sf-time-grid,
+.sf-profile-fields,
+.sf-config-grid {
+  gap: 9px 10px;
+}
+
+.sf-profile-grid {
+  grid-template-columns: minmax(240px, 0.7fr) minmax(0, 1.3fr);
+  gap: 11px;
+}
+
+.sf-profile-card .metric-label {
+  margin-bottom: 11px !important;
+}
+
+.sf-company-card {
+  gap: 11px;
+  min-height: 260px;
+  align-self: stretch;
+}
+
+.sf-company-photo {
+  width: 94px;
+  height: 94px;
+  border-width: 1px;
+}
+
+.sf-company-info {
+  gap: 3px;
+}
+
+.sf-company-info strong {
+  font-size: 1rem;
+}
+
+.sf-company-info span {
+  font-size: 0.72rem;
+}
+
+.sf-collapsible-header {
+  padding: 12px 14px;
+}
+
+.sf-collapsible-content {
+  padding: 0 14px 14px;
+}
+
+.sf-subsection,
+.sf-settings-group {
+  padding: 11px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.sf-settings-group {
+  padding: 0;
+}
+
+.sf-settings-group summary {
+  padding: 10px 12px;
+  font-size: 0.75rem;
+}
+
+.formula-row,
+.formula-total,
+.compact-row,
+.report-row {
+  gap: 10px;
+  padding: 7px 0;
+  font-size: 0.73rem;
+}
+
+.sf-table-card {
+  overflow-x: auto;
+}
+
+table,
+.sf-table {
+  border-collapse: collapse !important;
+  border-spacing: 0 !important;
+}
+
+.sf-table {
+  min-width: 680px;
+}
+
+.sf-table th,
+.sf-table td {
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.sf-table th,
+thead th {
+  color: #797a77 !important;
+  background: rgba(255, 255, 255, 0.012);
+  font-size: 0.62rem !important;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.sf-table tbody tr,
+tbody tr {
+  background: transparent !important;
+}
+
+.sf-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.016);
+}
+
+.sf-table td small {
+  margin-top: 3px;
+  font-size: 0.62rem;
+}
+
+.sf-table .empty {
+  padding: 22px;
+}
+
+.sf-pill,
+.sf-status,
+.sf-export-chip {
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-size: 0.62rem;
+}
+
+.sf-actions {
+  gap: 3px !important;
+}
+
+.sf-actions button,
+.sf-icon-button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px;
+  border-radius: 6px !important;
+}
+
+.sf-alert,
+.sf-inline-note,
+.sf-insight {
+  padding: 9px 10px;
+  border-radius: 7px;
+  font-size: 0.7rem;
+}
+
+.sf-pricing-layout,
+.sf-pricing-shell {
+  gap: 11px;
+}
+
+.sf-pricing-main,
+.sf-pricing-summary,
+.sf-pricing-costs {
+  gap: 11px;
+}
+
+.sf-stepper {
+  gap: 5px;
+}
+
+.sf-stepper button,
+.sf-choice-grid > button,
+.sf-toggle-card,
+.sf-segmented button,
+.sf-equipment-picker button {
+  padding: 8px 10px;
+}
+
+.sf-choice-grid {
+  gap: 8px;
+}
+
+.sf-choice-grid > button {
+  min-height: 92px;
+}
+
+/* Dashboard: mais informação por dobra, como na composição de referência. */
+.sf-dashboard {
+  gap: 14px !important;
+  padding-bottom: 18px !important;
+}
+
+.sf-dashboard-header h1 {
+  font-size: 1.34rem !important;
+  font-weight: 600 !important;
+}
+
+.sf-dashboard-header p {
+  margin-top: 3px !important;
+  font-size: 0.73rem !important;
+}
+
+.sf-dashboard-metrics {
+  grid-template-columns: repeat(5, minmax(135px, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.sf-dashboard-stat {
+  min-height: 72px !important;
+  padding: 11px 12px !important;
+  gap: 10px !important;
+}
+
+.sf-dashboard-stat-icon {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 8px !important;
+}
+
+.sf-dashboard-stat-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.sf-dashboard-stat > div:last-child > div:first-child {
+  font-size: 0.61rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.035em !important;
+}
+
+.sf-dashboard-stat > div:last-child > div:last-child {
+  margin-top: 2px !important;
+  font-size: 1.02rem !important;
+  font-weight: 700 !important;
+}
+
+.sf-dashboard-primary-grid,
+.sf-dashboard-secondary-grid {
+  gap: 11px !important;
+}
+
+.sf-dashboard-primary-grid {
+  grid-template-columns: minmax(0, 1.45fr) minmax(245px, 0.75fr) !important;
+}
+
+.sf-dashboard-secondary-grid {
+  grid-template-columns: minmax(0, 1.25fr) minmax(270px, 0.75fr) !important;
+}
+
+.sf-dashboard-panel {
+  min-height: 0 !important;
+  padding: 14px !important;
+}
+
+.sf-dashboard-panel h2 {
+  margin-bottom: 12px !important;
+  font-size: 0.82rem !important;
+}
+
+.sf-dashboard-panel-wide > div[style*="height: 285"] {
+  height: 210px !important;
+}
+
+.sf-dashboard-panel-side > div[style*="height: 200"] {
+  height: 150px !important;
+}
+
+.sf-dashboard-secondary-grid .sf-dashboard-panel > div[style*="height: 230"] {
+  height: 185px !important;
+}
+
+/* Calendário escuro e compacto. */
+.agenda-layout {
+  gap: 12px !important;
+  grid-template-columns: minmax(0, 1fr) minmax(245px, 310px) !important;
+}
+
+.agenda-topo {
+  gap: 10px !important;
+}
+
+.calendar-wrapper {
+  height: 590px !important;
+  padding: 11px !important;
+}
+
+.rbc-calendar {
+  font-size: 0.68rem;
+}
+
+.rbc-header {
+  padding: 7px 3px !important;
+  color: #747572 !important;
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+
+.rbc-date-cell {
+  padding: 6px 7px !important;
+  font-size: 0.66rem;
+}
+
+.rbc-day-bg,
+.rbc-month-row,
+.rbc-time-content,
+.rbc-timeslot-group,
+.rbc-time-header-content {
+  border-color: rgba(255, 255, 255, 0.045) !important;
+}
+
+.rbc-today .rbc-button-link {
+  width: 23px;
+  height: 23px;
+  color: #15120e !important;
+  background: #b9823c !important;
+}
+
+.rbc-event {
+  padding: 1px 3px !important;
+  border-radius: 4px !important;
+  font-size: 0.61rem;
+}
+
+/* Login com proporções e contraste da referência. */
+.sf-login-screen {
+  grid-template-columns: minmax(410px, 48%) minmax(420px, 52%);
+  background:
+    radial-gradient(circle at 18% 22%, rgba(175, 120, 49, 0.075), transparent 32%),
+    #080909;
+}
+
+.sf-login-institutional {
+  padding: clamp(28px, 3vw, 46px);
+  background: linear-gradient(145deg, rgba(12, 14, 14, 0.98), rgba(8, 9, 9, 0.98));
+  border-right-color: rgba(205, 157, 88, 0.14);
+}
+
+.sf-login-brandmark {
+  width: min(260px, 70%);
+}
+
+.sf-login-tagline {
+  margin-top: 4px;
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+}
+
+.sf-login-benefit-list {
+  gap: 8px;
+}
+
+.sf-login-benefit-card {
+  gap: 11px;
+  padding: 11px 12px;
+  border-radius: 8px;
+}
+
+.sf-login-benefit-card h2 {
+  font-size: 0.76rem;
+}
+
+.sf-login-benefit-card p {
+  font-size: 0.66rem;
+}
+
+.sf-login-form-side {
+  padding: clamp(28px, 5vw, 72px);
+}
+
+.sf-login-form {
+  width: min(100%, 410px);
+  gap: 13px;
+}
+
+.sf-login-form-heading h1 {
+  font-size: 1.35rem;
+}
+
+.sf-login-submit,
+.sf-login-google {
+  height: 40px;
+  min-height: 40px;
+  border-radius: 7px !important;
+  font-size: 0.74rem;
+}
+
+.sf-login-google {
+  color: #ddd9d1;
+  background: #0e1010;
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.sf-login-google:hover {
+  color: #f0ece4;
+  background: #121414;
+}
+
+@media (max-width: 1240px) {
+  .sf-dashboard-metrics {
+    grid-template-columns: repeat(4, minmax(140px, 1fr)) !important;
+  }
+
+  .sf-profile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) and (min-width: 769px) {
+  .content-wrapper {
+    margin-left: 76px !important;
+    width: calc(100% - 76px) !important;
+    padding: 18px !important;
+  }
+
+  .sf-dashboard-primary-grid,
+  .sf-dashboard-secondary-grid,
+  .agenda-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .sf-dashboard-metrics {
+    grid-template-columns: repeat(3, minmax(135px, 1fr)) !important;
+  }
+
+  .calendar-wrapper {
+    height: 540px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .content-wrapper {
+    margin-top: 58px !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding: 14px 12px 24px !important;
+  }
+
+  h1,
+  .sf-section-header h1,
+  .sf-dashboard-header h1 {
+    font-size: 1.18rem !important;
+  }
+
+  .sf-section-header {
+    align-items: flex-start;
+  }
+
+  .sf-section-header > button,
+  .sf-profile-actions {
+    width: auto;
+  }
+
+  .sf-dashboard-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .sf-dashboard-primary-grid,
+  .sf-dashboard-secondary-grid,
+  .agenda-layout,
+  .sf-profile-grid,
+  .sf-profile-fields,
+  .sf-pricing-layout,
+  .sf-pricing-shell,
+  .sf-form-grid,
+  .sf-time-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .sf-dashboard-stat {
+    min-height: 68px !important;
+  }
+
+  .calendar-wrapper {
+    height: 500px !important;
+    padding: 8px !important;
+  }
+
+  .sf-finance-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .sf-card,
+  .sf-dashboard-panel {
+    padding: 12px !important;
+  }
+
+  .sf-login-screen {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  .sf-login-form-side {
+    min-height: 100vh;
+    padding: 26px 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sf-dashboard-stat {
+    min-height: 62px !important;
+  }
+
+  .sf-primary-button,
+  .sf-secondary-button {
+    min-height: 36px;
+  }
+
+  .calendar-wrapper {
+    height: 440px !important;
+  }
+}
+
+@media (max-width: 359px) {
+  .sf-dashboard-metrics {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

@@ -36,7 +36,7 @@ export default function Sidebar() {
       <div className="sidebar-main">
         <div className="sidebar-logo">
           <picture className="sidebar-logo-picture">
-            <source srcSet={LogoIcon} media="(max-width: 1024px)" />
+            <source srcSet={LogoIcon} media="(max-width: 1180px)" />
             <img
               src={Logo}
               alt="StudioFlow"
@@ -46,43 +46,43 @@ export default function Sidebar() {
         </div>
 
         <nav>
-          <NavLink to="/" className={linkClass}>
+          <NavLink to="/" className={linkClass} title="Dashboard">
             <Home /> <span>Dashboard</span>
           </NavLink>
 
-          <NavLink to="/crm" className={linkClass}>
+          <NavLink to="/crm" className={linkClass} title="CRM">
             <Target /> <span>CRM</span>
           </NavLink>
 
-          <NavLink to="/clientes" className={linkClass}>
+          <NavLink to="/clientes" className={linkClass} title="Clientes">
             <Users /> <span>Clientes</span>
           </NavLink>
 
-          <NavLink to="/projetos" className={linkClass}>
+          <NavLink to="/projetos" className={linkClass} title="Projetos">
             <FolderOpen /> <span>Projetos</span>
           </NavLink>
 
-          <NavLink to="/agenda" className={linkClass}>
+          <NavLink to="/agenda" className={linkClass} title="Agenda">
             <CalendarDays /> <span>Agenda</span>
           </NavLink>
 
-          <NavLink to="/financeiro" className={linkClass}>
+          <NavLink to="/financeiro" className={linkClass} title="Financeiro">
             <DollarSign /> <span>Financeiro</span>
           </NavLink>
 
-          <NavLink to="/precificacao" className={linkClass}>
+          <NavLink to="/precificacao" className={linkClass} title="Precificação">
             <Calculator /> <span>Precificacao</span>
           </NavLink>
 
-          <NavLink to="/equipamentos" className={linkClass}>
+          <NavLink to="/equipamentos" className={linkClass} title="Equipamentos">
             <Package /> <span>Equipamentos</span>
           </NavLink>
 
-          <NavLink to="/relatorios" className={linkClass}>
+          <NavLink to="/relatorios" className={linkClass} title="Relatórios">
             <BarChart3 /> <span>Relatórios</span>
           </NavLink>
 
-          <NavLink to="/perfil" className={linkClass}>
+          <NavLink to="/perfil" className={linkClass} title="Perfil">
             <User /> <span>Perfil</span>
           </NavLink>
         </nav>

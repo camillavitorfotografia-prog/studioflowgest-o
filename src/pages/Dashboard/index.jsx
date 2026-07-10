@@ -267,22 +267,22 @@ export default function Dashboard() {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '28px', paddingBottom: '32px' }}>
-      <header>
+    <div className="sf-dashboard" style={{ display: 'flex', flexDirection: 'column', gap: '28px', paddingBottom: '32px' }}>
+      <header className="sf-dashboard-header">
         <h1 style={{ color: 'var(--text-main)', fontSize: '2rem', fontWeight: '700', margin: 0 }}>Painel de Controle</h1>
         <p style={{ color: 'var(--text-secondary)', marginTop: '6px', fontSize: '0.95rem' }}>
           Visão geral de saúde financeira, funil de prospecção e cronograma técnico do estúdio.
         </p>
       </header>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+      <section className="sf-dashboard-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
         {cards.map((card) => (
           <StatCard key={card.title} {...card} />
         ))}
       </section>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(280px, 0.8fr)', gap: '24px', flexWrap: 'wrap' }}>
-        <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', minHeight: '360px' }}>
+      <section className="sf-dashboard-primary-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(280px, 0.8fr)', gap: '24px', flexWrap: 'wrap' }}>
+        <div className="glass sf-dashboard-panel sf-dashboard-panel-wide" style={{ padding: '24px', borderRadius: 'var(--radius-md)', minHeight: '360px' }}>
           <h2 style={{ color: 'var(--text-main)', fontSize: '1.1rem', marginBottom: '24px', fontWeight: '600' }}>Fluxo de Caixa (Últimos 6 meses)</h2>
           <div style={{ width: '100%', height: 285 }}>
             <ResponsiveContainer>
@@ -299,7 +299,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', minHeight: '360px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="glass sf-dashboard-panel sf-dashboard-panel-side" style={{ padding: '24px', borderRadius: 'var(--radius-md)', minHeight: '360px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <h2 style={{ color: 'var(--text-main)', fontSize: '1.1rem', marginBottom: '20px', fontWeight: '600' }}>Serviços Contratados</h2>
           <div style={{ width: '100%', height: 200 }}>
             <ResponsiveContainer>
@@ -327,8 +327,8 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 0.75fr)', gap: '24px' }}>
-        <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)' }}>
+      <section className="sf-dashboard-secondary-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 0.75fr)', gap: '24px' }}>
+        <div className="glass sf-dashboard-panel" style={{ padding: '24px', borderRadius: 'var(--radius-md)' }}>
           <h2 style={{ color: 'var(--text-main)', fontSize: '1.1rem', marginBottom: '18px', fontWeight: '600' }}>Volume de Produção (Eventos/Mês)</h2>
           <div style={{ width: '100%', height: 230 }}>
             <ResponsiveContainer>
@@ -343,7 +343,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="glass" style={{ padding: '24px', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="glass sf-dashboard-panel" style={{ padding: '24px', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <h2 style={{ color: 'var(--text-main)', fontSize: '1.1rem', marginBottom: '6px', fontWeight: '600' }}>Próximos Compromissos</h2>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {dashboard.futureEvents.slice(0, 4).map((event) => (
@@ -377,8 +377,8 @@ export default function Dashboard() {
 
 function StatCard({ title, value, icon, color }) {
   return (
-    <article className="glass" style={{ padding: '18px', borderRadius: 'var(--radius-md)', display: 'flex', gap: '14px', alignItems: 'center', minHeight: '96px' }}>
-      <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: `${color}15`, color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <article className="glass sf-dashboard-stat" style={{ padding: '18px', borderRadius: 'var(--radius-md)', display: 'flex', gap: '14px', alignItems: 'center', minHeight: '96px' }}>
+      <div className="sf-dashboard-stat-icon" style={{ width: '42px', height: '42px', borderRadius: '10px', background: `${color}15`, color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         {icon}
       </div>
       <div style={{ minWidth: 0, flex: 1 }}>
