@@ -1,87 +1,188 @@
-import { useEffect, useMemo, useState } from 'react';
-import { isSupabaseConfigured, supabase } from '../utils/supabase';
+import { useEffect, useState } from 'react';
+import {
+  isSupabaseConfigured,
+  supabase,
+} from '../utils/supabase';
 import { AuthContext } from './authContext';
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    let isMounted = true;
+    let active = true;
+    let authRevision = 0;
 
     if (!isSupabaseConfigured) {
+      queueMicrotask(() => {
+        if (active) setLoading(false);
+      });
+
       return () => {
-        isMounted = false;
+        active = false;
       };
     }
 
-    const loadSession = async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
+    const applySession = (nextSession) => {
+      setSession(nextSession ?? null);
+      setUser(nextSession?.user ?? null);
+    };
 
-        if (!isMounted) return;
-        setSession(data.session || null);
-        setUser(data.session?.user || null);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => {
+        if (!active) return;
+
+        authRevision += 1;
+        applySession(nextSession);
+        setAuthError('');
+      }
+    );
+
+    const loadInitialSession = async () => {
+      const revisionBeforeRequest = authRevision;
+
+      try {
+        const { data, error } =
+          await supabase.auth.getSession();
+
+        if (error) throw error;
+        if (!active) return;
+
+        if (authRevision === revisionBeforeRequest) {
+          applySession(data.session);
+        }
+
         setAuthError('');
       } catch (error) {
-        console.error('Erro ao carregar sessao:', error.message);
-        if (isMounted) {
-          setAuthError(error.message);
-          setSession(null);
-          setUser(null);
-        }
+        if (!active) return;
+
+        setAuthError(
+          error instanceof Error
+            ? error.message
+            : 'Não foi possível carregar a sessão.'
+        );
       } finally {
-        if (isMounted) setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    void loadSession();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!isMounted) return;
-      setSession(nextSession || null);
-      setUser(nextSession?.user || null);
-      setAuthError('');
-      setLoading(false);
-    });
+    void loadInitialSession();
 
     return () => {
-      isMounted = false;
-      listener?.subscription?.unsubscribe();
+      active = false;
+      subscription.unsubscribe();
     };
   }, []);
 
+  const ensureConfigured = () => {
+    if (!isSupabaseConfigured) {
+      throw new Error('Supabase não configurado.');
+    }
+  };
+
   const signInWithGoogle = async () => {
     setAuthError('');
-    if (!isSupabaseConfigured) {
-      const message = 'Configure a URL real do Supabase no arquivo .env antes de entrar com Google.';
-      setAuthError(message);
-      throw new Error(message);
-    }
+    ensureConfigured();
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: window.location.origin,
       },
     });
 
-    if (error) throw error;
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+  };
+
+  const signInWithEmail = async ({ email, password }) => {
+    setAuthError('');
+    ensureConfigured();
+
+    const { data, error } =
+      await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+
+    return data;
+  };
+
+  const signUp = async ({ email, password }) => {
+    setAuthError('');
+    ensureConfigured();
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+
+    return data;
+  };
+
+  const resetPassword = async (email) => {
+    setAuthError('');
+    ensureConfigured();
+
+    const { error } =
+      await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo:
+          `${window.location.origin}/login?mode=update-password`,
+      });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+  };
+
+  const updatePassword = async (password) => {
+    setAuthError('');
+    ensureConfigured();
+
+    const { data, error } =
+      await supabase.auth.updateUser({ password });
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
+
+    return data;
   };
 
   const signOut = async () => {
-    if (!isSupabaseConfigured) return;
+    setAuthError('');
+    ensureConfigured();
+
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setSession(null);
-    setUser(null);
+
+    if (error) {
+      setAuthError(error.message);
+      throw error;
+    }
   };
 
-  const value = useMemo(() => ({
+  const value = {
     session,
     user,
     loading,
@@ -89,8 +190,16 @@ export function AuthProvider({ children }) {
     isSupabaseConfigured,
     isAuthenticated: Boolean(session?.user),
     signInWithGoogle,
+    signInWithEmail,
+    signUp,
+    resetPassword,
+    updatePassword,
     signOut,
-  }), [authError, loading, session, user]);
+  };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }

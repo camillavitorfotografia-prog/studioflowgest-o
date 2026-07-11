@@ -5,10 +5,11 @@ import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/Premiu
 import { formatMoney, parseMoney } from '../../utils/integratedData';
 import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency, maskDate, maskInstagram, maskPhone } from '../../utils/masks';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
+import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, emitDbUpdate, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 import {
   calculateClientSalarySummary,
+  calculateProjectFinancialState,
   DEFAULT_SALARY_SPLIT,
   isSalarySplitValid,
   loadDistributionConfig,
@@ -410,6 +411,11 @@ export default function Clientes() {
       setSyncStatus('saved');
       return;
     }
+    if (salarySummary.camilla.disponivel < -0.01 || salarySummary.junior.disponivel < -0.01) {
+      alert('O pagamento nao pode ser alterado porque deixaria uma retirada salarial sem saldo correspondente.');
+      setSyncStatus('saved');
+      return;
+    }
 
     try {
       const existingClient = studio.clients.find((client) => client.id === formData.id) || {};
@@ -460,12 +466,6 @@ export default function Clientes() {
         observacao: payment.observacao || payment.observacoes || '',
         created_at: payment.created_at || now,
       }));
-      const payments = preparePaymentsWithDistribution(normalizedPayments, distributionConfig, {
-        projectId: formData.projectId || '',
-        clientId: savedClient.id,
-        clientName: clientBasePayload.nome,
-        salarySplit: formData.divisaoSalarios,
-      });
       const salaryWithdrawals = (formData.retiradasSalariais || []).map((withdrawal) => ({
         ...withdrawal,
         id: withdrawal.id || createId('salary-withdrawal'),
@@ -474,30 +474,41 @@ export default function Clientes() {
         status: withdrawal.status || 'Confirmada',
         observacao: withdrawal.observacao || '',
       }));
-      const { valorRecebido: paid, valorRestante } = calculatePaymentsSummary(payments, persistedTotal);
-      const status = valorRestante <= 0 && persistedTotal > 0
-        ? 'Quitado'
-        : (formData.status === 'Quitado' ? 'Pendente' : (formData.status || 'Pendente'));
+      const financialState = calculateProjectFinancialState({
+        project: {
+          ...existingProject,
+          id: formData.projectId || '',
+          cliente_id: savedClient.id,
+          clienteNome: clientBasePayload.nome,
+          valor_contratado: persistedTotal,
+          financeiro: {
+            ...currentFinance,
+            divisaoSalarios: normalizeSalarySplit(formData.divisaoSalarios),
+            retiradasSalariais: salaryWithdrawals,
+          },
+        },
+        payments: normalizedPayments,
+        config: distributionConfig,
+        context: {
+          clientId: savedClient.id,
+          clientName: clientBasePayload.nome,
+          salarySplit: formData.divisaoSalarios,
+        },
+      });
+      const payments = financialState.pagamentos;
 
       const projectPayload = {
         cliente_id: savedClient.id,
         tipo_servico: preserveText(formData.tipoTrabalho, existingProject.tipo_servico || 'Evento'),
         data: eventDate,
         valor_contratado: persistedTotal,
-        valor_recebido: paid,
+        valor_recebido: financialState.valorRecebido,
         contrato: {
           ...(existingProject.contrato && typeof existingProject.contrato === 'object' ? existingProject.contrato : {}),
           status: formData.contrato || 'Nao informado',
         },
         financeiro: {
-          ...currentFinance,
-          receitas: payments,
-          valorContratado: persistedTotal,
-          valorRecebido: paid,
-          saldoRestante: valorRestante,
-          statusFinanceiro: status,
-          divisaoSalarios: normalizeSalarySplit(formData.divisaoSalarios),
-          retiradasSalariais: salaryWithdrawals,
+          ...financialState.financeiro,
           updatedAt: now,
         },
       };
@@ -514,9 +525,9 @@ export default function Clientes() {
           tipo_trabalho: projectPayload.tipo_servico,
           data_trabalho: eventDate,
           valor_total: persistedTotal,
-          valor_restante: valorRestante,
+          valor_restante: financialState.saldoRestante,
           historico_pagamentos: payments,
-          status,
+          status: financialState.statusFinanceiro,
         };
         savedProject = {
           id: formData.projectId || createId('project'),
@@ -543,6 +554,7 @@ export default function Clientes() {
           clientName: savedClient.nome || clientBasePayload.nome,
         });
         await upsertAgendaEvent(savedProject, savedClient);
+        emitDbUpdate();
       }
 
       setSelectedClientId(savedClient.id);

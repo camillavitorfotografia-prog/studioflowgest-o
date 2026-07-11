@@ -3,9 +3,9 @@ import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, getDay, parse, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { CalendarDays, CheckSquare, ChevronLeft, ChevronRight, DollarSign, MapPin, Package, Phone, Users } from 'lucide-react';
+import { CalendarDays, CheckSquare, ChevronLeft, ChevronRight, DollarSign, Loader2, MapPin, Package, Phone, Save, Users } from 'lucide-react';
 import { formatMoney } from '../../utils/integratedData';
-import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { getDbStudioData, subscribeDbUpdates, updateProjectSchedule } from '../../utils/dbData';
 
 const locales = { 'pt-BR': ptBR };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
@@ -34,25 +34,30 @@ export default function Agenda() {
   const [dataAtual, setDataAtual] = useState(new Date());
   const [viewAtual, setViewAtual] = useState('month');
   const [selectedProject, setSelectedProject] = useState(null);
+  const [scheduleError, setScheduleError] = useState('');
+
+  const load = async () => {
+    const data = await getDbStudioData();
+    setStudio(data);
+    setSelectedProject((current) => (
+      current ? (data.projects || []).find((project) => project.id === current.id) || null : null
+    ));
+  };
 
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      const data = await getDbStudioData();
-      if (active) setStudio(data);
-    };
     setTimeout(() => { void load(); }, 0);
     window.addEventListener('focus', load);
     const unsubscribe = subscribeDbUpdates(load);
     return () => {
-      active = false;
       window.removeEventListener('focus', load);
       unsubscribe();
     };
   }, []);
 
   const events = useMemo(() => {
-    return (studio.projects || []).map((project) => {
+    return (studio.projects || []).filter((project) => (
+      project.data && project.horario && project.local
+    )).map((project) => {
       const start = toCalendarDate(project);
       const end = new Date(start);
       end.setHours(start.getHours() + 2);
@@ -66,6 +71,17 @@ export default function Agenda() {
       };
     });
   }, [studio.projects]);
+
+  const saveSchedule = async (project, schedule) => {
+    setScheduleError('');
+    try {
+      await updateProjectSchedule({ projectId: project.id, ...schedule });
+      await load();
+    } catch (error) {
+      console.error('Erro ao atualizar agenda:', error.message);
+      setScheduleError('Nao foi possivel atualizar data, horario e local.');
+    }
+  };
 
   // Memoização estruturada para evitar re-filtros em renders repetitivos
   const weekEvents = useMemo(() => {
@@ -118,7 +134,8 @@ export default function Agenda() {
         </div>
 
         <aside style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
-          {selectedProject ? <ProjectPanel project={selectedProject} /> : (
+          {scheduleError && <div className="sf-alert">{scheduleError}</div>}
+          {selectedProject ? <ProjectPanel key={`${selectedProject.id}-${selectedProject.data}-${selectedProject.horario}-${selectedProject.local}`} project={selectedProject} onSave={saveSchedule} /> : (
             <div className="sf-card">
               <h3>Eventos da semana</h3>
               {weekEvents.length === 0 && <p className="sf-muted">Nenhum projeto nos proximos 7 dias.</p>}
@@ -153,7 +170,24 @@ function EventCard({ event }) {
   );
 }
 
-function ProjectPanel({ project }) {
+function ProjectPanel({ project, onSave }) {
+  const [schedule, setSchedule] = useState({
+    data: project.data || '',
+    horario: project.horario || '',
+    local: project.local || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await onSave(project, schedule);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className="sf-card">
@@ -167,6 +201,15 @@ function ProjectPanel({ project }) {
       <Info icon={CheckSquare} label="Checklist" value={`${(project.checklist || []).filter((item) => item.done).length}/${(project.checklist || []).length} tarefas concluidas`} />
       <Info icon={Users} label="Equipe" value={(project.equipe || []).join(', ') || 'Equipe nao definida'} />
       <Info icon={Package} label="Equipamentos" value={project.equipamentosDetalhados?.map((item) => item.nome).join(', ') || 'Nenhum equipamento vinculado'} />
+      <form className="sf-card" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <h3 style={{ margin: 0 }}>Editar agenda</h3>
+        <label className="metric-label">Data<input required type="date" value={schedule.data} onChange={(event) => setSchedule((current) => ({ ...current, data: event.target.value }))} /></label>
+        <label className="metric-label">Horario<input required type="time" value={schedule.horario} onChange={(event) => setSchedule((current) => ({ ...current, horario: event.target.value }))} /></label>
+        <label className="metric-label">Local<input required value={schedule.local} onChange={(event) => setSchedule((current) => ({ ...current, local: event.target.value }))} /></label>
+        <button type="submit" className="sf-primary-button" disabled={saving}>
+          {saving ? <Loader2 size={15} /> : <Save size={15} />} Salvar na agenda
+        </button>
+      </form>
       <div className="sf-card">
         <h3>Observacoes</h3>
         <p className="sf-muted">{project.observacoes || 'Sem observacoes.'}</p>

@@ -1,9 +1,9 @@
-import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/useAuth';
 
 export default function ProtectedRoute({ children }) {
-  const { loading, isAuthenticated } = useAuth();
+  const { loading, session } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -14,8 +14,14 @@ export default function ProtectedRoute({ children }) {
     );
   }
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!session?.user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location }}
+      />
+    );
   }
 
   return children;

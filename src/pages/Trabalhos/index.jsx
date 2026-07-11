@@ -7,18 +7,14 @@ import {
   Eye,
   MoreVertical,
   Package,
-  Smartphone,
   Trash2,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { formatMoney } from '../../utils/integratedData';
-import { FINANCE_STORAGE_KEYS } from '../../utils/financeEngine';
 import {
-  deleteAgendaEvent,
   emitDbUpdate,
   getDbStudioData,
   subscribeDbUpdates,
-  upsertAgendaEvent,
 } from '../../utils/dbData';
 import { supabase } from '../../utils/supabase';
 import './Trabalhos.css';
@@ -52,7 +48,6 @@ export default function Trabalhos() {
   const [projects, setProjects] = useState([]);
   const [rawProjects, setRawProjects] = useState([]);
   const [activeMenuId, setActiveMenuId] = useState(null);
-  const [syncConfig, setSyncConfig] = useState({});
   const [selectedProject, setSelectedProject] = useState(null);
   const [editingProject, setEditingProject] = useState(null);
   const [projectDraft, setProjectDraft] = useState(null);
@@ -64,11 +59,9 @@ export default function Trabalhos() {
   const load = useCallback(async () => {
     try {
       const studio = await getDbStudioData();
-      const calendarSync = JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.calendarSync) || '{}');
       const loadedProjects = uniqueProjects(studio.projects || []);
       setProjects(loadedProjects);
       setRawProjects(loadedProjects);
-      setSyncConfig(calendarSync);
     } catch (error) {
       console.error('Erro ao carregar projetos:', error);
     }
@@ -101,6 +94,8 @@ export default function Trabalhos() {
       horario,
       local,
       calendarSync,
+      agendaSincronizada: Boolean((fields.data ?? project.data) && horario && local),
+      agendaAtualizadaEm: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     const payload = {
@@ -117,16 +112,6 @@ export default function Trabalhos() {
       .select('*')
       .single();
     if (error) throw error;
-    await upsertAgendaEvent({
-      ...project,
-      status,
-      calendarSync,
-      tipoServico: fields.tipo_servico ?? project.tipoServico,
-      data: fields.data ?? project.data,
-      horario,
-      local,
-      valorContratado: fields.valor_contratado ?? project.valorContratado,
-    }, project.cliente || {});
     emitDbUpdate();
     return data;
   }, []);
@@ -160,43 +145,6 @@ export default function Trabalhos() {
       setDragOverColumn(null);
     }
   }, [load, persistProject, projects, rawProjects, savingIds, setSaving]);
-
-  const alternarSincronizacao = useCallback(async (id, provider) => {
-    const project = rawProjects.find((item) => item.id === id);
-    if (!project || savingIds.includes(id)) return;
-
-    const updatedProject = {
-      ...project,
-      calendarSync: {
-        google: Boolean(project.calendarSync?.google),
-        apple: Boolean(project.calendarSync?.apple),
-        [provider]: !project.calendarSync?.[provider],
-      },
-    };
-    const nextSync = {
-      ...syncConfig,
-      [id]: {
-        google: Boolean(updatedProject.calendarSync.google),
-        apple: Boolean(updatedProject.calendarSync.apple),
-        providerReady: true,
-        status: 'ready_for_api',
-        preparedAt: new Date().toISOString(),
-      },
-    };
-
-    setSyncConfig(nextSync);
-    localStorage.setItem(FINANCE_STORAGE_KEYS.calendarSync, JSON.stringify(nextSync));
-    setSaving(id, true);
-    try {
-      await persistProject(updatedProject, { calendario_sync: updatedProject.calendarSync });
-      await load();
-    } catch (error) {
-      console.error('Erro ao atualizar sincronizacao:', error);
-      setActionError('Nao foi possivel atualizar a sincronizacao do projeto.');
-    } finally {
-      setSaving(id, false);
-    }
-  }, [load, persistProject, rawProjects, savingIds, setSaving, syncConfig]);
 
   const openDetails = (project) => {
     setSelectedProject(project);
@@ -265,7 +213,6 @@ export default function Trabalhos() {
     try {
       const { error } = await supabase.from('projetos').delete().eq('id', project.id);
       if (error) throw error;
-      await deleteAgendaEvent(project.id);
       emitDbUpdate();
       await load();
     } catch (error) {
@@ -361,18 +308,14 @@ export default function Trabalhos() {
                     )}
                   </div>
 
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>{project.tipoServico}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                    <button type="button" onClick={() => void alternarSincronizacao(project.id, 'google')} title="Preparar sincronizacao com Google Agenda" className={project.calendarSync?.google || syncConfig[project.id]?.google ? 'sf-sync-button active' : 'sf-sync-button'}>
-                      <CalendarCheck size={13} /> Google
-                    </button>
-                    <button type="button" onClick={() => void alternarSincronizacao(project.id, 'apple')} title="Preparar sincronizacao com Agenda Apple iOS" className={project.calendarSync?.apple || syncConfig[project.id]?.apple ? 'sf-sync-button active' : 'sf-sync-button'}>
-                      <Smartphone size={13} /> Apple
-                    </button>
+                  <div className="sf-project-service">{project.tipoServico}</div>
+                  <div className={project.data && project.horario && project.local ? 'sf-project-agenda-status synced' : 'sf-project-agenda-status'}>
+                    <CalendarCheck size={13} />
+                    {project.data && project.horario && project.local ? 'Agenda sincronizada' : 'Agenda aguardando dados'}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--color-highlight)', opacity: 0.9 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} /> {project.data || 'Sem data'}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><DollarSign size={12} /> {formatMoney(project.valorContratado)}</span>
+                  <div className="sf-project-card-meta">
+                    <span><Calendar size={13} /><span>{project.data || 'Sem data'}{project.horario ? ` · ${project.horario}` : ''}</span></span>
+                    <span><DollarSign size={13} /><strong>{formatMoney(project.valorContratado)}</strong></span>
                   </div>
                   <div style={{ marginTop: '10px', color: 'var(--text-secondary)', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Package size={12} /> {project.equipamentosDetalhados?.length || 0} equipamentos vinculados

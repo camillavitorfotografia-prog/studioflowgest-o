@@ -5,33 +5,69 @@ import Logo from '../../assets/studioflow-logo.png';
 import { useAuth } from '../../contexts/useAuth';
 
 const benefits = [
-  {
-    icon: CalendarDays,
-    title: 'Organize sua agenda',
-    description: 'Controle casamentos, ensaios e eventos em um único lugar.',
-  },
-  {
-    icon: WalletCards,
-    title: 'Controle seu financeiro',
-    description: 'Acompanhe pagamentos, despesas e lucro automaticamente.',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Faça seu estúdio crescer',
-    description: 'CRM, clientes, projetos e relatórios totalmente integrados.',
-  },
+  { icon: CalendarDays, title: 'Organize sua agenda', description: 'Controle casamentos, ensaios e eventos em um unico lugar.' },
+  { icon: WalletCards, title: 'Controle seu financeiro', description: 'Acompanhe pagamentos, despesas e lucro automaticamente.' },
+  { icon: TrendingUp, title: 'Faca seu estudio crescer', description: 'CRM, clientes, projetos e relatorios totalmente integrados.' },
 ];
 
 export default function Login() {
-  const { loading, isAuthenticated, signInWithGoogle, authError, isSupabaseConfigured } = useAuth();
-  const [submitError, setSubmitError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    loading,
+    isAuthenticated,
+    signInWithGoogle,
+    signInWithEmail,
+    signUp,
+    resetPassword,
+    updatePassword,
+    authError,
+    isSupabaseConfigured,
+  } = useAuth();
   const location = useLocation();
-  const from = location.state?.from?.pathname || '/dashboard';
+  const savedRoute = location.state?.from;
+  const requestedRoute = savedRoute?.pathname
+    ? `${savedRoute.pathname}${savedRoute.search || ''}`
+    : '/dashboard';
+  const from = requestedRoute === '/login'
+    ? '/dashboard'
+    : requestedRoute;
+  const queryMode = new URLSearchParams(location.search).get('mode');
+  const [mode, setMode] = useState(location.pathname === '/recuperar-senha' ? 'recovery' : (queryMode || 'login'));
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleEmailLogin = (event) => {
+  const changeMode = (nextMode) => {
+    setMode(nextMode);
+    setSubmitError('');
+    setSuccessMessage('');
+  };
+
+  const handleEmailSubmit = async (event) => {
     event.preventDefault();
-    setSubmitError('O acesso por e-mail e senha ainda não está habilitado. Use o Google para entrar.');
+    setSubmitError('');
+    setSuccessMessage('');
+    setIsSubmitting(true);
+    try {
+      if (mode === 'recovery') {
+        await resetPassword(email);
+        setSuccessMessage('Enviamos o link de recuperacao para o seu e-mail.');
+      } else if (mode === 'register') {
+        const data = await signUp({ email, password });
+        setSuccessMessage(data.session ? 'Cadastro concluido.' : 'Cadastro recebido. Confirme o e-mail para entrar.');
+      } else if (mode === 'update-password') {
+        await updatePassword(password);
+        setSuccessMessage('Senha atualizada com sucesso.');
+        setMode('login');
+      } else {
+        await signInWithEmail({ email, password });
+      }
+    } catch (error) {
+      setSubmitError(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -48,109 +84,83 @@ export default function Login() {
   };
 
   if (loading) {
-    return (
-      <div className="sf-login-screen loading">
-        <Loader2 className="sf-login-spinner" size={30} />
-      </div>
-    );
+    return <div className="sf-login-screen loading"><Loader2 className="sf-login-spinner" size={30} /></div>;
   }
 
-  if (isAuthenticated) {
-    return <Navigate to={from === '/login' ? '/dashboard' : from} replace />;
+  if (isAuthenticated && mode !== 'update-password') {
+    return <Navigate to={from} replace />;
   }
 
   const visibleError = submitError || authError;
+  const title = mode === 'register' ? 'Criar conta' : mode === 'recovery' ? 'Recuperar senha' : mode === 'update-password' ? 'Nova senha' : 'Bem-vindo de volta';
+  const subtitle = mode === 'register' ? 'Cadastre seu acesso ao StudioFlow.' : mode === 'recovery' ? 'Informe seu e-mail para receber o link.' : mode === 'update-password' ? 'Defina uma nova senha segura.' : 'Entre para acessar sua conta.';
 
   return (
     <main className="sf-login-screen">
       <aside className="sf-login-institutional" aria-label="StudioFlow">
         <div>
           <img src={Logo} alt="StudioFlow" className="sf-login-brandmark" />
-          <p className="sf-login-tagline">Gestão inteligente para fotógrafos e filmmakers.</p>
+          <p className="sf-login-tagline">Gestao inteligente para fotografos e filmmakers.</p>
         </div>
-
         <div className="sf-login-benefit-list">
-          {benefits.map(({ icon: Icon, title, description }) => (
-            <article className="sf-login-benefit-card" key={title}>
+          {benefits.map(({ icon: Icon, title: benefitTitle, description }) => (
+            <article className="sf-login-benefit-card" key={benefitTitle}>
               <Icon size={20} />
-              <div>
-                <h2>{title}</h2>
-                <p>{description}</p>
-              </div>
+              <div><h2>{benefitTitle}</h2><p>{description}</p></div>
             </article>
           ))}
         </div>
-
-        <footer className="sf-login-version">
-          <span>© StudioFlow</span>
-          <span>Versão 1.0</span>
-        </footer>
+        <footer className="sf-login-version"><span>© StudioFlow</span><span>Versao 1.0</span></footer>
       </aside>
 
       <section className="sf-login-form-side" aria-labelledby="sf-login-title">
-        <form className="sf-login-form" onSubmit={handleEmailLogin}>
+        <form className="sf-login-form" onSubmit={handleEmailSubmit}>
           <img src={Logo} alt="StudioFlow" className="sf-login-mobile-logo" />
+          <div className="sf-login-form-heading"><h1 id="sf-login-title">{title}</h1><p>{subtitle}</p></div>
 
-          <div className="sf-login-form-heading">
-            <h1 id="sf-login-title">Bem-vindo de volta</h1>
-            <p>Entre para acessar sua conta.</p>
-          </div>
+          {visibleError && <div className="sf-login-alert"><AlertTriangle size={18} /><span>{visibleError}</span></div>}
+          {successMessage && <div className="sf-login-alert"><span>{successMessage}</span></div>}
+          {!isSupabaseConfigured && <div className="sf-login-alert"><AlertTriangle size={18} /><span>Configure o Supabase para ativar a autenticacao.</span></div>}
 
-          {visibleError && (
-            <div className="sf-login-alert">
-              <AlertTriangle size={18} />
-              <span>{visibleError}</span>
-            </div>
-          )}
-
-          {!isSupabaseConfigured && (
-            <div className="sf-login-alert">
-              <AlertTriangle size={18} />
-              <span>Configure a URL real do Supabase no .env para ativar o login Google.</span>
-            </div>
-          )}
-
-          <label className="sf-login-field">
-            <span>Email</span>
-            <input type="email" name="email" autoComplete="email" placeholder="seuemail@studio.com" />
-          </label>
-
-          <label className="sf-login-field">
-            <span>Senha</span>
-            <input type="password" name="password" autoComplete="current-password" placeholder="Digite sua senha" />
-          </label>
-
-          <div className="sf-login-options">
-            <label>
-              <input type="checkbox" name="remember" />
-              <span>Lembrar de mim</span>
+          {mode !== 'update-password' && (
+            <label className="sf-login-field">
+              <span>Email</span>
+              <input required type="email" autoComplete="email" placeholder="seuemail@studio.com" value={email} onChange={(event) => setEmail(event.target.value)} />
             </label>
-            <button type="button">Esqueceu sua senha?</button>
-          </div>
+          )}
+          {mode !== 'recovery' && (
+            <label className="sf-login-field">
+              <span>{mode === 'update-password' ? 'Nova senha' : 'Senha'}</span>
+              <input required minLength="6" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Digite sua senha" value={password} onChange={(event) => setPassword(event.target.value)} />
+            </label>
+          )}
 
-          <button type="submit" className="sf-login-submit">
-            Entrar
+          {mode === 'login' && (
+            <div className="sf-login-options">
+              <label><input type="checkbox" name="remember" /><span>Lembrar de mim</span></label>
+              <button type="button" onClick={() => changeMode('recovery')}>Esqueceu sua senha?</button>
+            </div>
+          )}
+
+          <button type="submit" className="sf-login-submit" disabled={isSubmitting || !isSupabaseConfigured}>
+            {isSubmitting ? 'Aguarde...' : mode === 'register' ? 'Criar conta' : mode === 'recovery' ? 'Enviar link' : mode === 'update-password' ? 'Salvar nova senha' : 'Entrar'}
           </button>
 
-          <div className="sf-login-separator">
-            <span />
-            <strong>OU</strong>
-            <span />
-          </div>
-
-          <button
-            type="button"
-            className="sf-login-google"
-            onClick={handleGoogleLogin}
-            disabled={isSubmitting || !isSupabaseConfigured}
-          >
-            {isSubmitting ? <Loader2 size={18} className="sf-login-spinner" /> : <span className="sf-login-google-mark">G</span>}
-            <span>Continuar com Google</span>
-          </button>
+          {mode === 'login' && (
+            <>
+              <div className="sf-login-separator"><span /><strong>OU</strong><span /></div>
+              <button type="button" className="sf-login-google" onClick={handleGoogleLogin} disabled={isSubmitting || !isSupabaseConfigured}>
+                {isSubmitting ? <Loader2 size={18} className="sf-login-spinner" /> : <span className="sf-login-google-mark">G</span>}
+                <span>Continuar com Google</span>
+              </button>
+            </>
+          )}
 
           <p className="sf-login-create">
-            Não possui conta?
-            <button type="button">Criar conta</button>
+            {mode === 'register' ? 'Ja possui conta?' : mode === 'login' ? 'Nao possui conta?' : 'Lembrou sua senha?'}
+            <button type="button" onClick={() => changeMode(mode === 'register' ? 'login' : mode === 'login' ? 'register' : 'login')}>
+              {mode === 'register' ? 'Entrar' : mode === 'login' ? 'Criar conta' : 'Voltar ao login'}
+            </button>
           </p>
         </form>
       </section>

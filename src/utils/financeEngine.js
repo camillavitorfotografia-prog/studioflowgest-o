@@ -463,11 +463,57 @@ export const attachPaymentDistribution = (payment, config, context = {}) => {
   };
 };
 
+export const uniquePaymentsById = (payments = []) => {
+  const unique = new Map();
+  payments.forEach((payment, index) => {
+    const id = payment?.id || `legacy-payment-${index}`;
+    unique.set(id, { ...payment, id });
+  });
+  return [...unique.values()];
+};
+
 export const preparePaymentsWithDistribution = (payments = [], config, context = {}) =>
-  payments.map((payment) => ({
+  uniquePaymentsById(payments).map((payment) => ({
     ...payment,
     distribuicao: attachPaymentDistribution(payment, config, context),
   }));
+
+export const calculateProjectFinancialState = ({ project = {}, payments, config, context = {} } = {}) => {
+  const preparedPayments = preparePaymentsWithDistribution(
+    payments || project.financeiro?.receitas || project.pagamentos || [],
+    config,
+    {
+      projectId: project.id || context.projectId || '',
+      clientId: project.clientId || project.clienteId || project.cliente_id || context.clientId || '',
+      clientName: project.clienteNome || project.cliente?.nome || context.clientName || '',
+      salarySplit: project.financeiro?.divisaoSalarios || context.salarySplit || DEFAULT_SALARY_SPLIT,
+    },
+  );
+  const valorContratado = Number(project.valor_contratado ?? project.valorContratado ?? 0);
+  const valorRecebido = roundMoney(preparedPayments.reduce(
+    (sum, payment) => sum + (isConfirmedPayment(payment) ? parseCurrency(payment.valor) : 0),
+    0,
+  ));
+  const saldoRestante = roundMoney(Math.max(0, valorContratado - valorRecebido));
+  const statusFinanceiro = saldoRestante <= 0 && valorContratado > 0 ? 'Quitado' : 'Pendente';
+  const financeiro = {
+    ...(project.financeiro && typeof project.financeiro === 'object' ? project.financeiro : {}),
+    receitas: preparedPayments,
+    valorContratado,
+    valorRecebido,
+    saldoRestante,
+    statusFinanceiro,
+  };
+
+  return {
+    pagamentos: preparedPayments,
+    valorContratado,
+    valorRecebido,
+    saldoRestante,
+    statusFinanceiro,
+    financeiro,
+  };
+};
 
 export const calculateClientSalarySummary = (payments = [], withdrawals = []) => {
   const accumulated = { camilla: 0, junior: 0 };
@@ -581,24 +627,32 @@ export const reconcileProjectPaymentDistributions = async (projects = [], config
   const reconciled = [];
   for (const project of projects) {
     const currentPayments = project.financeiro?.receitas || project.pagamentos || [];
-    const payments = preparePaymentsWithDistribution(currentPayments, config, {
-      projectId: project.id,
-      clientId: project.clientId || project.clienteId || project.cliente_id || '',
-      clientName: project.clienteNome || project.cliente?.nome || '',
-      salarySplit: project.financeiro?.divisaoSalarios || DEFAULT_SALARY_SPLIT,
+    const financialState = calculateProjectFinancialState({
+      project,
+      payments: currentPayments,
+      config,
     });
-    const changed = JSON.stringify(currentPayments) !== JSON.stringify(payments);
+    const payments = financialState.pagamentos;
+    const changed = JSON.stringify(currentPayments) !== JSON.stringify(payments)
+      || Number(project.valor_recebido ?? project.valorRecebido ?? 0) !== financialState.valorRecebido
+      || Number(project.financeiro?.saldoRestante ?? 0) !== financialState.saldoRestante
+      || project.financeiro?.statusFinanceiro !== financialState.statusFinanceiro;
     const nextProject = changed ? {
       ...project,
       pagamentos: payments,
       receitas: payments,
-      financeiro: { ...project.financeiro, receitas: payments },
+      valorRecebido: financialState.valorRecebido,
+      saldoRestante: financialState.saldoRestante,
+      financeiro: financialState.financeiro,
     } : project;
 
     if (changed) {
       const { error } = await supabase
         .from('projetos')
-        .update({ financeiro: nextProject.financeiro })
+        .update({
+          valor_recebido: financialState.valorRecebido,
+          financeiro: financialState.financeiro,
+        })
         .eq('id', project.id);
       if (error) throw error;
     }

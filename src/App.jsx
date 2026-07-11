@@ -13,17 +13,17 @@ import Equipamentos from './pages/Equipamentos';
 import Relatorios from './pages/Relatorios';
 import Precificacao from './pages/Precificacao';
 import Login from './pages/Login';
-import AuthCallback from './pages/AuthCallback';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/recuperar-senha" element={<Login />} />
 
-          <Route path="/" element={<MainLayout />}>
+          <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="clientes" element={<Clientes />} />
@@ -39,8 +39,8 @@ function App() {
             <Route path="relatorios" element={<Relatorios />} />
           </Route>
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 

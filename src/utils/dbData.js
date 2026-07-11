@@ -347,34 +347,42 @@ export const subscribeDbUpdates = (callback) => {
   return () => supabase.removeChannel(channel);
 };
 
-export const upsertAgendaEvent = async (project, client) => {
-  const eventPayload = {
-    id: project.id,
-    project_id: project.id,
-    cliente_id: client.id,
-    titulo: project.tipo_servico || project.tipoServico || 'Projeto',
-    cliente_nome: client.nome || project.cliente_nome || '',
-    data: project.data || null,
-    horario: project.horario || null,
-    status: 'Confirmado',
-    updated_at: new Date().toISOString(),
-  };
+export const updateProjectSchedule = async ({ projectId, data, horario, local }) => {
+  assertSupabaseConfigured();
+  const { data: currentProject, error: lookupError } = await supabase
+    .from('projetos')
+    .select('id, data, financeiro')
+    .eq('id', projectId)
+    .single();
+  if (lookupError) throw lookupError;
 
-  try {
-    assertSupabaseConfigured();
-    await supabase.from('agenda_eventos').upsert([eventPayload], { onConflict: 'id' });
-  } catch (error) {
-    console.error('Erro ao sincronizar agenda:', error.message);
-  }
+  const financeiro = {
+    ...(currentProject.financeiro && typeof currentProject.financeiro === 'object' ? currentProject.financeiro : {}),
+    horario: horario || '',
+    local: local || '',
+    agendaSincronizada: Boolean(data && horario && local),
+    agendaAtualizadaEm: new Date().toISOString(),
+  };
+  const { data: updatedProject, error } = await supabase
+    .from('projetos')
+    .update({ data: data || null, financeiro })
+    .eq('id', projectId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  emitDbUpdate();
+  return updatedProject;
 };
 
-export const deleteAgendaEvent = async (projectId) => {
-  try {
-    assertSupabaseConfigured();
-    await supabase.from('agenda_eventos').delete().eq('project_id', projectId);
-  } catch (error) {
-    console.error('Erro ao excluir evento da agenda:', error.message);
-  }
+export const upsertAgendaEvent = async (project) => updateProjectSchedule({
+  projectId: project.id,
+  data: project.data || null,
+  horario: project.horario || project.financeiro?.horario || '',
+  local: project.local || project.financeiro?.local || '',
+});
+
+export const deleteAgendaEvent = async () => {
+  // A Agenda e derivada diretamente de projetos; excluir o projeto remove o evento.
 };
 
 export const createFinanceSeed = async (project, client) => {
