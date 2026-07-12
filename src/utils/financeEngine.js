@@ -1,52 +1,53 @@
 export const FIXED_EXPENSE_CATEGORIES = [
   'Aluguel',
   'Energia',
-  'Agua',
-  'Alimentacao',
-  'Combustivel',
+  'Água',
+  'Alimentação',
+  'Combustível',
   'Internet',
-  'Conta de celular',
-  'Adobe',
-  'Google Drive',
-  'Canva',
-  'ChatGPT',
-  'Dominio',
-  'Hospedagem',
+  'Celular',
   'Assinaturas',
-  'MEI / Impostos',
-  'Contabilidade',
+  'MEI',
   'Contador',
-  'Impostos',
-  'Outros',
+  'Seguros',
+  'Outras',
 ];
 
 export const VARIABLE_EXPENSE_CATEGORIES = [
-  'Transporte',
-  'Combustivel',
-  'Alimentacao em eventos',
-  'Marketing',
-  'Assistentes',
-  'Hospedagem',
-  'Pedagios',
-  'Pedagio',
-  'Estacionamento',
-  'Freelancer',
-  'Segundo fotografo',
-  'Segundo filmmaker',
-  'Drone',
-  'Manutencao',
-  'Compra de materiais',
   'Equipamentos',
-  'Outros',
+  'Manutenção',
+  'Freelancer',
+  'Transporte',
+  'Hospedagem',
+  'Alimentação em trabalho',
+  'Impressão',
+  'Álbum',
+  'Publicidade',
+  'Anúncios',
+  'Cursos',
+  'Softwares',
+  'Materiais',
+  'Taxas',
+  'Impostos',
+  'Outras',
+];
+
+export const AVULSA_INCOME_CATEGORIES = [
+  'Serviço adicional',
+  'Taxa extra',
+  'Reembolso',
+  'Comissão',
+  'Venda de equipamento',
+  'Outro',
 ];
 
 export const PAYMENT_METHODS = [
   'Pix',
-  'Cartao de credito',
-  'Cartao de debito',
+  'Cartão de crédito',
+  'Cartão de débito',
   'Boleto',
   'Dinheiro',
-  'Transferencia',
+  'Transferência',
   'Outro',
 ];
 
@@ -760,4 +761,305 @@ export const buildFinanceSnapshot = ({
     projectedDistribution,
   };
 };
+
+import { derivedInstallmentStatus, effectiveContractValue } from './contractEngine.js';
+
+export const adaptInstallmentToIncome = (installment, contract = {}, clientName = '') => {
+  const status = derivedInstallmentStatus(installment);
+  let adaptedStatus = 'pendente';
+  if (status === 'cancelada') adaptedStatus = 'cancelada';
+  else if (status === 'recebida') adaptedStatus = 'recebida';
+  else if (status === 'vencida') adaptedStatus = 'vencida';
+  else if (installment.vencimento && installment.vencimento < new Date().toISOString().slice(0, 10)) adaptedStatus = 'vencida';
+  else adaptedStatus = 'prevista';
+
+  return {
+    id: installment.id,
+    descricao: `${contract.titulo || 'Contrato'} - ${installment.descricao || 'Parcela'}`,
+    categoria: 'contrato',
+    valor: installment.valor || 0,
+    vencimento: installment.vencimento || '',
+    dataRecebimento: installment.dataPagamento || '',
+    status: adaptedStatus,
+    clienteId: installment.clienteId || contract.clienteId || '',
+    clienteNome: clientName,
+    trabalhoId: installment.trabalhoId || contract.trabalhoId || '',
+    formaPagamento: installment.formaPagamento || contract.formaPagamentoPadrao || 'Pix',
+    observacoes: installment.observacoes || '',
+    tipo: 'receita_contrato',
+    tipoGeral: 'Entrada',
+    contratoId: contract.id,
+    criadoEm: installment.criadoEm || contract.dataCriacao || '',
+    atualizadoEm: installment.atualizadoEm || contract.dataCriacao || '',
+  };
+};
+
+export const deriveFinancialStatus = (item, today = new Date().toISOString().slice(0, 10)) => {
+  if (item.status === 'cancelada' || item.status === 'cancelado') return 'cancelada';
+  
+  const isIncome = item.tipoGeral === 'Entrada' || item.tipo === 'receita_avulsa' || item.tipo === 'receita_contrato' || item.tipo === 'avulsa';
+  
+  if (isIncome) {
+    if (item.dataRecebimento || item.status === 'recebida' || item.status === 'recebido') return 'recebida';
+    if (item.vencimento && item.vencimento < today) return 'vencida';
+    return item.status === 'prevista' ? 'prevista' : 'pendente';
+  } else {
+    if (item.dataPagamento || item.status === 'paga' || item.status === 'pago') return 'paga';
+    if (item.vencimento && item.vencimento < today) return 'vencida';
+    return item.status === 'prevista' ? 'prevista' : 'pendente';
+  }
+};
+
+const monthDiff = (date1, date2) => {
+  const d1 = new Date(date1 + '-01T12:00:00');
+  const d2 = new Date(date2 + '-01T12:00:00');
+  return (d2.getFullYear() - d1.getFullYear()) * 12 + d2.getMonth() - d1.getMonth();
+};
+
+export const shouldRecurOnCompetence = (recurrence, competence) => {
+  if (!recurrence.ativo) return false;
+  const startMonth = (recurrence.criadoEm || new Date().toISOString()).slice(0, 7);
+  if (competence < startMonth) return false;
+
+  const diff = monthDiff(startMonth, competence);
+  if (diff < 0) return false;
+
+  const freq = recurrence.frequencia;
+  if (freq === 'mensal') return true;
+  if (freq === 'bimestral') return diff % 2 === 0;
+  if (freq === 'trimestral') return diff % 3 === 0;
+  if (freq === 'semestral') return diff % 6 === 0;
+  if (freq === 'anual') return diff % 12 === 0;
+  return false;
+};
+
+const getVencimentoForCompetence = (competence, targetDay) => {
+  const [year, month] = competence.split('-').map(Number);
+  const date = new Date(year, month, 0);
+  const maxDay = date.getDate();
+  const day = Math.min(targetDay, maxDay);
+  return `${competence}-${String(day).padStart(2, '0')}`;
+};
+
+export const generateRecurrentExpenses = (recurrences = [], transactions = [], referenceDate = new Date()) => {
+  const currentMonth = monthKey(referenceDate);
+  const competences = [];
+  const baseDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+  for (let i = 0; i <= 3; i++) {
+    const d = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, 1);
+    competences.push(monthKey(d));
+  }
+
+  const generated = [];
+  const existingSet = new Set(
+    transactions
+      .filter((t) => t.recorrenciaId && t.competencia)
+      .map((t) => `${t.recorrenciaId}-${t.competencia}`)
+  );
+
+  recurrences.forEach((recurrence) => {
+    if (!recurrence.ativo) return;
+    competences.forEach((competence) => {
+      if (shouldRecurOnCompetence(recurrence, competence)) {
+        const key = `${recurrence.id}-${competence}`;
+        if (!existingSet.has(key)) {
+          const id = `despesa-rec-${recurrence.id}-${competence}`;
+          const vencimento = getVencimentoForCompetence(competence, recurrence.diaVencimento || 1);
+          generated.push({
+            id,
+            recorrenciaId: recurrence.id,
+            competencia: competence,
+            descricao: recurrence.descricao,
+            categoria: recurrence.categoria || 'Aluguel',
+            valor: recurrence.valor || 0,
+            vencimento,
+            status: 'Pendente',
+            tipo: 'fixa',
+            tipoGeral: 'Saida',
+            contaOrigem: recurrence.contaOrigem || 'empresa',
+            formaPagamento: recurrence.formaPagamento || 'Pix',
+            fornecedor: recurrence.fornecedor || '',
+            observacoes: recurrence.observacoes || '',
+            criadoEm: new Date().toISOString(),
+            atualizadoEm: new Date().toISOString(),
+          });
+        }
+      }
+    });
+  });
+
+  return generated;
+};
+
+export const getConsolidatedFinances = ({ contracts = [], transactions = [], clients = [] }) => {
+  const adaptedIncomes = [];
+  const clientMap = new Map(clients.map((c) => [c.id, c.nome || c.name || 'Cliente']));
+
+  contracts.forEach((contract) => {
+    if (contract.status === 'cancelado') return;
+    const clientName = clientMap.get(contract.clienteId) || '';
+    (contract.parcelas || []).forEach((installment) => {
+      adaptedIncomes.push(adaptInstallmentToIncome(installment, contract, clientName));
+    });
+  });
+
+  const avulsas = [];
+  const despesas = [];
+
+  transactions.forEach((t) => {
+    if (t.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE) return;
+    
+    if (t.tipo === 'receita_avulsa' || t.tipo === 'avulsa') {
+      avulsas.push({
+        ...t,
+        clienteNome: clientMap.get(t.clienteId) || ''
+      });
+    } else if (['fixa', 'variavel'].includes(t.tipo)) {
+      despesas.push(t);
+    }
+  });
+
+  return {
+    receitasContratuais: adaptedIncomes,
+    receitasAvulsas: avulsas,
+    despesas,
+    todasReceitas: [...adaptedIncomes, ...avulsas]
+  };
+};
+
+export const calculateFinancialIndicators = ({
+  receitasContratuais = [],
+  receitasAvulsas = [],
+  despesas = [],
+  referenceDate = new Date()
+}) => {
+  const targetMonth = monthKey(referenceDate);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const todasReceitas = [...receitasContratuais, ...receitasAvulsas];
+  
+  let receitasPrevistasMes = 0;
+  let receitasRecebidasMes = 0;
+  let despesasPrevistasMes = 0;
+  let despesasPagasMes = 0;
+  
+  let totalAReceber = 0;
+  let totalAPagar = 0;
+  let receitasVencidas = 0;
+  let despesasVencidas = 0;
+
+  todasReceitas.forEach((r) => {
+    if (r.status === 'cancelada') return;
+
+    const val = r.valor || 0;
+    const statusDerivado = deriveFinancialStatus(r, today);
+
+    if (statusDerivado !== 'recebida') {
+      totalAReceber += val;
+      if (statusDerivado === 'vencida') {
+        receitasVencidas += val;
+      }
+    }
+
+    const mesVencimento = r.vencimento ? r.vencimento.slice(0, 7) : '';
+    const mesRecebimento = r.dataRecebimento ? r.dataRecebimento.slice(0, 7) : '';
+
+    if (statusDerivado === 'recebida' && mesRecebimento === targetMonth) {
+      receitasRecebidasMes += val;
+    }
+    
+    if (mesVencimento === targetMonth) {
+      receitasPrevistasMes += val;
+    }
+  });
+
+  despesas.forEach((d) => {
+    if (d.status === 'cancelada') return;
+
+    const val = d.valor || 0;
+    const statusDerivado = deriveFinancialStatus(d, today);
+
+    if (statusDerivado !== 'paga') {
+      totalAPagar += val;
+      if (statusDerivado === 'vencida') {
+        despesasVencidas += val;
+      }
+    }
+
+    const mesVencimento = d.vencimento ? d.vencimento.slice(0, 7) : '';
+    const mesPagamento = d.dataPagamento ? d.dataPagamento.slice(0, 7) : '';
+
+    if (statusDerivado === 'paga' && mesPagamento === targetMonth) {
+      despesasPagasMes += val;
+    }
+
+    if (mesVencimento === targetMonth) {
+      despesasPrevistasMes += val;
+    }
+  });
+
+  return {
+    receitasPrevistasMes,
+    receitasRecebidasMes,
+    despesasPrevistasMes,
+    despesasPagasMes,
+    saldoPrevistoMes: receitasPrevistasMes - despesasPrevistasMes,
+    saldoRealizadoMes: receitasRecebidasMes - despesasPagasMes,
+    totalAReceber,
+    totalAPagar,
+    receitasVencidas,
+    despesasVencidas,
+  };
+};
+
+export const calculateProjectFinancials = ({
+  project = {},
+  contracts = [],
+  receitasAvulsas = [],
+  despesas = [],
+  today = new Date().toISOString().slice(0, 10)
+}) => {
+  const projectId = project.id;
+  
+  const projectExpenses = despesas.filter((d) => String(d.trabalhoId || d.projectId) === String(projectId) && d.status !== 'cancelada');
+  const custoEstimado = projectExpenses
+    .filter((d) => ['pendente', 'prevista', 'vencida'].includes(deriveFinancialStatus(d, today)))
+    .reduce((sum, d) => sum + (d.valor || 0), 0);
+  const custoReal = projectExpenses
+    .filter((d) => deriveFinancialStatus(d, today) === 'paga')
+    .reduce((sum, d) => sum + (d.valor || 0), 0);
+
+  const projectContracts = contracts.filter((c) => String(c.trabalhoId || c.projectId) === String(projectId) && c.status !== 'cancelado');
+  const receitaContratada = projectContracts.reduce((sum, c) => sum + effectiveContractValue(c), 0);
+
+  const projectAvulsas = receitasAvulsas.filter((r) => String(r.trabalhoId || r.projectId) === String(projectId) && r.status !== 'cancelada');
+  const receitaAvulsaRecebida = projectAvulsas
+    .filter((r) => deriveFinancialStatus(r, today) === 'recebida')
+    .reduce((sum, r) => sum + (r.valor || 0), 0);
+  const receitaAvulsaPrevista = projectAvulsas
+    .filter((r) => ['pendente', 'prevista', 'vencida'].includes(deriveFinancialStatus(r, today)))
+    .reduce((sum, r) => sum + (r.valor || 0), 0);
+
+  const parcelasRecebidas = projectContracts
+    .flatMap((c) => c.parcelas || [])
+    .filter((p) => p.valorPago >= p.valor)
+    .reduce((sum, p) => sum + (p.valorPago || 0), 0);
+  const receitaRecebida = parcelasRecebidas + receitaAvulsaRecebida;
+
+  const lucroEstimado = receitaContratada + receitaAvulsaPrevista - custoEstimado;
+  const lucroReal = receitaRecebida - custoReal;
+
+  return {
+    custoEstimado,
+    custoReal,
+    receitaContratada,
+    receitaRecebida,
+    lucroEstimado,
+    lucroReal,
+    receitaAvulsaPrevista,
+    receitaAvulsaRecebida,
+    parcelasRecebidas
+  };
+};
+
 import { isSupabaseConfigured, supabase } from './supabase';

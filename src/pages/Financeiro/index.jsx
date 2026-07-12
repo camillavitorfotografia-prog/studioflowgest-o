@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -13,47 +13,283 @@ import {
   Receipt,
   Settings,
   Wallet,
+  Plus,
+  Trash2,
+  Edit2,
+  PackagePlus,
+  Undo2,
+  XCircle,
+  Tag,
+  CreditCard,
 } from 'lucide-react';
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import Modal from '../../components/Modal';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { isSupabaseConfigured, supabase } from '../../utils/supabase';
+import { readStorage, writeStorage, STORAGE_KEYS, createId } from '../../utils/storage';
+import { maskCurrency } from '../../utils/masks';
 import Despesas from './Despesas';
 import {
   FINANCE_STORAGE_KEYS,
-  buildFinanceSnapshot,
-  buildPaymentDistributionLedger,
-  calculateDepreciation,
+  FIXED_EXPENSE_CATEGORIES,
+  VARIABLE_EXPENSE_CATEGORIES,
+  AVULSA_INCOME_CATEGORIES,
+  PAYMENT_METHODS,
   formatCurrency,
-  getAverageVariableExpenses,
-  getEquipmentMonthlyDepreciation,
-  getMonthlyTotals,
   getTransactionDate,
-  getTransactionStatus,
-  getTransactionValue,
-  groupBySum,
-  getFinancialAccountsSummary,
-  isExpense,
-  isConfirmedPayment,
-  isDistributionConfigValid,
-  loadDistributionConfig,
-  monthKey,
+  deriveFinancialStatus,
+  generateRecurrentExpenses,
+  getConsolidatedFinances,
+  calculateFinancialIndicators,
   parseCurrency,
-  PAYMENT_DISTRIBUTION_ROW_TYPE,
-  reconcileProjectPaymentDistributions,
+  getEquipmentMonthlyDepreciation,
+  calculateDepreciation,
+  getAverageVariableExpenses,
+  groupBySum,
+  normalizeDistributionConfig,
+  loadDistributionConfig,
   saveDistributionConfig,
+  monthKey,
+  isDistributionConfigValid,
+  PAYMENT_DISTRIBUTION_ROW_TYPE,
 } from '../../utils/financeEngine';
 
 const tabs = [
   { id: 'dashboard', label: 'Painel', icon: BarChart3 },
   { id: 'receitas', label: 'Receitas', icon: ArrowUpCircle },
   { id: 'fixas', label: 'Despesas Fixas', icon: Receipt },
-  { id: 'variaveis', label: 'Despesas Variaveis', icon: ArrowDownCircle },
+  { id: 'variaveis', label: 'Despesas Variáveis', icon: ArrowDownCircle },
   { id: 'equipamentos', label: 'Investimentos', icon: Package },
-  { id: 'relatorios', label: 'Relatorios', icon: FileSpreadsheet },
+  { id: 'relatorios', label: 'Relatórios', icon: FileSpreadsheet },
 ];
+
+const inputStyle = {
+  width: '100%',
+  background: 'var(--bg-main)',
+  border: '1px solid var(--border-color)',
+  color: 'var(--text-main)',
+  padding: '12px',
+  borderRadius: '8px',
+  fontSize: '0.9rem',
+  outline: 'none',
+};
+
+const labelStyle = {
+  color: 'var(--text-secondary)',
+  fontSize: '0.75rem',
+  marginBottom: '6px',
+  display: 'block',
+  fontWeight: '600',
+};
+
+function useFinanceData() {
+  const [financasConfig, setFinancasConfig] = useState(() =>
+    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'),
+  );
+  
+  const [dataState, setDataState] = useState({
+    transacoes: [],
+    equipamentos: [],
+    contracts: [],
+    clients: [],
+    projects: [],
+  });
+
+  const loadAll = async () => {
+    const config = await loadDistributionConfig();
+    setFinancasConfig(config);
+
+    const rawTransactions = readStorage(STORAGE_KEYS.finances, []);
+    const rawRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
+    const projects = readStorage(STORAGE_KEYS.projects, []);
+    const clients = readStorage(STORAGE_KEYS.clients, []);
+    const contracts = readStorage(STORAGE_KEYS.contracts, []);
+    const equipment = readStorage(STORAGE_KEYS.equipment, []);
+
+    // Geração idempotente de competências recorrentes
+    const newRecurrents = generateRecurrentExpenses(rawRecurrences, rawTransactions, new Date());
+    let currentTransactions = rawTransactions;
+    if (newRecurrents.length > 0) {
+      currentTransactions = [...rawTransactions, ...newRecurrents];
+      writeStorage(STORAGE_KEYS.finances, currentTransactions);
+      
+      if (isSupabaseConfigured) {
+        try {
+          const toDbPayload = (expense) => ({
+            id: String(expense.id),
+            project_id: expense.trabalhoId || null,
+            descricao: expense.descricao,
+            nome: expense.descricao,
+            categoria: expense.categoria,
+            valor: expense.valor,
+            data: expense.vencimento,
+            data_vencimento: expense.vencimento,
+            tipo: expense.tipo,
+            tipo_geral: expense.tipoGeral,
+            status: expense.status,
+            forma_pagamento: expense.formaPagamento,
+            conta_origem: expense.contaOrigem,
+            fornecedor: expense.fornecedor,
+            observacoes: expense.observacoes,
+            recurrence_id: expense.recorrenciaId || null,
+            recorrente: true,
+            updated_at: new Date().toISOString(),
+          });
+          void supabase.from('financas').upsert(newRecurrents.map(toDbPayload));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    setDataState({
+      transacoes: currentTransactions,
+      equipamentos: equipment,
+      contracts,
+      clients,
+      projects,
+    });
+  };
+
+  useEffect(() => {
+    loadAll();
+    window.addEventListener('focus', loadAll);
+    const unsubscribe = subscribeDbUpdates(loadAll);
+    return () => {
+      window.removeEventListener('focus', loadAll);
+      unsubscribe();
+    };
+  }, []);
+
+  const computed = useMemo(() => {
+    const { transacoes, equipamentos, contracts, clients, projects } = dataState;
+    const now = new Date();
+    const currentMonth = monthKey(now);
+
+    const consolidated = getConsolidatedFinances({ contracts, transactions: transacoes, clients });
+    const indicators = calculateFinancialIndicators({
+      receitasContratuais: consolidated.receitasContratuais,
+      receitasAvulsas: consolidated.receitasAvulsas,
+      despesas: consolidated.despesas,
+      referenceDate: now,
+    });
+
+    const localSaldos = { salario: 0, empresa: 0, reserva: 0 };
+    
+    consolidated.todasReceitas.forEach((r) => {
+      const statusDerivado = deriveFinancialStatus(r);
+      if (statusDerivado === 'recebida') {
+        const dest = r.contaOrigem || 'empresa';
+        if (dest in localSaldos) localSaldos[dest] += r.valor || 0;
+      }
+    });
+
+    consolidated.despesas.forEach((d) => {
+      const statusDerivado = deriveFinancialStatus(d);
+      if (statusDerivado === 'paga') {
+        const origin = d.contaOrigem || 'empresa';
+        if (origin in localSaldos) localSaldos[origin] -= d.valor || 0;
+      }
+    });
+
+    const saldos = {
+      salario: Math.round(localSaldos.salario * 100) / 100,
+      empresa: Math.round(localSaldos.empresa * 100) / 100,
+      reserva: Math.round(localSaldos.reserva * 100) / 100,
+    };
+
+    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(saldos));
+
+    const despesasFixas = consolidated.despesas
+      .filter((d) => d.tipo === 'fixa' && d.vencimento && d.vencimento.slice(0, 7) === currentMonth)
+      .reduce((sum, d) => sum + (d.valor || 0), 0);
+    const despesasVariaveis = consolidated.despesas
+      .filter((d) => d.tipo === 'variavel' && d.vencimento && d.vencimento.slice(0, 7) === currentMonth)
+      .reduce((sum, d) => sum + (d.valor || 0), 0);
+
+    const depreciacaoMensal = getEquipmentMonthlyDepreciation(equipamentos);
+    const mediaVariavel = getAverageVariableExpenses(transacoes);
+    const custoOperacional = despesasFixas + mediaVariavel + depreciacaoMensal;
+
+    const receitaBruta = indicators.receitasRecebidasMes;
+    
+    const despesasPagasNoMes = consolidated.despesas
+      .filter((d) => {
+        const statusDerivado = deriveFinancialStatus(d);
+        return statusDerivado === 'paga' && d.dataPagamento && d.dataPagamento.slice(0, 7) === currentMonth;
+      })
+      .reduce((sum, d) => sum + (d.valor || 0), 0);
+
+    const lucroReal = receitaBruta - despesasPagasNoMes - depreciacaoMensal;
+    const margemLucro = receitaBruta > 0 ? (lucroReal / receitaBruta) * 100 : 0;
+    const fluxoCaixa = receitaBruta - despesasPagasNoMes;
+
+    const proximosVencimentos = consolidated.despesas
+      .filter((d) => {
+        const statusDerivado = deriveFinancialStatus(d);
+        return statusDerivado !== 'paga' && statusDerivado !== 'cancelada';
+      })
+      .sort((a, b) => new Date(a.vencimento) - new Date(b.vencimento))
+      .slice(0, 5);
+
+    const despesasMes = consolidated.despesas
+      .filter((d) => d.vencimento && d.vencimento.slice(0, 7) === currentMonth && d.status !== 'cancelada');
+    const despesasPorCategoria = groupBySum(despesasMes, (item) => item.categoria);
+    const maiorCategoria = Object.entries(despesasPorCategoria).sort((a, b) => b[1] - a[1])[0];
+
+    const totalDespesas = consolidated.despesas
+      .filter((d) => deriveFinancialStatus(d) === 'paga')
+      .reduce((sum, d) => sum + (d.valor || 0), 0);
+
+    const totalRecebidoHistorico = consolidated.todasReceitas
+      .filter((r) => deriveFinancialStatus(r) === 'recebida')
+      .reduce((sum, r) => sum + (r.valor || 0), 0);
+
+    const resultadoLiquido = totalRecebidoHistorico - totalDespesas;
+
+    const financeSnapshot = {
+      forecast: fluxoCaixa + indicators.totalAReceber,
+      distribution: normalizeDistributionConfig(financasConfig),
+    };
+
+    return {
+      saldos,
+      transacoes,
+      equipamentos,
+      financasConfig,
+      setFinancasConfig,
+      receitaBruta,
+      receitaContratada: indicators.receitasPrevistasMes,
+      receitaRecebida: totalRecebidoHistorico,
+      contasAReceber: indicators.totalAReceber,
+      inadimplente: indicators.receitasVencidas,
+      despesasFixas,
+      despesasVariaveis,
+      totalDespesas,
+      resultadoLiquido,
+      depreciacaoMensal,
+      mediaVariavel,
+      custoOperacional,
+      lucroReal,
+      margemLucro,
+      fluxoCaixa,
+      contasAPagar: indicators.totalAPagar,
+      proximosVencimentos,
+      maiorCategoria,
+      financeSnapshot,
+      consolidated,
+      projects,
+      clients,
+      loadAll,
+    };
+  }, [dataState, financasConfig]);
+
+  return computed;
+}
 
 export default function Financeiro() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const financeData = useFinanceData();
 
   return (
     <div className="sf-finance-page">
@@ -69,183 +305,17 @@ export default function Financeiro() {
         })}
       </div>
 
-      {activeTab === 'dashboard' && <FinanceDashboard />}
-      {activeTab === 'receitas' && <Receitas />}
+      {activeTab === 'dashboard' && <FinanceDashboard data={financeData} />}
+      {activeTab === 'receitas' && <Receitas data={financeData} />}
       {activeTab === 'fixas' && <Despesas area="fixa" />}
       {activeTab === 'variaveis' && <Despesas area="variavel" />}
-      {activeTab === 'equipamentos' && <Investimentos />}
-      {activeTab === 'relatorios' && <RelatoriosFinanceiros />}
+      {activeTab === 'equipamentos' && <Investimentos data={financeData} />}
+      {activeTab === 'relatorios' && <RelatoriosFinanceiros data={financeData} />}
     </div>
   );
 }
 
-function useFinanceData() {
-  const [financasConfig, setFinancasConfig] = useState(() =>
-    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'),
-  );
-  const [studio, setStudio] = useState({ projects: [], clients: [], transactions: [], equipment: [] });
-  const [transacoes, setTransacoes] = useState([]);
-  const [equipamentos, setEquipamentos] = useState([]);
-
-  useEffect(() => {
-    let active = true;
-    const loadAll = async () => {
-      const config = await loadDistributionConfig();
-      setFinancasConfig(config);
-      const initialDb = await getDbStudioData();
-      try {
-        await reconcileProjectPaymentDistributions(initialDb.projects || [], config);
-      } catch (error) {
-        console.error('Erro ao conciliar distribuicoes financeiras:', error.message);
-      }
-      const db = await getDbStudioData();
-      if (!active) return;
-      setStudio(db);
-      const paymentLedger = buildPaymentDistributionLedger(db.projects || []);
-      const nonDistributionTransactions = (db.transactions || [])
-        .filter((item) => item.tipo !== PAYMENT_DISTRIBUTION_ROW_TYPE);
-      setTransacoes([...nonDistributionTransactions, ...paymentLedger]);
-      setEquipamentos(db.equipment || []);
-    };
-
-    setTimeout(() => { void loadAll(); }, 0);
-    window.addEventListener('focus', loadAll);
-    const unsubscribe = subscribeDbUpdates(loadAll);
-
-    return () => {
-      active = false;
-      window.removeEventListener('focus', loadAll);
-      unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    const accounts = getFinancialAccountsSummary(transacoes);
-    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify({
-      reserva: accounts.reserva.saldo,
-      empresa: accounts.empresa.saldo,
-      salario: accounts.salario.saldo,
-    }));
-  }, [transacoes]);
-
-  const clientes = useMemo(() => {
-    return (studio.projects || []).map((project) => ({
-      ...project.cliente,
-      id: project.clientId,
-      projectId: project.id,
-      nome: project.clienteNome,
-      valorTotal: project.valorContratado,
-      pagamentos: project.financeiro?.receitas || project.pagamentos || [],
-      dataTrabalho: project.data,
-      tipo: project.tipoServico,
-    }));
-  }, [studio.projects]);
-
-  const data = useMemo(() => {
-    const now = new Date();
-    const currentMonth = monthKey(now);
-    let receitaBruta = 0;
-    let contasAReceber = 0;
-    let inadimplente = 0;
-    let receitaContratada = 0;
-    let receitaRecebida = 0;
-
-    clientes.forEach((client) => {
-      const total = parseCurrency(client.valorTotal);
-      receitaContratada += total;
-      const paid = (client.pagamentos || []).reduce((sum, payment) => {
-        if (!isConfirmedPayment(payment)) return sum;
-        const value = parseCurrency(payment.valor);
-        if (monthKey(payment.data) === currentMonth) receitaBruta += value;
-        return sum + value;
-      }, 0);
-      receitaRecebida += paid;
-      const remaining = Math.max(0, total - paid);
-      const workDate = client.dataTrabalho ? new Date(client.dataTrabalho) : null;
-      contasAReceber += remaining;
-      if (remaining > 0 && workDate && workDate < now) inadimplente += remaining;
-    });
-
-    const monthlyTotals = getMonthlyTotals(transacoes, now);
-    const contasFinanceiras = getFinancialAccountsSummary(transacoes);
-    const saldos = {
-      reserva: contasFinanceiras.reserva.saldo,
-      empresa: contasFinanceiras.empresa.saldo,
-      salario: contasFinanceiras.salario.saldo,
-    };
-    const despesasFixas = monthlyTotals.fixed;
-    const despesasVariaveis = monthlyTotals.variable;
-    const depreciacaoMensal = getEquipmentMonthlyDepreciation(equipamentos);
-    const investimentoEquipamentosMes = equipamentos
-      .filter((item) => monthKey(item.dataCompra || item.data) === currentMonth)
-      .reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0);
-    const mediaVariavel = getAverageVariableExpenses(transacoes);
-    const custoOperacional = despesasFixas + mediaVariavel + depreciacaoMensal;
-    const lucroReal = receitaBruta - despesasFixas - despesasVariaveis - depreciacaoMensal;
-    const margemLucro = receitaBruta > 0 ? (lucroReal / receitaBruta) * 100 : 0;
-    const fluxoCaixa = receitaBruta - despesasFixas - despesasVariaveis;
-    const contasAPagar = transacoes
-      .filter((item) => isExpense(item) && getTransactionStatus(item) !== 'Pago')
-      .reduce((sum, item) => sum + getTransactionValue(item), 0);
-    const proximosVencimentos = transacoes
-      .filter((item) => isExpense(item) && getTransactionStatus(item) !== 'Pago')
-      .sort((a, b) => new Date(getTransactionDate(a)) - new Date(getTransactionDate(b)))
-      .slice(0, 5);
-    const totalDespesas = transacoes
-      .filter((item) => isExpense(item) && getTransactionStatus(item) === 'Pago')
-      .reduce((sum, item) => sum + getTransactionValue(item), 0);
-    const resultadoLiquido = receitaRecebida - totalDespesas;
-    const despesasPorCategoria = groupBySum(
-      transacoes.filter((item) => isExpense(item) && monthKey(getTransactionDate(item)) === currentMonth),
-      (item) => item.categoria,
-    );
-    const maiorCategoria = Object.entries(despesasPorCategoria).sort((a, b) => b[1] - a[1])[0];
-
-    const financeSnapshot = buildFinanceSnapshot({
-      clients: clientes,
-      transactions: transacoes,
-      equipment: equipamentos,
-      balances: saldos,
-      config: financasConfig,
-      referenceDate: now,
-    });
-
-    return {
-      saldos,
-      contasFinanceiras,
-      clientes,
-      transacoes,
-      equipamentos,
-      financasConfig,
-      setFinancasConfig,
-      receitaBruta,
-      receitaContratada,
-      receitaRecebida,
-      contasAReceber,
-      inadimplente,
-      despesasFixas,
-      despesasVariaveis,
-      totalDespesas,
-      resultadoLiquido,
-      depreciacaoMensal,
-      investimentoEquipamentosMes,
-      mediaVariavel,
-      custoOperacional,
-      lucroReal,
-      margemLucro,
-      fluxoCaixa,
-      contasAPagar,
-      proximosVencimentos,
-      maiorCategoria,
-      financeSnapshot,
-    };
-  }, [clientes, equipamentos, financasConfig, transacoes]);
-
-  return data;
-}
-
-function FinanceDashboard() {
-  const data = useFinanceData();
+function FinanceDashboard({ data }) {
   const [configOpen, setConfigOpen] = useState(false);
   const [configError, setConfigError] = useState('');
 
@@ -266,21 +336,43 @@ function FinanceDashboard() {
   };
 
   const accountRows = [
-    { id: 'reserva', destino: 'Fundo / Reserva', ...data.contasFinanceiras.reserva },
-    { id: 'empresa', destino: 'Caixa da empresa', ...data.contasFinanceiras.empresa },
-    { id: 'salario', destino: 'Salarios', ...data.contasFinanceiras.salario },
+    { id: 'reserva', destino: 'Fundo / Reserva', entradas: 0, saidas: 0, saldo: data.saldos.reserva },
+    { id: 'empresa', destino: 'Caixa da empresa', entradas: 0, saidas: 0, saldo: data.saldos.empresa },
+    { id: 'salario', destino: 'Salários', entradas: 0, saidas: 0, saldo: data.saldos.salario },
   ];
-  const movementRows = data.transacoes
-    .filter((item) => item.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE || (isExpense(item) && getTransactionStatus(item) === 'Pago'))
-    .map((item) => ({
-      ...item,
-      destino: item.detalhes?.destino || item.contaOrigem || item.categoria || 'empresa',
-      natureza: item.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE ? 'Entrada' : 'Saida',
-      origem: item.tipo === PAYMENT_DISTRIBUTION_ROW_TYPE
-        ? `Pagamento ${item.detalhes?.paymentId || item.id}`
-        : (item.descricao || 'Despesa'),
-      cliente: item.detalhes?.clienteNome || '-',
-    }));
+
+  const movementRows = useMemo(() => {
+    const list = [];
+    data.consolidated.todasReceitas.forEach((r) => {
+      const statusDerivado = deriveFinancialStatus(r);
+      if (statusDerivado === 'recebida') {
+        list.push({
+          id: r.id,
+          destino: r.contaOrigem || 'empresa',
+          natureza: 'Entrada',
+          origem: r.descricao,
+          cliente: r.clienteNome || '-',
+          valor: r.valor,
+        });
+      }
+    });
+
+    data.consolidated.despesas.forEach((d) => {
+      const statusDerivado = deriveFinancialStatus(d);
+      if (statusDerivado === 'paga') {
+        list.push({
+          id: d.id,
+          destino: d.contaOrigem || 'empresa',
+          natureza: 'Saída',
+          origem: d.descricao,
+          cliente: '-',
+          valor: d.valor,
+        });
+      }
+    });
+
+    return list.slice(0, 10);
+  }, [data.consolidated]);
 
   return (
     <div className="sf-finance-section">
@@ -295,28 +387,34 @@ function FinanceDashboard() {
       />
 
       <div className="sf-metric-grid">
-        <Metric icon={BriefcaseBusiness} label="Receita contratada" value={data.receitaContratada} />
-        <Metric icon={ArrowUpCircle} label="Receita recebida" value={data.receitaRecebida} tone="positive" />
-        <Metric icon={CircleDollarSign} label="Contas a receber" value={data.contasAReceber} />
-        <Metric icon={ArrowDownCircle} label="Total de despesas" value={data.totalDespesas} tone="negative" />
+        <Metric icon={BriefcaseBusiness} label="Receita prevista no mês" value={data.receitaContratada} />
+        <Metric icon={ArrowUpCircle} label="Receita recebida no mês" value={data.receitaBruta} tone="positive" />
+        <Metric icon={CircleDollarSign} label="Contas a receber (total)" value={data.contasAReceber} />
+        <Metric icon={ArrowDownCircle} label="Total de despesas (histórico)" value={data.totalDespesas} tone="negative" />
         <Metric icon={PiggyBank} label="Fundo acumulado" value={data.saldos.reserva} />
         <Metric icon={BriefcaseBusiness} label="Caixa da empresa" value={data.saldos.empresa} />
-        <Metric icon={CircleDollarSign} label="Salarios acumulados" value={data.saldos.salario} />
-        <Metric icon={Wallet} label="Resultado liquido" value={data.resultadoLiquido} tone={data.resultadoLiquido >= 0 ? 'positive' : 'negative'} />
+        <Metric icon={CircleDollarSign} label="Salários acumulados" value={data.saldos.salario} />
+        <Metric icon={Wallet} label="Resultado líquido" value={data.resultadoLiquido} tone={data.resultadoLiquido >= 0 ? 'positive' : 'negative'} />
       </div>
 
       <SimpleTable
-        columns={['Destino', 'Entradas', 'Saidas', 'Saldo atual']}
+        columns={['Destino', 'Saldo atual']}
         rows={accountRows}
-        render={(row) => [row.destino, formatCurrency(row.entradas), formatCurrency(row.saidas), formatCurrency(row.saldo)]}
-        empty="Nenhuma movimentacao financeira registrada."
+        render={(row) => [row.destino, formatCurrency(row.saldo)]}
+        empty="Nenhuma conta financeira ativa."
       />
 
       <SimpleTable
         columns={['Destino', 'Movimento', 'Origem', 'Cliente', 'Valor']}
         rows={movementRows}
-        render={(row) => [row.destino, row.natureza, row.origem, row.cliente, formatCurrency(getTransactionValue(row))]}
-        empty="Nenhuma entrada ou saida distribuida."
+        render={(row) => [
+          row.destino,
+          row.natureza,
+          row.origem,
+          row.cliente,
+          formatCurrency(row.valor),
+        ]}
+        empty="Nenhuma entrada ou saída distribuída."
       />
 
       <div className="sf-panel-grid">
@@ -355,9 +453,9 @@ function FinanceDashboard() {
           <ResponsiveContainer width="100%" height={260}>
             <BarChart
               data={[
-                { name: 'Receita', valor: data.receitaBruta },
-                { name: 'Fluxo', valor: data.fluxoCaixa },
-                { name: 'Lucro', valor: data.lucroReal },
+                { name: 'Prevista', valor: data.receitaContratada },
+                { name: 'Recebida', valor: data.receitaBruta },
+                { name: 'Despesas', valor: data.despesasFixas + data.despesasVariaveis },
                 { name: 'Previsão', valor: data.financeSnapshot.forecast },
               ]}
               margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
@@ -394,7 +492,7 @@ function FinanceDashboard() {
           {data.proximosVencimentos.map((item) => (
             <div className="compact-row" key={item.id}>
               <span>{item.descricao}</span>
-              <strong>{getTransactionDate(item)}</strong>
+              <strong>{item.vencimento}</strong>
             </div>
           ))}
           <div className="formula-total soft">
@@ -429,44 +527,441 @@ function FinanceDashboard() {
   );
 }
 
-function Receitas() {
-  const { clientes, receitaBruta, contasAReceber, inadimplente } = useFinanceData();
-  
-  const linhas = useMemo(() => {
-    return clientes.flatMap((client) =>
-      (client.pagamentos || []).filter(isConfirmedPayment).map((payment, index) => ({
-        id: `receita-${client.projectId || client.id || 'cli'}-${index}`,
-        cliente: client.nome || 'Cliente',
-        data: payment.data || '-',
-        valor: parseCurrency(payment.valor),
-        evento: client.tipo || '-',
-      }))
-    );
-  }, [clientes]);
+const emptyAvulsaForm = {
+  id: null,
+  descricao: '',
+  categoria: 'Serviço adicional',
+  valor: '',
+  vencimento: '',
+  dataRecebimento: '',
+  status: 'prevista',
+  clienteId: '',
+  trabalhoId: '',
+  formaPagamento: 'Pix',
+  observacoes: '',
+  contaOrigem: 'empresa',
+};
+
+function Receitas({ data }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState(emptyAvulsaForm);
+
+  const list = useMemo(() => {
+    return data.consolidated.todasReceitas.map((r) => ({
+      ...r,
+      statusDerivado: deriveFinancialStatus(r),
+    }));
+  }, [data.consolidated]);
+
+  const totalMensalPrevisto = useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    return list
+      .filter((r) => r.statusDerivado !== 'cancelada' && r.vencimento && r.vencimento.slice(0, 7) === currentMonth)
+      .reduce((sum, r) => sum + (r.valor || 0), 0);
+  }, [list]);
+
+  const openCreateModal = () => {
+    setEditingId(null);
+    setFormData({
+      ...emptyAvulsaForm,
+      vencimento: new Date().toISOString().slice(0, 10),
+    });
+    setModalOpen(true);
+  };
+
+  const openEditModal = (r) => {
+    if (r.tipo === 'receita_contrato') {
+      alert('Receita contratual não pode ser alterada pela área financeira. Use a aba de Documentos/Contratos.');
+      return;
+    }
+    setEditingId(r.id);
+    const valStr = String(Math.round((r.valor || 0) * 100));
+    setFormData({
+      ...emptyAvulsaForm,
+      ...r,
+      valor: maskCurrency(valStr),
+      vencimento: r.vencimento || '',
+      dataRecebimento: r.dataRecebimento || '',
+    });
+    setModalOpen(true);
+  };
+
+  const saveReceita = () => {
+    const val = parseCurrency(formData.valor);
+    if (!formData.descricao || String(formData.descricao).trim() === '') {
+      alert('Descrição obrigatória.');
+      return;
+    }
+    if (val <= 0) {
+      alert('Valor válido e não negativo obrigatório.');
+      return;
+    }
+    if (!formData.vencimento) {
+      alert('Vencimento válido obrigatório.');
+      return;
+    }
+
+    const baseReceita = {
+      id: editingId || `receita-avulsa-${Date.now()}`,
+      descricao: formData.descricao,
+      categoria: formData.categoria || 'Serviço adicional',
+      valor: val,
+      vencimento: formData.vencimento,
+      dataRecebimento: formData.status === 'recebida' ? formData.dataRecebimento || formData.vencimento : '',
+      status: formData.status || 'prevista',
+      clienteId: formData.clienteId || '',
+      trabalhoId: formData.trabalhoId || '',
+      formaPagamento: formData.formaPagamento || 'Pix',
+      observacoes: formData.observacoes || '',
+      tipo: 'receita_avulsa',
+      tipoGeral: 'Entrada',
+      contaOrigem: formData.contaOrigem || 'empresa',
+      criadoEm: formData.criadoEm || new Date().toISOString(),
+      atualizadoEm: new Date().toISOString(),
+    };
+
+    const transactions = readStorage(STORAGE_KEYS.finances, []);
+    let nextTransactions;
+    if (editingId) {
+      nextTransactions = transactions.map((t) => String(t.id) === String(editingId) ? baseReceita : t);
+    } else {
+      nextTransactions = [baseReceita, ...transactions];
+    }
+
+    writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    if (isSupabaseConfigured) {
+      try {
+        const toDbPayload = (r) => ({
+          id: String(r.id),
+          project_id: r.trabalhoId || null,
+          cliente_id: r.clienteId || null,
+          descricao: r.descricao,
+          nome: r.descricao,
+          categoria: r.categoria,
+          valor: r.valor,
+          data: r.vencimento,
+          data_vencimento: r.vencimento,
+          tipo: r.tipo,
+          tipo_geral: r.tipoGeral,
+          status: r.status,
+          forma_pagamento: r.formaPagamento,
+          conta_origem: r.contaOrigem,
+          observacoes: r.observacoes,
+          updated_at: new Date().toISOString(),
+        });
+        void supabase.from('financas').upsert([toDbPayload(baseReceita)]);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setModalOpen(false);
+    data.loadAll();
+  };
+
+  const removeReceita = async (r) => {
+    if (r.tipo === 'receita_contrato') {
+      alert('Receita contratual não pode ser excluída pela área financeira. Use o Contrato de origem.');
+      return;
+    }
+    if (r.statusDerivado === 'recebida') {
+      alert('Receitas recebidas devem ser revertidas ou canceladas antes da exclusão.');
+      return;
+    }
+    const confirmed = window.confirm('Deseja excluir esta receita avulsa?');
+    if (!confirmed) return;
+
+    const transactions = readStorage(STORAGE_KEYS.finances, []);
+    const nextTransactions = transactions.filter((t) => String(t.id) !== String(r.id));
+    writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('financas').delete().eq('id', String(r.id));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    data.loadAll();
+  };
+
+  const receiveIncome = async (r) => {
+    if (r.tipo === 'receita_contrato') {
+      alert('Para receber parcelas de contratos, utilize a aba de Documentos/Contratos.');
+      return;
+    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const transactions = readStorage(STORAGE_KEYS.finances, []);
+    const nextTransactions = transactions.map((t) => {
+      if (String(t.id) === String(r.id)) {
+        return {
+          ...t,
+          status: 'recebida',
+          dataRecebimento: todayStr,
+          atualizadoEm: new Date().toISOString(),
+        };
+      }
+      return t;
+    });
+    writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('financas').update({
+          status: 'recebida',
+          data: todayStr,
+          updated_at: new Date().toISOString(),
+        }).eq('id', String(r.id));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    data.loadAll();
+  };
+
+  const reverseIncome = async (r) => {
+    if (r.tipo === 'receita_contrato') {
+      alert('Receita contratual deve ser revertida no Contrato de origem.');
+      return;
+    }
+    const transactions = readStorage(STORAGE_KEYS.finances, []);
+    const nextTransactions = transactions.map((t) => {
+      if (String(t.id) === String(r.id)) {
+        return {
+          ...t,
+          status: 'prevista',
+          dataRecebimento: '',
+          atualizadoEm: new Date().toISOString(),
+        };
+      }
+      return t;
+    });
+    writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('financas').update({
+          status: 'prevista',
+          data_pagamento: null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', String(r.id));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    data.loadAll();
+  };
+
+  const cancelIncome = async (r) => {
+    if (r.tipo === 'receita_contrato') {
+      alert('Receitas de contratos devem ser canceladas no Contrato de origem.');
+      return;
+    }
+    const transactions = readStorage(STORAGE_KEYS.finances, []);
+    const nextTransactions = transactions.map((t) => {
+      if (String(t.id) === String(r.id)) {
+        return {
+          ...t,
+          status: 'cancelada',
+          atualizadoEm: new Date().toISOString(),
+        };
+      }
+      return t;
+    });
+    writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('financas').update({
+          status: 'cancelada',
+          updated_at: new Date().toISOString(),
+        }).eq('id', String(r.id));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    data.loadAll();
+  };
 
   return (
     <div className="sf-finance-section">
-      <SectionHeader title="Receitas" subtitle="Entradas vindas dos pagamentos de clientes e contas a receber." />
-      <div className="sf-metric-grid">
-        <Metric icon={ArrowUpCircle} label="Receita bruta do mês" value={receitaBruta} tone="positive" />
-        <Metric icon={CircleDollarSign} label="Contas a receber" value={contasAReceber} />
-        <Metric icon={CalendarClock} label="Recebimentos atrasados" value={inadimplente} tone="negative" />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        <SectionHeader title="Receitas" subtitle="Acompanhe entradas contratuais e gerencie suas receitas avulsas." />
+        <button className="sf-primary-button" onClick={openCreateModal}>
+          <Plus size={18} /> Nova receita avulsa
+        </button>
       </div>
+
+      <div className="sf-metric-grid">
+        <Metric icon={ArrowUpCircle} label="Faturamento no mês" value={data.receitaBruta} tone="positive" />
+        <Metric icon={CircleDollarSign} label="Previsto no mês" value={totalMensalPrevisto} />
+        <Metric icon={CalendarClock} label="Recebimentos vencidos" value={data.inadimplente} tone="negative" />
+      </div>
+
       <SimpleTable
-        columns={['Cliente', 'Evento', 'Data', 'Valor']}
-        rows={linhas}
-        render={(row) => [row.cliente, row.evento, row.data, formatCurrency(row.valor)]}
-        empty="Nenhuma receita registrada em clientes."
+        columns={['Descrição / Categoria', 'Tipo', 'Cliente', 'Vencimento', 'Status', 'Valor', 'Ações']}
+        rows={list}
+        render={(row) => [
+          <div>
+            <strong>{row.descricao}</strong>
+            <small style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '3px' }}>
+              <Tag size={10} /> {row.categoria || 'Geral'}
+            </small>
+          </div>,
+          <span className="sf-pill">{row.tipo === 'receita_contrato' ? 'Contratual' : 'Avulsa'}</span>,
+          row.clienteNome || '-',
+          row.vencimento || '-',
+          <span className={`sf-status ${row.statusDerivado.toLowerCase()}`}>{row.statusDerivado}</span>,
+          <strong style={{ color: 'var(--color-success)' }}>{formatCurrency(row.valor)}</strong>,
+          <div className="sf-actions">
+            {row.tipo !== 'receita_contrato' && row.statusDerivado !== 'recebida' && row.statusDerivado !== 'cancelada' && (
+              <button title="Dar recebimento" onClick={() => receiveIncome(row)}>
+                <PackagePlus size={17} />
+              </button>
+            )}
+            {row.tipo !== 'receita_contrato' && row.statusDerivado === 'recebida' && (
+              <button title="Reverter recebimento" onClick={() => reverseIncome(row)}>
+                <Undo2 size={17} style={{ color: 'var(--color-highlight)' }} />
+              </button>
+            )}
+            {row.tipo !== 'receita_contrato' && row.statusDerivado !== 'cancelada' && row.statusDerivado !== 'recebida' && (
+              <button title="Cancelar receita" onClick={() => cancelIncome(row)}>
+                <XCircle size={17} style={{ color: 'var(--color-warning)' }} />
+              </button>
+            )}
+            <button title="Editar" onClick={() => openEditModal(row)} disabled={row.tipo === 'receita_contrato'}>
+              <Edit2 size={17} />
+            </button>
+            <button title="Excluir" onClick={() => removeReceita(row)} disabled={row.tipo === 'receita_contrato'}>
+              <Trash2 size={17} />
+            </button>
+          </div>
+        ]}
+        empty="Nenhuma receita registrada."
       />
+
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={`${editingId ? 'Editar' : 'Nova'} Receita Avulsa`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <label style={{ ...labelStyle, color: 'var(--text-main)' }}>Para qual saldo destinar?</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              {['empresa', 'salario', 'reserva'].map((account) => (
+                <button
+                  key={account}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, contaOrigem: account })}
+                  className={formData.contaOrigem === account ? 'sf-account active' : 'sf-account'}
+                >
+                  <strong>{account}</strong>
+                  <span>{formatCurrency(data.saldos[account] || 0)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+            <Field label="Descrição">
+              <input
+                style={inputStyle}
+                value={formData.descricao}
+                onChange={(event) => setFormData({ ...formData, descricao: event.target.value })}
+              />
+            </Field>
+            <Field label="Valor">
+              <input
+                style={{ ...inputStyle, color: 'var(--color-success)', fontWeight: 700 }}
+                value={formData.valor}
+                onChange={(event) => setFormData({ ...formData, valor: maskCurrency(event.target.value) })}
+                placeholder="R$ 0,00"
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="Categoria">
+              <select style={inputStyle} value={formData.categoria} onChange={(event) => setFormData({ ...formData, categoria: event.target.value })}>
+                {AVULSA_INCOME_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Data de vencimento">
+              <input
+                type="date"
+                style={inputStyle}
+                value={formData.vencimento}
+                onChange={(event) => setFormData({ ...formData, vencimento: event.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="Status">
+              <select style={inputStyle} value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value })}>
+                <option value="prevista">Prevista</option>
+                <option value="pendente">Pendente</option>
+                <option value="recebida">Recebida</option>
+              </select>
+            </Field>
+            <Field label="Forma de pagamento">
+              <select style={inputStyle} value={formData.formaPagamento} onChange={(event) => setFormData({ ...formData, formaPagamento: event.target.value })}>
+                {PAYMENT_METHODS.map((method) => (
+                  <option key={method} value={method}>
+                    {method}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="Cliente vinculado">
+              <select style={inputStyle} value={formData.clienteId} onChange={(event) => setFormData({ ...formData, clienteId: event.target.value })}>
+                <option value="">Nenhum...</option>
+                {data.clients.map((client) => (
+                  <option key={client.id} value={client.id}>{client.nome}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Trabalho vinculado">
+              <select style={inputStyle} value={formData.trabalhoId} onChange={(event) => setFormData({ ...formData, trabalhoId: event.target.value })}>
+                <option value="">Nenhum...</option>
+                {data.projects.map((project) => (
+                  <option key={project.id} value={project.id}>{project.clienteNome} - {project.tipoServico}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <Field label="Observações">
+            <textarea
+              style={{ ...inputStyle, minHeight: '90px', resize: 'vertical' }}
+              value={formData.observacoes}
+              onChange={(event) => setFormData({ ...formData, observacoes: event.target.value })}
+            />
+          </Field>
+
+          <button className="sf-primary-button wide" onClick={saveReceita}>
+            Salvar receita
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
 
-function Investimentos() {
-  const { equipamentos } = useFinanceData();
-  const totalInvestido = useMemo(() => equipamentos.reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0), [equipamentos]);
-  const depreciacaoMensal = useMemo(() => getEquipmentMonthlyDepreciation(equipamentos), [equipamentos]);
-  const valorAtual = useMemo(() => equipamentos.reduce((sum, item) => sum + calculateDepreciation(item).currentBookValue, 0), [equipamentos]);
+function Investimentos({ data }) {
+  const totalInvestido = useMemo(() => data.equipamentos.reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0), [data.equipamentos]);
+  const depreciacaoMensal = useMemo(() => getEquipmentMonthlyDepreciation(data.equipamentos), [data.equipamentos]);
+  const valorAtual = useMemo(() => data.equipamentos.reduce((sum, item) => sum + calculateDepreciation(item).currentBookValue, 0), [data.equipamentos]);
 
   return (
     <div className="sf-finance-section">
@@ -478,7 +973,7 @@ function Investimentos() {
       </div>
       <SimpleTable
         columns={['Equipamento', 'Compra', 'Depreciação mensal', 'Valor atual']}
-        rows={equipamentos}
+        rows={data.equipamentos}
         render={(item) => {
           const depreciation = calculateDepreciation(item);
           return [
@@ -494,19 +989,21 @@ function Investimentos() {
   );
 }
 
-function RelatoriosFinanceiros() {
-  const { transacoes, equipamentos } = useFinanceData();
-  
+function RelatoriosFinanceiros({ data }) {
   const reports = useMemo(() => {
-    const expenses = transacoes.filter(isExpense);
+    const expenses = data.consolidated.despesas.filter((d) => d.statusDerivado !== 'cancelada');
     return {
       Mensal: groupBySum(expenses, (item) => monthKey(getTransactionDate(item))),
       Categoria: groupBySum(expenses, (item) => item.categoria),
-      Evento: groupBySum(expenses, (item) => item.eventoRelacionado),
+      Trabalho: groupBySum(expenses, (item) => {
+        if (!item.trabalhoId) return 'Despesa Geral';
+        const p = data.projects.find((proj) => String(proj.id) === String(item.trabalhoId));
+        return p ? `${p.clienteNome} (${p.tipoServico})` : 'Trabalho removido';
+      }),
       Fornecedor: groupBySum(expenses, (item) => item.fornecedor),
-      Equipamento: groupBySum(equipamentos, (item) => item.nome, (item) => Number(item.valorCompra ?? item.valor ?? 0)),
+      Equipamento: groupBySum(data.equipamentos, (item) => item.nome, (item) => Number(item.valorCompra ?? item.valor ?? 0)),
     };
-  }, [transacoes, equipamentos]);
+  }, [data.consolidated.despesas, data.projects, data.equipamentos]);
 
   return (
     <div className="sf-finance-section">
@@ -516,8 +1013,8 @@ function RelatoriosFinanceiros() {
         action={<span className="sf-export-chip">PDF / Excel em breve</span>}
       />
       <div className="sf-report-grid">
-        {Object.entries(reports).map(([title, data]) => (
-          <ReportBlock key={title} title={title} data={data} />
+        {Object.entries(reports).map(([title, dataBlock]) => (
+          <ReportBlock key={title} title={title} data={dataBlock} />
         ))}
       </div>
     </div>
@@ -555,9 +1052,9 @@ function SimpleTable({ columns, rows, render, empty }) {
           <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              {render(row).map((cell, index) => <td key={`${row.id}-${index}`}>{cell}</td>)}
+          {rows.map((row, idx) => (
+            <tr key={row.id || `row-${idx}`}>
+              {render(row).map((cell, index) => <td key={`${row.id || idx}-${index}`}>{cell}</td>)}
             </tr>
           ))}
           {rows.length === 0 && (
@@ -571,8 +1068,8 @@ function SimpleTable({ columns, rows, render, empty }) {
   );
 }
 
-function ReportBlock({ title, data }) {
-  const entries = useMemo(() => Object.entries(data).filter(([, value]) => value > 0).slice(0, 8), [data]);
+function ReportBlock({ title, dataBlock }) {
+  const entries = useMemo(() => Object.entries(dataBlock).filter(([, value]) => value > 0).slice(0, 8), [dataBlock]);
   
   return (
     <div className="sf-card report">
@@ -584,6 +1081,15 @@ function ReportBlock({ title, data }) {
           <strong>{formatCurrency(value)}</strong>
         </div>
       ))}
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {children}
     </div>
   );
 }

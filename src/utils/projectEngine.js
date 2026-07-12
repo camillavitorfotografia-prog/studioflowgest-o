@@ -25,15 +25,32 @@ export const deliveryState = (project, reference = new Date()) => {
   const daysRemaining = Math.ceil((due - reference) / 86400000);
   return { daysRemaining, overdue: daysRemaining < 0, upcoming: daysRemaining >= 0 && daysRemaining <= 7 };
 };
-const money = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+import { readStorage, STORAGE_KEYS } from './storage.js';
+import { getConsolidatedFinances, calculateProjectFinancials } from './financeEngine.js';
+
 export const calculateProjectValues = (project = {}) => {
-  const valorContratado = money(project.valorContratado ?? project.valor_contratado);
-  const payments = project.pagamentos || project.receitas || project.financeiro?.receitas || [];
-  const derivedReceived = payments.reduce((sum, payment) => ['recebido', 'confirmado', 'pago'].includes(normalizeName(payment.status)) ? sum + money(payment.valor) : sum, 0);
-  const valorRecebido = payments.length ? derivedReceived : money(project.valorRecebido ?? project.valor_recebido);
-  const custoEstimado = Math.max(0, money(project.custoEstimado));
-  const custoReal = Math.max(0, money(project.custoReal));
-  return { valorContratado, valorRecebido, saldoPendente: valorContratado - valorRecebido, custoEstimado, custoReal, lucroEstimado: valorContratado - custoEstimado, lucroReal: valorRecebido - custoReal };
+  const contracts = readStorage(STORAGE_KEYS.contracts, []);
+  const transactions = readStorage(STORAGE_KEYS.finances, []);
+  const clients = readStorage(STORAGE_KEYS.clients, []);
+  
+  const consolidated = getConsolidatedFinances({ contracts, transactions, clients });
+  
+  const financials = calculateProjectFinancials({
+    project,
+    contracts,
+    receitasAvulsas: consolidated.receitasAvulsas,
+    despesas: consolidated.despesas,
+  });
+
+  return {
+    valorContratado: financials.receitaContratada,
+    valorRecebido: financials.receitaRecebida,
+    saldoPendente: Math.max(0, financials.receitaContratada - financials.receitaRecebida),
+    custoEstimado: financials.custoEstimado,
+    custoReal: financials.custoReal,
+    lucroEstimado: financials.lucroEstimado,
+    lucroReal: financials.lucroReal,
+  };
 };
 export const projectMatchesSearch = (project, client, query) => {
   const text = normalizeName(query);

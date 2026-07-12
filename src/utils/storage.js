@@ -1,4 +1,4 @@
-﻿export const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   leads: 'cv_crm_leads',
   legacyLeads: 'meusLeadsData',
   clients: 'cv_studio_clients',
@@ -13,6 +13,7 @@
   equipment: 'cv_studio_equipamentos',
   documents: 'cv_studio_documents',
   settings: 'cv_studio_settings_v1',
+  recurrences: 'cv_studio_recorrencias',
 };
 
 export const STORAGE_SCHEMA_VERSION = 4;
@@ -27,6 +28,8 @@ const CLIENT_DEFAULTS = { cpfCnpj: '', endereco: '', cidade: '', dataNascimento:
 const PROJECT_DEFAULTS = { titulo: '', clienteId: '', clienteNome: '', descricao: '', observacoes: '', tipoServico: 'Fotografia', categoria: 'Outro', dataEvento: '', horaInicio: '', horaFim: '', local: '', cidade: '', estado: '', endereco: '', observacoesLocal: '', duracaoEstimada: '', equipeIds: [], equipamentoIds: [], custoEstimado: 0, custoReal: 0, prazoEntregaDias: '', dataPrevistaEntrega: '', dataRealEntrega: '', prioridade: 'normal', arquivado: false, statusComercial: 'novo_contato', statusProducao: 'agendado', checklist: [], contratoId: '', orcamentoId: '', pagamentoIds: [], pagamentos: [] };
 const CONTRACT_DEFAULTS = { clientId: '', projectId: '', numero: '', dataCriacao: '', valorTotal: 0, valorEntrada: 0, saldo: 0, quantidadeParcelas: 0, parcelas: [], formaPagamento: '', observacoes: '', status: 'rascunho' };
 const EQUIPMENT_DEFAULTS = { categoria: 'Outros', marca: '', modelo: '', numeroSerie: '', dataCompra: '', valorCompra: 0, valorResidual: 0, vidaUtilAnos: 5, fornecedor: '', garantiaAte: '', estadoConservacao: '', situacao: 'disponivel', observacoes: '', manutencoes: [], trabalhos: [] };
+const TRANSACTION_DEFAULTS = { descricao: 'Lançamento financeiro', categoria: 'Outros', valor: 0, vencimento: '', dataRecebimento: '', dataPagamento: '', status: '', clienteId: '', trabalhoId: '', formaPagamento: 'Pix', observacoes: '', competencia: '', recorrenciaId: '', tipo: '', tipoGeral: '', contaOrigem: 'empresa' };
+const RECURRENCE_DEFAULTS = { descricao: 'Recorrência fixa', categoria: 'Aluguel', valor: 0, frequencia: 'mensal', diaVencimento: 1, fornecedor: '', formaPagamento: 'Pix', observacoes: '', ativo: true, contaOrigem: 'empresa' };
 
 export const normalizeStoredValue = (key, value) => {
   if (value === null || value === undefined) return value;
@@ -34,7 +37,43 @@ export const normalizeStoredValue = (key, value) => {
   if (key === STORAGE_KEYS.projects) return asArray(value).map((item) => { const project = normalizeRecord(item, PROJECT_DEFAULTS); return { ...project, checklist: normalizeChecklist(item?.checklist) }; });
   if (key === STORAGE_KEYS.contracts) return asArray(value).map((item, index) => normalizeContract(normalizeRecord(item, CONTRACT_DEFAULTS), index));
   if (key === STORAGE_KEYS.equipment) return asArray(value).map((item) => normalizeRecord(item, EQUIPMENT_DEFAULTS));
-  if ([STORAGE_KEYS.checklists, STORAGE_KEYS.finances, STORAGE_KEYS.agendaEvents].includes(key)) return asArray(value);
+  if (key === STORAGE_KEYS.finances) {
+    return asArray(value).map((item, index) => {
+      const norm = normalizeRecord(item, TRANSACTION_DEFAULTS);
+      const id = norm.id || `transacao-legacy-${index}-${Date.now()}`;
+      const tipoGeral = norm.tipoGeral || (['fixa', 'variavel'].includes(norm.tipo) ? 'Saida' : 'Entrada');
+      const tipo = norm.tipo || (tipoGeral === 'Saida' ? 'fixa' : 'receita_avulsa');
+      const status = norm.status || (tipoGeral === 'Saida' ? 'Pendente' : 'prevista');
+      const vencimento = norm.vencimento || norm.data || '';
+      const competencia = norm.competencia || (vencimento ? vencimento.slice(0, 7) : new Date().toISOString().slice(0, 7));
+      return {
+        ...norm,
+        id,
+        tipoGeral,
+        tipo,
+        status,
+        vencimento,
+        competencia,
+        criadoEm: norm.criadoEm || norm.created_at || new Date().toISOString(),
+        atualizadoEm: norm.atualizadoEm || norm.updated_at || new Date().toISOString()
+      };
+    });
+  }
+  if (key === STORAGE_KEYS.recurrences) {
+    return asArray(value).map((item, index) => {
+      const norm = normalizeRecord(item, RECURRENCE_DEFAULTS);
+      const id = norm.id || `recorrencia-legacy-${index}-${Date.now()}`;
+      return {
+        ...norm,
+        id,
+        diaVencimento: Math.max(1, Math.min(31, Number(norm.diaVencimento || 1))),
+        ativo: norm.ativo !== false,
+        criadoEm: norm.criadoEm || new Date().toISOString(),
+        atualizadoEm: norm.atualizadoEm || new Date().toISOString()
+      };
+    });
+  }
+  if ([STORAGE_KEYS.checklists, STORAGE_KEYS.agendaEvents].includes(key)) return asArray(value);
   return value;
 };
 
