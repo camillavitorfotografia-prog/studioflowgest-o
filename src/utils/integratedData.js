@@ -205,7 +205,7 @@ export const buildProjectFromLead = (lead = {}, client = {}) => {
 const enrichProject = (project, clients, transactions, equipment, checklists, contracts, questionnaires, files) => {
   const client = clients.find((item) => item.id === project.clientId || item.id === project.clienteId) || project.cliente || {};
   const financeiro = calculateProjectFinance(project, transactions);
-  const checklist = checklists[project.id] || project.checklist || defaultChecklist({ ...project, ...financeiro });
+  const checklist = checklists[project.id] || project.checklist || [];
   const equipamentos = (project.equipamentos || project.equipmentIds || []).map((id) => equipment.find((item) => item.id === id || String(item.id) === String(id))).filter(Boolean);
 
   return {

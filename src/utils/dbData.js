@@ -185,7 +185,7 @@ export const mapProjectFromDb = (project = {}, clients = [], transactions = []) 
       saldoRestante: remaining,
     },
     agenda: { data: project.data || '', horario: project.horario || '', local: project.local || client.cidade || '' },
-    checklist: project.checklist || [],
+    checklist: project.checklist || project.financeiro?.checklist || [],
     equipamentos: project.equipamentos || [],
     equipamentosDetalhados: [],
     timelineCompleta: project.timeline || project.historico || [],

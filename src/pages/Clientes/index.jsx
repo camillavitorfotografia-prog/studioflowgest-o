@@ -5,8 +5,9 @@ import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/Premiu
 import { formatMoney, parseMoney } from '../../utils/integratedData';
 import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency, maskDate, maskInstagram, maskPhone } from '../../utils/masks';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { calculatePaymentsSummary, createFinanceSeed, deleteAgendaEvent, emitDbUpdate, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
+import { calculatePaymentsSummary, createFinanceSeed, emitDbUpdate, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
+import { clientMatchesSearch, findClientDuplicates, getClientRelations } from '../../utils/clientIdentity';
 import {
   calculateClientSalarySummary,
   calculateProjectFinancialState,
@@ -30,6 +31,9 @@ const emptyForm = {
   nome: '',
   email: '',
   telefone: '',
+  cpfCnpj: '', endereco: '', cidade: '', dataNascimento: '', origem: '', indicacao: '', indicacaoClienteId: '',
+  observacoes: '', datasImportantes: [], historicoContatos: [], dataPrimeiroContato: '', dataUltimoContato: '',
+  dataProximoRetorno: '', statusComercial: 'novo',
   instagram: '',
   tipoTrabalho: '',
   dataTrabalho: '',
@@ -43,6 +47,7 @@ const emptyForm = {
 };
 
 const emptyWithdrawal = { pessoa: 'camilla', valor: '', data: '', observacao: '' };
+const emptyContact = { id: null, data: '', tipo: 'WhatsApp', observacao: '' };
 
 const inputStyle = {
   width: '100%',
@@ -96,6 +101,12 @@ const mapClientRow = (client, projects) => {
     nome: client.nome || client.name || '',
     email: client.email || '',
     telefone: client.telefone || client.whatsapp || '',
+    cpfCnpj: client.cpfCnpj || client.cpf_cnpj || '', endereco: client.endereco || '', cidade: client.cidade || '',
+    dataNascimento: normalizeDate(client.dataNascimento || client.data_nascimento), origem: client.origem || '',
+    indicacao: client.indicacao || '', indicacaoClienteId: client.indicacaoClienteId || '', observacoes: client.observacoes || '',
+    datasImportantes: client.datasImportantes || [], historicoContatos: client.historicoContatos || [],
+    dataPrimeiroContato: normalizeDate(client.dataPrimeiroContato), dataUltimoContato: normalizeDate(client.dataUltimoContato),
+    dataProximoRetorno: normalizeDate(client.dataProximoRetorno), statusComercial: client.statusComercial || 'novo',
     instagram: client.instagram || '',
     tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
     dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || client.data_evento || '',
@@ -151,6 +162,12 @@ const saveLocalMirrors = (clients, projects) => {
     whatsapp: client.whatsapp || client.telefone || '',
     instagram: client.instagram || '',
     cidade: client.cidade || '',
+    cpfCnpj: client.cpfCnpj || '', endereco: client.endereco || '', dataNascimento: client.dataNascimento || '',
+    origem: client.origem || '', indicacao: client.indicacao || '', indicacaoClienteId: client.indicacaoClienteId || '',
+    observacoes: client.observacoes || '', datasImportantes: client.datasImportantes || [],
+    historicoContatos: client.historicoContatos || [], dataPrimeiroContato: client.dataPrimeiroContato || '',
+    dataUltimoContato: client.dataUltimoContato || '', dataProximoRetorno: client.dataProximoRetorno || '',
+    statusComercial: client.statusComercial || 'novo',
     clienteDesde: client.created_at || client.clienteDesde || new Date().toISOString(),
     status: client.status || 'ativo',
     createdAt: client.created_at || client.createdAt || new Date().toISOString(),
@@ -247,6 +264,10 @@ export default function Clientes() {
   const [contractClient, setContractClient] = useState(null);
   const [selectedContractModel, setSelectedContractModel] = useState('');
   const [contractWizardClient, setContractWizardClient] = useState(null);
+  const [search, setSearch] = useState('');
+  const [duplicate, setDuplicate] = useState(null);
+  const [allowDuplicate, setAllowDuplicate] = useState(false);
+  const [contactDraft, setContactDraft] = useState(emptyContact);
 
   const load = async () => {
     setSyncStatus('saving');
@@ -306,6 +327,7 @@ export default function Clientes() {
   }, []);
 
   const clients = useMemo(() => studio.clients.map((client) => mapClientRow(client, studio.projects)), [studio.clients, studio.projects]);
+  const filteredClients = useMemo(() => clients.filter((client) => clientMatchesSearch(client, search)), [clients, search]);
 
   const paymentSummary = useMemo(() => calculatePayments(formData), [formData]);
   const formattedRemaining = maskCurrency(String(Math.round(paymentSummary.valorRestante * 100)));
@@ -383,6 +405,18 @@ export default function Clientes() {
     }));
   };
 
+  const saveContact = () => {
+    if (!contactDraft.data || !contactDraft.observacao.trim()) return alert('Informe a data e a observação do contato.');
+    const record = { ...contactDraft, id: contactDraft.id || createId('contact'), data: inputToDate(contactDraft.data), createdAt: contactDraft.createdAt || new Date().toISOString() };
+    setFormData((current) => ({ ...current, dataUltimoContato: contactDraft.data, dataPrimeiroContato: current.dataPrimeiroContato || contactDraft.data, historicoContatos: [...current.historicoContatos.filter((item) => item.id !== record.id), record].sort((a, b) => String(b.data).localeCompare(String(a.data))) }));
+    setContactDraft(emptyContact);
+  };
+
+  const removeContact = (id) => {
+    if (!window.confirm('Excluir este registro de contato?')) return;
+    setFormData((current) => ({ ...current, historicoContatos: current.historicoContatos.filter((item) => item.id !== id) }));
+  };
+
   const openNewClient = () => {
     setFormData(emptyForm);
     setSelectedClientId(null);
@@ -408,6 +442,14 @@ export default function Clientes() {
     setSyncStatus('saving');
 
     const now = new Date().toISOString();
+    const matches = findClientDuplicates(formData, clients, formData.id);
+    if (!allowDuplicate && matches.length) {
+      setDuplicate({ match: matches[0], event: null });
+      setSyncStatus('saved');
+      return;
+    }
+    setDuplicate(null);
+    setAllowDuplicate(false);
     const {
       pagamentos: draftPayments,
       valorTotal,
@@ -441,6 +483,13 @@ export default function Clientes() {
         telefone: preserveText(formData.telefone, existingClient.telefone || existingClient.whatsapp),
         whatsapp: preserveText(formData.telefone, existingClient.whatsapp || existingClient.telefone),
         instagram: preserveText(formData.instagram, existingClient.instagram),
+        cpfCnpj: formData.cpfCnpj, endereco: formData.endereco, cidade: formData.cidade,
+        dataNascimento: inputToDate(formData.dataNascimento), origem: formData.origem,
+        indicacao: formData.indicacao, indicacaoClienteId: formData.indicacaoClienteId,
+        observacoes: formData.observacoes, datasImportantes: formData.datasImportantes,
+        historicoContatos: formData.historicoContatos, dataPrimeiroContato: inputToDate(formData.dataPrimeiroContato),
+        dataUltimoContato: inputToDate(formData.dataUltimoContato), dataProximoRetorno: inputToDate(formData.dataProximoRetorno),
+        statusComercial: formData.statusComercial,
         cliente_desde: existingClient.cliente_desde || existingClient.clienteDesde || now,
       };
 
@@ -576,26 +625,25 @@ export default function Clientes() {
 
   const deleteClient = async () => {
     if (!formData.id) return;
+    const relations = getClientRelations(formData.id, { projects: studio.projects, contracts: readStorage(STORAGE_KEYS.contracts, []) });
+    const historyCount = formData.historicoContatos.length;
+    if (relations.projects.length || relations.contracts.length || relations.payments.length) {
+      alert(`Este cliente não pode ser excluído: possui ${relations.projects.length} trabalho(s), ${relations.contracts.length} contrato(s) e ${relations.payments.length} pagamento(s). Altere o status para inativo ou perdido.`);
+      return;
+    }
+    if (!window.confirm(`Excluir este cliente${historyCount ? ` e seus ${historyCount} registro(s) de contato` : ''}?`)) return;
     setSyncStatus('saving');
 
     try {
       if (!isSupabaseConfigured) {
         const localStudio = loadLocalStudio();
-        const nextProjects = formData.projectId
-          ? localStudio.projects.filter((project) => project.id !== formData.projectId)
-          : localStudio.projects;
+        const nextProjects = localStudio.projects;
         const nextClients = localStudio.clients.filter((client) => client.id !== formData.id);
         saveLocalStudio(nextClients, nextProjects);
         setSelectedClientId(null);
         closeModal();
         await load();
         return;
-      }
-
-      if (formData.projectId) {
-        await deleteAgendaEvent(formData.projectId);
-        const { error: projectError } = await supabase.from('projetos').delete().eq('id', formData.projectId);
-        if (projectError) throw projectError;
       }
 
       const { error: clientError } = await supabase.from('clientes').delete().eq('id', formData.id);
@@ -626,6 +674,7 @@ export default function Clientes() {
       </div>
 
       <div className="sf-table-card">
+        <div style={{ padding: '12px' }}><input style={inputStyle} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone, e-mail, CPF/CNPJ ou cidade" /></div>
         <table className="sf-table">
           <thead>
             <tr>
@@ -640,7 +689,7 @@ export default function Clientes() {
             </tr>
           </thead>
           <tbody>
-            {clients.map((client) => (
+            {filteredClients.map((client) => (
               <tr
                 key={client.id}
                 onClick={() => setSelectedClientId(client.id)}
@@ -680,7 +729,7 @@ export default function Clientes() {
                 </td>
               </tr>
             ))}
-            {clients.length === 0 && (
+            {filteredClients.length === 0 && (
               <tr>
                 <td colSpan="8" className="empty">Nenhum cliente integrado ainda.</td>
               </tr>
@@ -707,6 +756,18 @@ export default function Clientes() {
               <input style={inputStyle} placeholder="@cliente" value={formData.instagram} onChange={(event) => updateField('instagram', maskInstagram(event.target.value))} />
             </Field>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <Field label="CPF ou CNPJ"><input style={inputStyle} value={formData.cpfCnpj} onChange={(event) => updateField('cpfCnpj', event.target.value)} /></Field>
+            <Field label="Data de nascimento"><input style={inputStyle} placeholder="dd/mm/aaaa" value={formData.dataNascimento} onChange={(event) => updateField('dataNascimento', maskDate(event.target.value))} /></Field>
+            <Field label="Endereço"><input style={inputStyle} value={formData.endereco} onChange={(event) => updateField('endereco', event.target.value)} /></Field>
+            <Field label="Cidade"><input style={inputStyle} value={formData.cidade} onChange={(event) => updateField('cidade', event.target.value)} /></Field>
+            <Field label="Origem"><select style={inputStyle} value={formData.origem} onChange={(event) => updateField('origem', event.target.value)}><option value="">Selecione</option>{['Instagram', 'Google', 'Indicação', 'Site', 'WhatsApp', 'Anúncio', 'Parceiro', 'Evento', 'Outro'].map((item) => <option key={item}>{item}</option>)}</select></Field>
+            <Field label="Indicação"><input style={inputStyle} value={formData.indicacao} onChange={(event) => updateField('indicacao', event.target.value)} placeholder="Cliente, parceiro ou texto livre" /></Field>
+            <Field label="Status comercial"><select style={inputStyle} value={formData.statusComercial} onChange={(event) => updateField('statusComercial', event.target.value)}>{['novo', 'contato iniciado', 'orçamento enviado', 'aguardando retorno', 'negociação', 'convertido', 'perdido', 'cliente ativo'].map((item) => <option key={item}>{item}</option>)}</select></Field>
+            <Field label="Próximo retorno"><input style={inputStyle} placeholder="dd/mm/aaaa" value={formData.dataProximoRetorno} onChange={(event) => updateField('dataProximoRetorno', maskDate(event.target.value))} /></Field>
+          </div>
+          <Field label="Observações"><textarea rows="3" style={inputStyle} value={formData.observacoes} onChange={(event) => updateField('observacoes', event.target.value)} /></Field>
 
           <Field label="Tipo de trabalho">
             <input style={inputStyle} value={formData.tipoTrabalho} onChange={(event) => updateField('tipoTrabalho', capitalizeFirst(event.target.value))} />
@@ -845,6 +906,17 @@ export default function Clientes() {
             </div>
           </section>
 
+          <section className="sf-client-finance-center">
+            <div className="sf-client-finance-title"><div><h3>Histórico de contatos</h3><p>Registro interno manual, do mais recente para o mais antigo.</p></div></div>
+            <div className="sf-client-withdrawal-form">
+              <input style={inputStyle} placeholder="dd/mm/aaaa" value={contactDraft.data} onChange={(event) => setContactDraft((current) => ({ ...current, data: maskDate(event.target.value) }))} />
+              <select style={inputStyle} value={contactDraft.tipo} onChange={(event) => setContactDraft((current) => ({ ...current, tipo: event.target.value }))}>{['WhatsApp', 'Ligação', 'E-mail', 'Reunião', 'Presencial', 'Outro'].map((item) => <option key={item}>{item}</option>)}</select>
+              <input style={inputStyle} placeholder="Observação" value={contactDraft.observacao} onChange={(event) => setContactDraft((current) => ({ ...current, observacao: event.target.value }))} />
+              <button type="button" className="sf-secondary-button" onClick={saveContact}><Plus size={14} /> Salvar contato</button>
+            </div>
+            <div className="sf-client-withdrawal-list">{formData.historicoContatos.map((contact) => <div key={contact.id}><span>{displayDate(contact.data)} · {contact.tipo} · {contact.observacao}</span><button type="button" onClick={() => setContactDraft({ ...contact, data: normalizeDate(contact.data) })}><Pencil size={14} /></button><button type="button" onClick={() => removeContact(contact.id)}><Trash2 size={14} /></button></div>)}</div>
+          </section>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
             {formData.id ? (
               <button type="button" onClick={deleteClient} className="sf-secondary-button">
@@ -856,6 +928,16 @@ export default function Clientes() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal isOpen={Boolean(duplicate)} onClose={() => setDuplicate(null)} title="Possível cliente duplicado">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <p>Encontramos <strong>{duplicate?.match.client.nome}</strong> com o mesmo {duplicate?.match.reason}.</p>
+          <p className="sf-muted">{duplicate?.match.client.telefone || 'Sem telefone'} · {duplicate?.match.client.email || 'Sem e-mail'} · {getClientRelations(duplicate?.match.client.id, { projects: studio.projects }).projects.length} trabalho(s)</p>
+          <button type="button" className="sf-primary-button" onClick={() => { const existing = clients.find((item) => item.id === duplicate.match.client.id); setDuplicate(null); openEditClient(existing); }}>Usar cliente existente</button>
+          <button type="button" className="sf-secondary-button" onClick={() => { setAllowDuplicate(true); setDuplicate(null); setTimeout(() => document.querySelector('.sf-client-form')?.requestSubmit(), 0); }}>Continuar e criar novo</button>
+          <button type="button" className="sf-secondary-button" onClick={() => setDuplicate(null)}>Cancelar</button>
+        </div>
       </Modal>
 
       <Modal isOpen={Boolean(contractClient)} onClose={() => setContractClient(null)} title="Selecionar modelo de contrato">

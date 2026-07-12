@@ -15,6 +15,29 @@
   settings: 'cv_studio_settings_v1',
 };
 
+export const STORAGE_SCHEMA_VERSION = 4;
+
+const asArray = (value) => (Array.isArray(value) ? value : []);
+const asObject = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+const normalizeRecord = (record, defaults) => ({ ...defaults, ...asObject(record) });
+import { normalizeChecklist } from './checklistEngine.js';
+import { normalizeContract } from './contractEngine.js';
+
+const CLIENT_DEFAULTS = { cpfCnpj: '', endereco: '', cidade: '', dataNascimento: '', origem: '', indicacao: '', indicacaoClienteId: '', observacoes: '', datasImportantes: [], historicoContatos: [], dataPrimeiroContato: '', dataUltimoContato: '', dataProximoRetorno: '', statusComercial: 'novo' };
+const PROJECT_DEFAULTS = { titulo: '', clienteId: '', clienteNome: '', descricao: '', observacoes: '', tipoServico: 'Fotografia', categoria: 'Outro', dataEvento: '', horaInicio: '', horaFim: '', local: '', cidade: '', estado: '', endereco: '', observacoesLocal: '', duracaoEstimada: '', equipeIds: [], equipamentoIds: [], custoEstimado: 0, custoReal: 0, prazoEntregaDias: '', dataPrevistaEntrega: '', dataRealEntrega: '', prioridade: 'normal', arquivado: false, statusComercial: 'novo_contato', statusProducao: 'agendado', checklist: [], contratoId: '', orcamentoId: '', pagamentoIds: [], pagamentos: [] };
+const CONTRACT_DEFAULTS = { clientId: '', projectId: '', numero: '', dataCriacao: '', valorTotal: 0, valorEntrada: 0, saldo: 0, quantidadeParcelas: 0, parcelas: [], formaPagamento: '', observacoes: '', status: 'rascunho' };
+const EQUIPMENT_DEFAULTS = { categoria: 'Outros', marca: '', modelo: '', numeroSerie: '', dataCompra: '', valorCompra: 0, valorResidual: 0, vidaUtilAnos: 5, fornecedor: '', garantiaAte: '', estadoConservacao: '', situacao: 'disponivel', observacoes: '', manutencoes: [], trabalhos: [] };
+
+export const normalizeStoredValue = (key, value) => {
+  if (value === null || value === undefined) return value;
+  if (key === STORAGE_KEYS.clients) return asArray(value).map((item) => normalizeRecord(item, CLIENT_DEFAULTS));
+  if (key === STORAGE_KEYS.projects) return asArray(value).map((item) => { const project = normalizeRecord(item, PROJECT_DEFAULTS); return { ...project, checklist: normalizeChecklist(item?.checklist) }; });
+  if (key === STORAGE_KEYS.contracts) return asArray(value).map((item, index) => normalizeContract(normalizeRecord(item, CONTRACT_DEFAULTS), index));
+  if (key === STORAGE_KEYS.equipment) return asArray(value).map((item) => normalizeRecord(item, EQUIPMENT_DEFAULTS));
+  if ([STORAGE_KEYS.checklists, STORAGE_KEYS.finances, STORAGE_KEYS.agendaEvents].includes(key)) return asArray(value);
+  return value;
+};
+
 export const safeJsonParse = (value, fallback) => {
   try {
     return value ? JSON.parse(value) : fallback;
@@ -25,7 +48,7 @@ export const safeJsonParse = (value, fallback) => {
 
 export const readStorage = (key, fallback = []) => {
   if (typeof window === 'undefined') return fallback;
-  return safeJsonParse(localStorage.getItem(key), fallback);
+  return normalizeStoredValue(key, safeJsonParse(localStorage.getItem(key), fallback));
 };
 
 export const writeStorage = (key, value) => {
