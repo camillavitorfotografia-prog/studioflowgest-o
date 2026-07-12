@@ -1,23 +1,19 @@
-import { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  BarChart3,
-  CalendarDays,
-  Calculator,
-  DollarSign,
-  FolderOpen,
-  Home,
+  KeyRound,
+  LogIn,
   LogOut,
   Menu,
-  Package,
-  Target,
-  User,
-  Users,
+  Settings,
+  UserRound,
   X,
 } from 'lucide-react';
 import LogoIcon from '../assets/studioflow-icon.png';
 import Logo from '../assets/studioflow-logo.png';
 import { useAuth } from '../contexts/useAuth';
+import { loadSettings } from '../utils/settings';
+import { DEFAULT_SIDEBAR_SETTINGS, SIDEBAR_MODULES } from '../utils/sidebarModules';
 import './Sidebar.css';
 
 const PROFILE_PHOTO_KEY = 'cv_foto_perfil';
@@ -43,12 +39,28 @@ const initialsFromName = (name = '') => {
 };
 
 export default function Sidebar() {
+  const navigate = useNavigate();
+  const accountMenuRef = useRef(null);
   const linkClass = ({ isActive }) => (isActive ? 'nav-link active' : 'nav-link');
   const { user, signOut } = useAuth();
-  const userName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Usuário';
   const [profilePhoto, setProfilePhoto] = useState(() => localStorage.getItem(PROFILE_PHOTO_KEY) || '');
   const [profileCompanyName, setProfileCompanyName] = useState(readProfileCompanyName);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [sidebarSettings, setSidebarSettings] = useState(() => {
+    const loaded = loadSettings()?.sidebar || DEFAULT_SIDEBAR_SETTINGS;
+    return {
+      order: loaded.sidebarOrder || DEFAULT_SIDEBAR_SETTINGS.sidebarOrder,
+      visibility: loaded.sidebarVisibility || DEFAULT_SIDEBAR_SETTINGS.sidebarVisibility,
+      compact: loaded.sidebarCompact ?? DEFAULT_SIDEBAR_SETTINGS.sidebarCompact,
+      showLabels: loaded.sidebarShowLabels ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowLabels,
+      showAvatar: loaded.sidebarShowAvatar ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowAvatar,
+      showFavorites: loaded.sidebarShowFavorites ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowFavorites,
+    };
+  });
+  const metadata = user?.user_metadata || {};
+  const accountName = metadata.full_name || metadata.name || profileCompanyName || user?.email?.split('@')[0] || 'Usuário StudioFlow';
+  const accountPhoto = metadata.avatar_url || metadata.picture || profilePhoto;
 
   useEffect(() => {
     const syncProfileIdentity = (event) => {
@@ -56,15 +68,63 @@ export default function Sidebar() {
       setProfileCompanyName(readProfileCompanyName());
     };
 
+    const syncSidebarSettings = () => {
+      const loaded = loadSettings()?.sidebar || DEFAULT_SIDEBAR_SETTINGS;
+      setSidebarSettings({
+        order: loaded.sidebarOrder || DEFAULT_SIDEBAR_SETTINGS.sidebarOrder,
+        visibility: loaded.sidebarVisibility || DEFAULT_SIDEBAR_SETTINGS.sidebarVisibility,
+        compact: loaded.sidebarCompact ?? DEFAULT_SIDEBAR_SETTINGS.sidebarCompact,
+        showLabels: loaded.sidebarShowLabels ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowLabels,
+        showAvatar: loaded.sidebarShowAvatar ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowAvatar,
+        showFavorites: loaded.sidebarShowFavorites ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowFavorites,
+      });
+    };
+
     window.addEventListener('sf_profile_photo_update', syncProfileIdentity);
     window.addEventListener('storage', syncProfileIdentity);
     window.addEventListener('sf_storage_update', syncProfileIdentity);
+    window.addEventListener('storage', syncSidebarSettings);
+    window.addEventListener('sf_storage_update', syncSidebarSettings);
     return () => {
       window.removeEventListener('sf_profile_photo_update', syncProfileIdentity);
       window.removeEventListener('storage', syncProfileIdentity);
       window.removeEventListener('sf_storage_update', syncProfileIdentity);
+      window.removeEventListener('storage', syncSidebarSettings);
+      window.removeEventListener('sf_storage_update', syncSidebarSettings);
     };
   }, []);
+
+  useEffect(() => {
+    const closeAccountMenu = (event) => {
+      if (event.key === 'Escape') setIsAccountMenuOpen(false);
+      if (event.type === 'pointerdown' && !accountMenuRef.current?.contains(event.target)) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeAccountMenu);
+    document.addEventListener('keydown', closeAccountMenu);
+    return () => {
+      document.removeEventListener('pointerdown', closeAccountMenu);
+      document.removeEventListener('keydown', closeAccountMenu);
+    };
+  }, []);
+
+  const goTo = (path) => {
+    setIsAccountMenuOpen(false);
+    setIsMobileOpen(false);
+    navigate(path);
+  };
+
+  const visibleModules = sidebarSettings.order
+    .map((id) => SIDEBAR_MODULES.find((item) => item.id === id))
+    .filter(Boolean)
+    .filter((item) => sidebarSettings.visibility[item.id] !== false);
+
+  const endSession = async () => {
+    setIsAccountMenuOpen(false);
+    await signOut();
+    navigate('/login', { replace: true });
+  };
 
   useEffect(() => {
     const closeOnEscape = (event) => {
@@ -73,14 +133,6 @@ export default function Sidebar() {
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, []);
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Erro ao sair:', error.message);
-    }
-  };
 
   return (
     <>
@@ -99,7 +151,7 @@ export default function Sidebar() {
         onClick={() => setIsMobileOpen(false)}
         aria-label="Fechar menu"
       />
-      <aside className={`sidebar${isMobileOpen ? ' mobile-open' : ''}`}>
+      <aside className={`sidebar${isMobileOpen ? ' mobile-open' : ''}${sidebarSettings.compact ? ' compact' : ''}${sidebarSettings.showLabels ? '' : ' hide-labels'}${sidebarSettings.showAvatar ? '' : ' no-avatar'}`}>
       <div className="sidebar-main">
         <div className="sidebar-logo">
           <picture className="sidebar-logo-picture">
@@ -113,61 +165,58 @@ export default function Sidebar() {
         </div>
 
         <nav onClick={() => setIsMobileOpen(false)}>
-          <NavLink to="/" className={linkClass} title="Dashboard">
-            <Home /> <span>Dashboard</span>
-          </NavLink>
-
-          <NavLink to="/crm" className={linkClass} title="CRM">
-            <Target /> <span>CRM</span>
-          </NavLink>
-
-          <NavLink to="/clientes" className={linkClass} title="Clientes">
-            <Users /> <span>Clientes</span>
-          </NavLink>
-
-          <NavLink to="/projetos" className={linkClass} title="Projetos">
-            <FolderOpen /> <span>Projetos</span>
-          </NavLink>
-
-          <NavLink to="/agenda" className={linkClass} title="Agenda">
-            <CalendarDays /> <span>Agenda</span>
-          </NavLink>
-
-          <NavLink to="/financeiro" className={linkClass} title="Financeiro">
-            <DollarSign /> <span>Financeiro</span>
-          </NavLink>
-
-          <NavLink to="/precificacao" className={linkClass} title="Precificação">
-            <Calculator /> <span>Precificacao</span>
-          </NavLink>
-
-          <NavLink to="/equipamentos" className={linkClass} title="Equipamentos">
-            <Package /> <span>Equipamentos</span>
-          </NavLink>
-
-          <NavLink to="/relatorios" className={linkClass} title="Relatórios">
-            <BarChart3 /> <span>Relatórios</span>
-          </NavLink>
-
-          <NavLink to="/perfil" className={linkClass} title="Perfil">
-            <User /> <span>Perfil</span>
-          </NavLink>
+          {visibleModules.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink key={item.id} to={item.route} className={linkClass} title={item.label}>
+                <Icon /> <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
       </div>
 
-      <div className="sidebar-user">
-        <span className="sidebar-user-avatar" aria-label={profilePhoto ? `Foto de ${profileCompanyName || userName}` : `Iniciais de ${profileCompanyName || userName}`}>
-          {profilePhoto
-            ? <img src={profilePhoto} alt={profileCompanyName || userName} />
-            : <span className="sidebar-user-initials">{initialsFromName(profileCompanyName || userName)}</span>}
-        </span>
-        <div>
-          <strong>{userName}</strong>
-          <span>{user?.email}</span>
-        </div>
-        <button type="button" onClick={handleSignOut} title="Sair">
-          <LogOut />
+      <div className="sidebar-account" ref={accountMenuRef}>
+        <button
+          type="button"
+          className="sidebar-user"
+          onClick={() => setIsAccountMenuOpen((open) => !open)}
+          aria-label="Abrir menu da conta"
+          aria-haspopup="menu"
+          aria-expanded={isAccountMenuOpen}
+        >
+          <span className="sidebar-user-avatar" aria-hidden="true">
+            {accountPhoto
+              ? <img src={accountPhoto} alt="" />
+              : <span className="sidebar-user-initials">{initialsFromName(accountName)}</span>}
+          </span>
+          <span className="sidebar-user-copy">
+            <strong>{accountName}</strong>
+            <small>{user?.email || 'E-mail não informado'}</small>
+          </span>
         </button>
+
+        {isAccountMenuOpen && (
+          <div className="account-menu" role="menu" aria-label="Menu da conta">
+            <div className="account-menu-header">
+              <span className="sidebar-user-avatar" aria-hidden="true">
+                {accountPhoto ? <img src={accountPhoto} alt="" /> : <span className="sidebar-user-initials">{initialsFromName(accountName)}</span>}
+              </span>
+              <span><strong>{accountName}</strong><small>{user?.email || 'E-mail não informado'}</small></span>
+            </div>
+            <div className="account-menu-group">
+              <button type="button" role="menuitem" onClick={() => goTo('/perfil')}><UserRound /><span>Meu Perfil</span></button>
+              <button type="button" role="menuitem" onClick={() => goTo('/configuracoes')}><Settings /><span>Configurações</span></button>
+              <button type="button" role="menuitem" onClick={() => goTo('/perfil?secao=seguranca')}><KeyRound /><span>Segurança / Alterar senha</span></button>
+            </div>
+            <div className="account-menu-group">
+              <button type="button" role="menuitem" onClick={endSession}><LogIn /><span>Trocar de conta</span></button>
+            </div>
+            <div className="account-menu-group account-menu-danger">
+              <button type="button" role="menuitem" onClick={endSession}><LogOut /><span>Sair</span></button>
+            </div>
+          </div>
+        )}
       </div>
       </aside>
     </>

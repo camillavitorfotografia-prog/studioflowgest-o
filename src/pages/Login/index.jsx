@@ -3,6 +3,12 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { AlertTriangle, CalendarDays, Loader2, TrendingUp, WalletCards } from 'lucide-react';
 import Logo from '../../assets/studioflow-logo.png';
 import { useAuth } from '../../contexts/useAuth';
+import {
+  assertNewEmailRegistration,
+  getEmailAuthMessage,
+  resendSignupConfirmation,
+  validateRegistration,
+} from '../../utils/emailAuth';
 
 const benefits = [
   { icon: CalendarDays, title: 'Organize sua agenda', description: 'Controle casamentos, ensaios e eventos em um unico lugar.' },
@@ -35,13 +41,20 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitError, setSubmitError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState(
+    new URLSearchParams(location.search).get('email_confirmed') === 'true'
+      ? 'E-mail confirmado com sucesso. Sua conta está pronta para entrar.'
+      : ''
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('');
+  const [isResending, setIsResending] = useState(false);
 
   const changeMode = (nextMode) => {
     setMode(nextMode);
     setSubmitError('');
     setSuccessMessage('');
+    setPendingConfirmationEmail('');
   };
 
   const handleEmailSubmit = async (event) => {
@@ -54,8 +67,11 @@ export default function Login() {
         await resetPassword(email);
         setSuccessMessage('Enviamos o link de recuperacao para o seu e-mail.');
       } else if (mode === 'register') {
-        const data = await signUp({ email, password });
-        setSuccessMessage(data.session ? 'Cadastro concluido.' : 'Cadastro recebido. Confirme o e-mail para entrar.');
+        const normalizedEmail = validateRegistration({ email, password });
+        const data = await signUp({ email: normalizedEmail, password });
+        assertNewEmailRegistration(data);
+        setPendingConfirmationEmail(normalizedEmail);
+        setSuccessMessage('Cadastro realizado com sucesso. Enviamos um e-mail de confirmação. Confirme seu endereço antes de entrar.');
       } else if (mode === 'update-password') {
         await updatePassword(password);
         setSuccessMessage('Senha atualizada com sucesso.');
@@ -64,9 +80,23 @@ export default function Login() {
         await signInWithEmail({ email, password });
       }
     } catch (error) {
-      setSubmitError(error.message);
+      setSubmitError(getEmailAuthMessage(error, error instanceof Error ? error.message : undefined));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    setSubmitError('');
+    setSuccessMessage('');
+    setIsResending(true);
+    try {
+      await resendSignupConfirmation(pendingConfirmationEmail);
+      setSuccessMessage('E-mail de confirmação reenviado com sucesso. Verifique também a pasta de spam.');
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Erro ao reenviar o e-mail de confirmação.');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -87,7 +117,7 @@ export default function Login() {
     return <div className="sf-login-screen loading"><Loader2 className="sf-login-spinner" size={30} /></div>;
   }
 
-  if (isAuthenticated && mode !== 'update-password') {
+  if (isAuthenticated && mode !== 'update-password' && !pendingConfirmationEmail) {
     return <Navigate to={from} replace />;
   }
 
@@ -145,6 +175,13 @@ export default function Login() {
           <button type="submit" className="sf-login-submit" disabled={isSubmitting || !isSupabaseConfigured}>
             {isSubmitting ? 'Aguarde...' : mode === 'register' ? 'Criar conta' : mode === 'recovery' ? 'Enviar link' : mode === 'update-password' ? 'Salvar nova senha' : 'Entrar'}
           </button>
+
+          {mode === 'register' && pendingConfirmationEmail && (
+            <button type="button" className="sf-login-google" onClick={handleResendConfirmation} disabled={isResending || isSubmitting}>
+              {isResending && <Loader2 size={18} className="sf-login-spinner" />}
+              <span>{isResending ? 'Reenviando...' : 'Reenviar e-mail de confirmação'}</span>
+            </button>
+          )}
 
           {mode === 'login' && (
             <>

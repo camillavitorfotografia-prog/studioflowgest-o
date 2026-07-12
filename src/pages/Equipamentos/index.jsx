@@ -20,6 +20,7 @@ import {
   parseCurrency,
 } from '../../utils/financeEngine';
 import './Equipamentos.css';
+import { loadSettings } from '../../utils/settings';
 
 const emptyEquipment = {
   id: null,
@@ -107,7 +108,12 @@ export default function Equipamentos() {
   };
 
   const openNewEquipment = () => {
-    setFormData(emptyEquipment);
+    const defaults = loadSettings().financial;
+    setFormData({
+      ...emptyEquipment,
+      vidaUtilAnos: defaults.usefulLifeYears,
+      metodoDepreciacao: defaults.depreciationMethod,
+    });
     setIsModalOpen(true);
   };
 
@@ -134,9 +140,9 @@ export default function Equipamentos() {
       id: formData.id || Date.now(),
       valor: valorCompra,
       valorCompra,
-      valorResidual: parseCurrency(formData.valorResidual),
-      vidaUtilAnos: Number(formData.vidaUtilAnos || 5),
-      metodoDepreciacao: 'linear',
+      valorResidual: parseCurrency(formData.valorResidual) || (valorCompra * loadSettings().financial.residualPercent / 100),
+      vidaUtilAnos: Number(formData.vidaUtilAnos || loadSettings().financial.usefulLifeYears),
+      metodoDepreciacao: formData.metodoDepreciacao || loadSettings().financial.depreciationMethod,
       manutencoes: formData.manutencoes || [],
     };
 

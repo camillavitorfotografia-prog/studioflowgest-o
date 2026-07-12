@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertTriangle, BriefcaseBusiness, Calculator, CheckCircle2, ChevronDown, Clock3, DollarSign, Package, Percent, Save, Settings, Sparkles, Video, Wallet } from 'lucide-react';
+import { AlertTriangle, BriefcaseBusiness, Calculator, Check, CheckCircle2, ChevronDown, Clock3, DollarSign, Package, Percent, Plus, Save, Search, Settings, Sparkles, Video, Wallet, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   FINANCE_STORAGE_KEYS,
   buildFinanceSnapshot,
@@ -296,9 +297,16 @@ const deepMerge = (base, saved) => {
 const isVideoService = (service) => service === 'Filmagem' || service === 'Fotografia + Filmagem';
 
 export default function Precificacao() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const leadContext = location.state?.lead;
   const [state, setState] = useState(() => deepMerge(defaultState, JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.pricing) || 'null')));
   const [pricingConfig, setPricingConfig] = useState(() => deepMerge(defaultConfig, JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.pricingConfig) || 'null')));
-  const [data, setData] = useState({ clients: [], transactions: [], equipment: [], balances: {}, config: {} });
+  const [data, setData] = useState({ leads: [], clients: [], transactions: [], equipment: [], balances: {}, config: {} });
+  const [savedOptions, setSavedOptions] = useState(() => JSON.parse(localStorage.getItem('cv_studio_pricing_options') || '[]'));
+  const [proposalFlowOpen, setProposalFlowOpen] = useState(false);
+  const [leadSearch, setLeadSearch] = useState('');
+  const [selectedLeadId, setSelectedLeadId] = useState(() => String(leadContext?.id || ''));
 
   useEffect(() => {
     let active = true;
@@ -307,6 +315,7 @@ export default function Precificacao() {
       const equipment = db.equipment || [];
       if (!active) return;
       setData({
+        leads: db.leads || [],
         clients: db.clients || [],
         transactions: db.transactions || [],
         equipment,
@@ -403,6 +412,31 @@ export default function Precificacao() {
     window.dispatchEvent(new Event('storage'));
   };
 
+  const buildOption = () => ({ id: `option-${Date.now()}`, name: `Opção ${savedOptions.length + 1}`, state: structuredClone(state), result: { ...result }, createdAt: new Date().toISOString() });
+  const saveCurrentOption = () => {
+    const next = [...savedOptions, buildOption()];
+    setSavedOptions(next);
+    localStorage.setItem('cv_studio_pricing_options', JSON.stringify(next));
+    saveAll();
+  };
+  const createAnotherOption = () => {
+    saveCurrentOption();
+    setState((current) => ({ ...current, step: 0, extras: [], filmDeliveries: { ...defaultFilmDeliveries } }));
+  };
+  const continueToProposal = () => {
+    if (!savedOptions.length) saveCurrentOption();
+    setSelectedLeadId((current) => current || String(leadContext?.id || ''));
+    setProposalFlowOpen(true);
+  };
+  const selectedLead = data.leads.find((lead) => String(lead.id) === selectedLeadId) || leadContext;
+  const filteredLeads = data.leads.filter((lead) => String(lead.nome || lead.name || '').toLowerCase().includes(leadSearch.toLowerCase()));
+  const suggestedModel = String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('cas') ? 'proposta-casamento-2026' : String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('form') ? 'proposta-formatura-individual-2026' : 'proposta-casal-2026';
+  const openProposal = () => {
+    if (!selectedLead) return;
+    saveAll();
+    navigate('/propostas/editor', { state: { lead: selectedLead, modelId: suggestedModel, pricingOptions: savedOptions.length ? savedOptions : [buildOption()] } });
+  };
+
   const updateConfig = (path, value) => {
     setPricingConfig((current) => setByPath(current, path, value));
   };
@@ -432,6 +466,7 @@ export default function Precificacao() {
           <Save size={18} /> Salvar regras
         </button>
       </div>
+      {leadContext && <div className="sf-alert" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}><span>Orçamento para <strong>{leadContext.nome}</strong> · {leadContext.tipoServico || 'Serviço não informado'}</span><button type="button" className="sf-secondary-button" onClick={() => navigate('/crm')}>Voltar ao CRM</button></div>}
 
       <div className="sf-pricing-shell">
         <main className="sf-pricing-main">
@@ -450,10 +485,10 @@ export default function Precificacao() {
               result={result}
             />
           )}
-          {state.step === 3 && <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} />}
+          {state.step === 3 && <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />}
           <div className="sf-step-actions">
             <button className="sf-secondary-button" disabled={state.step === 0} onClick={() => setState({ ...state, step: Math.max(0, state.step - 1) })}>Voltar</button>
-            <button className="sf-primary-button" onClick={() => setState({ ...state, step: Math.min(3, state.step + 1) })}>Continuar</button>
+            {state.step < 3 && <button className="sf-primary-button" onClick={() => setState({ ...state, step: state.step + 1 })}>Continuar</button>}
           </div>
         </main>
 
@@ -486,6 +521,16 @@ export default function Precificacao() {
       </div>
 
       <ConfigPanel config={pricingConfig} updateConfig={updateConfig} />
+      {proposalFlowOpen && <div className="sf-proposal-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setProposalFlowOpen(false); }}>
+        <section className="sf-proposal-flow" role="dialog" aria-modal="true" aria-labelledby="proposal-flow-title">
+          <header><div><span>Próxima etapa</span><h2 id="proposal-flow-title">Selecionar lead</h2></div><button type="button" aria-label="Fechar" onClick={() => setProposalFlowOpen(false)}><X /></button></header>
+          {leadContext && <p className="sf-flow-hint"><Check size={16} /> Lead vindo do CRM pré-selecionado. Você pode trocá-lo.</p>}
+          <label className="sf-lead-search"><Search size={17} /><input value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} placeholder="Pesquisar lead pelo nome" autoFocus /></label>
+          <div className="sf-lead-options">{filteredLeads.map((lead) => <button type="button" key={lead.id} className={String(lead.id) === selectedLeadId ? 'active' : ''} onClick={() => setSelectedLeadId(String(lead.id))}><span><strong>{lead.nome || lead.name}</strong><small>{lead.tipoServico || lead.service || 'Serviço não informado'}</small></span>{String(lead.id) === selectedLeadId && <Check />}</button>)}{!filteredLeads.length && <p className="sf-muted">Nenhum lead encontrado.</p>}</div>
+          {selectedLead && <div className="sf-model-suggestion"><span>Modelo sugerido</span><strong>{suggestedModel.includes('casamento') ? 'Casamento 2026' : suggestedModel.includes('formatura') ? 'Formatura individual 2026' : 'Ensaio de casal 2026'}</strong></div>}
+          <footer><button type="button" className="sf-secondary-button" onClick={() => setProposalFlowOpen(false)}>Cancelar</button><button type="button" className="sf-primary-button" disabled={!selectedLead} onClick={openProposal}>Abrir proposta</button></footer>
+        </section>
+      </div>}
     </div>
   );
 }
@@ -832,7 +877,7 @@ function CostStep({ state, setState, config, setConfig, toggleExtra, toggleEquip
   );
 }
 
-function ResultStep({ result, insights, costChart, priceChart, state }) {
+function ResultStep({ result, insights, costChart, priceChart, state, savedOptions, onSaveOption, onCreateAnother, onContinue }) {
   return (
     <section className="sf-finance-section">
       <div className="sf-metric-grid">
@@ -886,6 +931,12 @@ function ResultStep({ result, insights, costChart, priceChart, state }) {
       <div className="sf-card">
         <h3>Leitura inteligente</h3>
         {insights.map((item) => <div className={`sf-insight ${item.tone}`} key={item.text}>{item.tone === 'good' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}<span>{item.text}</span></div>)}
+      </div>
+      <div className="sf-result-actions">
+        <div><strong>{savedOptions.length} opção(ões) salva(s)</strong><span>Monte alternativas de pacote antes de gerar a proposta.</span></div>
+        <button type="button" className="sf-secondary-button" onClick={onSaveOption}><Save size={17} /> Salvar esta opção</button>
+        <button type="button" className="sf-secondary-button" onClick={onCreateAnother}><Plus size={17} /> Criar outra opção</button>
+        <button type="button" className="sf-primary-button" onClick={onContinue}>Continuar para proposta</button>
       </div>
     </section>
   );
@@ -951,7 +1002,10 @@ function Field({ label, children }) {
 }
 
 function Toggle({ label, active, onClick }) {
-  return <button type="button" className={active ? 'sf-toggle-card active' : 'sf-toggle-card'} onClick={onClick}>{label}</button>;
+  const splitAt = label.lastIndexOf(' - ');
+  const name = splitAt > 0 ? label.slice(0, splitAt) : label;
+  const value = splitAt > 0 ? label.slice(splitAt + 3) : '';
+  return <button type="button" aria-pressed={active} className={active ? 'sf-toggle-card active' : 'sf-toggle-card'} onClick={onClick}><span className="sf-toggle-check">{active && <Check size={13} />}</span><span className="sf-toggle-copy"><strong>{name}</strong>{value && <small>{value}</small>}</span></button>;
 }
 
 function CollapsibleCard({ title, children, open, onToggle, icon: Icon = ChevronDown }) {

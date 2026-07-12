@@ -1,0 +1,50 @@
+.settings-page,.settings-layout,.settings-panel{min-width:0}.settings-layout{grid-template-columns:minmax(210px,250px) minmax(0,1fr);align-items:start}.settings-panel{width:100%;min-height:0}.settings-panel-title h2{margin:0 0 6px}.settings-panel-title p{max-width:760px;margin:0;line-height:1.55}.settings-grid,.integration-grid,.role-grid,.settings-model-grid{align-items:stretch}.settings-grid>*{min-width:0}.settings-toggle,.sidebar-preference{justify-content:space-between}.settings-actions button,.settings-model-grid button{min-height:40px}.settings-sidebar-item{overflow:hidden}.module-copy small{white-space:normal;line-height:1.35}.sidebar-order-actions{min-width:max-content}.sidebar-order-actions button,.visibility-switch{min-width:36px;min-height:36px}.settings-model-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.settings-model-grid article{min-height:190px}.integration-grid article,.role-grid article{min-height:150px}.settings-panel table{width:100%;table-layout:auto}.settings-panel img{max-width:100%}
+@media(max-width:1100px){.settings-layout{grid-template-columns:200px minmax(0,1fr)}.settings-panel{padding:22px 18px}.settings-model-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sidebar-config-layout{grid-template-columns:1fr}.sidebar-preview{position:static}}
+@media(max-width:800px){.settings-layout{display:block}.settings-tabs{position:sticky;top:0;z-index:20;width:100%;height:auto;display:flex;flex-direction:row;overflow-x:auto;border-right:1px solid rgba(255,255,255,.06)}.settings-tabs button{flex:0 0 auto}.settings-panel{margin-top:12px}.settings-grid,.sidebar-preference-grid{grid-template-columns:1fr}.settings-sidebar-item{grid-template-columns:40px minmax(0,1fr)}.sidebar-order-actions{grid-column:1/-1;justify-content:flex-end;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)}}
+@media(max-width:540px){.settings-page{width:100%;overflow:hidden}.settings-heading{gap:12px}.settings-heading h1{font-size:1.55rem}.settings-panel{padding:16px 12px}.settings-panel-title{padding-bottom:14px;margin-bottom:16px}.settings-model-grid,.integration-grid,.role-grid{grid-template-columns:1fr}.settings-model-grid article{min-height:170px}.settings-sidebar-item{padding:10px;gap:9px}.sidebar-order-actions{width:100%;justify-content:space-between}.sidebar-order-actions button{width:40px;height:40px}.visibility-switch{margin-left:auto}.settings-actions{display:grid;grid-template-columns:1fr}.settings-actions button{width:100%;justify-content:center}.settings-panel table{display:block;overflow-x:auto}.settings-tabs button span{display:none}}
+
+/* Overrides: standardized controls for Configurações */
+.settings-page .btn{display:inline-flex;align-items:center;gap:10px;border-radius:10px;padding:10px 14px;min-height:40px;font-weight:600;font-size:0.95rem;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text);}
+.settings-page .btn-primary{background:#c9a06c;color:#16120d;border-color:rgba(201,160,108,.12)}
+.settings-page .btn-primary:hover{filter:brightness(1.03)}
+.settings-page .btn-secondary{background:transparent;border:1px solid rgba(255,255,255,.04);color:#e6d2a3}
+.settings-page .btn-secondary:hover{background:rgba(201,160,108,.04)}
+.settings-page .btn-icon{width:36px;height:36px;display:inline-grid;place-items:center;border-radius:8px;border:1px solid transparent}
+.settings-page .btn-icon:hover{background:rgba(255,255,255,.02)}
+.settings-page .btn-danger{background:#16120d;color:#ff8a8a;border:1px solid rgba(255,90,90,.12)}
+
+/* Integrations: compact card list and actions alignment */
+.integration-grid{gap:10px}
+.integration-grid article{display:flex;flex-direction:row;align-items:center;justify-content:space-between;padding:14px;background:#0b0c0c;border:1px solid rgba(255,255,255,.04);border-radius:9px}
+.integration-grid article > div{flex:1;padding:0 12px}
+.integration-grid article .status{margin-right:12px}
+.integration-grid article button{min-width:120px}
+@media(max-width:767px){.integration-grid article{flex-direction:column;align-items:stretch}.integration-grid article > div{padding:8px 0}.integration-grid article button{width:100%}}
+
+/* Sidebar preferences: compact grid and switches */
+.sidebar-preference{min-height:60px;padding:12px;grid-template-columns:40px 1fr;align-items:center}
+.sidebar-preference strong{font-size:0.95rem}
+.sidebar-preference small{color:#888}
+.sf-switch{width:44px;height:24px}
+
+/* Sidebar items: ensure actions spacing and min sizes */
+.settings-sidebar-item{padding:10px;gap:12px;border-radius:10px}
+.sidebar-order-actions button{min-width:36px;min-height:36px;padding:8px;display:inline-grid;place-items:center}
+.visibility-switch{min-width:44px}
+
+/* Data & Backup cards: clearer card layout */
+.settings-actions .btn{margin-right:8px}
+.danger-zone{padding:14px;border-radius:10px}
+
+/* Team list compact */
+.role-grid article{padding:12px;display:flex;flex-direction:row;gap:12px;align-items:center}
+.role-grid article button{min-width:110px}
+
+/* Model cards: remove white buttons and standardize */
+.settings-model-grid button{all:unset;display:inline-flex;align-items:center;justify-content:center;padding:10px;border-radius:8px;background:transparent;border:1px solid rgba(201,160,108,.12);color:#e1c18c;min-height:40px}
+.settings-model-grid button:hover{background:rgba(201,160,108,.06)}
+
+/* Prevent default checkbox appearance */
+input[type="checkbox"]{appearance:none;-webkit-appearance:none}
+input[type="checkbox"]:focus{outline:none}
+

@@ -1,228 +1,80 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
-import { format, getDay, parse, startOfWeek } from 'date-fns';
+import { addMonths, format, getDay, parse, startOfWeek, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
+import { CalendarPlus, ChevronLeft, ChevronRight, Copy, ExternalLink, Pencil, Trash2, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
+import { loadSettings } from '../../utils/settings';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { CalendarDays, CheckSquare, ChevronLeft, ChevronRight, DollarSign, Loader2, MapPin, Package, Phone, Save, Users } from 'lucide-react';
-import { formatMoney } from '../../utils/integratedData';
-import { getDbStudioData, subscribeDbUpdates, updateProjectSchedule } from '../../utils/dbData';
+import './Agenda.css';
 
-const locales = { 'pt-BR': ptBR };
-const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
+const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales: { 'pt-BR': ptBR } });
+const categories = ['Trabalho', 'Casamento', 'Ensaio', 'Reunião', 'Entrega', 'Follow-up', 'Pessoal', 'Congresso', 'Viagem', 'Compromisso', 'Outro'];
+const categoryColors = { Trabalho:'#c9a06c',Casamento:'#d39b8c',Ensaio:'#9d8fd0',Reunião:'#70a5b8',Entrega:'#72ad83','Follow-up':'#d0a25b',Pessoal:'#aa88b5',Congresso:'#5da2a6',Viagem:'#6590c6',Compromisso:'#be7f75',Outro:'#888' };
+const emptyEvent = { title:'',category:'Pessoal',startDate:'',startTime:'',endDate:'',endTime:'',allDay:true,location:'',description:'',color:'#aa88b5',reminder:'',recurrence:'none',notes:'' };
 
-const formats = {
-  weekdayFormat: (date) => ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB'][date.getDay()],
+const parseDate = (value, time = '00:00') => {
+  if (!value) return null;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)?.slice(1).reverse().join('-');
+  if (!iso) return null;
+  const [year, month, day] = iso.split('-').map(Number);
+  const [hour, minute] = String(time || '00:00').split(':').map(Number);
+  const date = new Date(year, month - 1, day, hour || 0, minute || 0);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const eventColor = { bg: 'rgba(201, 160, 108, 0.14)', text: '#D9B47C', dot: '#C9A06C', border: 'rgba(201, 160, 108, 0.35)' };
-
-const toCalendarDate = (project, fallbackHour = 14) => {
-  if (!project || !project.data) return new Date();
-  try {
-    const parts = project.data.split('-');
-    if (parts.length !== 3) return new Date();
-    const [year, month, day] = parts.map(Number);
-    const hour = Number(project.horario?.slice(0, 2) || fallbackHour);
-    return new Date(year, month - 1, day, hour, 0);
-  } catch {
-    return new Date();
-  }
+const normalizeManual = (item) => {
+  if (item.sourceType && item.sourceType !== 'manual') return null;
+  if (item.isProjectIntegration || item.projectId && !item.isManual) return null;
+  const start = parseDate(item.startDate || item.date || String(item.start || '').slice(0,10), item.startTime || item.time);
+  if (!start) return null;
+  const end = parseDate(item.endDate || item.startDate || item.date || String(item.end || '').slice(0,10), item.endTime || item.startTime || item.time) || new Date(start.getTime() + 3600000);
+  return { ...emptyEvent, ...item, id:item.id || createId('manual-event'), title:item.title || 'Evento', startDate:format(start,'yyyy-MM-dd'), endDate:format(end,'yyyy-MM-dd'), sourceType:'manual', origem:'manual', isManual:true };
 };
 
 export default function Agenda() {
-  const [studio, setStudio] = useState({ projects: [] });
-  const [dataAtual, setDataAtual] = useState(new Date());
-  const [viewAtual, setViewAtual] = useState('month');
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [scheduleError, setScheduleError] = useState('');
+  const navigate = useNavigate();
+  const notificationSettings = loadSettings().notifications;
+  const [studio,setStudio]=useState({projects:[]});
+  const [manualEvents,setManualEvents]=useState(()=>readStorage(STORAGE_KEYS.agendaEvents,[]).map(normalizeManual).filter(Boolean));
+  const [date,setDate]=useState(new Date());
+  const [view,setView]=useState('month');
+  const [selected,setSelected]=useState(null);
+  const [editing,setEditing]=useState(null);
+  const [message,setMessage]=useState('');
 
-  const load = async () => {
-    const data = await getDbStudioData();
-    setStudio(data);
-    setSelectedProject((current) => (
-      current ? (data.projects || []).find((project) => project.id === current.id) || null : null
-    ));
-  };
+  useEffect(()=>{ let active=true; const load=async()=>{const data=await getDbStudioData();if(active)setStudio(data)}; void load(); window.addEventListener('focus',load); const unsubscribe=subscribeDbUpdates(load); return()=>{active=false;window.removeEventListener('focus',load);unsubscribe()};},[]);
+  useEffect(()=>{const sync=(event)=>{if(event?.detail?.key&&event.detail.key!==STORAGE_KEYS.agendaEvents)return;setManualEvents(readStorage(STORAGE_KEYS.agendaEvents,[]).map(normalizeManual).filter(Boolean))};window.addEventListener('sf_storage_update',sync);window.addEventListener('storage',sync);return()=>{window.removeEventListener('sf_storage_update',sync);window.removeEventListener('storage',sync)}},[]);
 
-  useEffect(() => {
-    setTimeout(() => { void load(); }, 0);
-    window.addEventListener('focus', load);
-    const unsubscribe = subscribeDbUpdates(load);
-    return () => {
-      window.removeEventListener('focus', load);
-      unsubscribe();
-    };
-  }, []);
+  const automaticEvents=useMemo(()=>{
+    const unique=new Map();
+    (studio.projects||[]).forEach((project)=>{const start=parseDate(project.data||project.data_trabalho||project.dataTrabalho,project.horario);if(!start)return;const sourceId=String(project.id||project.projectId||project.clienteId);if(!sourceId)return;const end=new Date(start.getTime()+(project.duracaoHoras||2)*3600000);const service=project.tipoServico||project.tipo_servico||project.tipoTrabalho||'Trabalho';const client=project.clienteNome||project.cliente?.nome||'Cliente';unique.set(`project-${sourceId}`,{id:`project-${sourceId}`,title:`${service} — ${client}`,client,category:service,start,end,allDay:!project.horario,location:project.local||project.cliente?.cidade||'',description:project.observacoes||'',status:project.status,sourceType:'trabalho',origem:'trabalho',sourceId,projectId:project.id,clientId:project.clienteId||project.clientId,project,isManual:false,color:categoryColors[service]||categoryColors.Trabalho});});
+    return [...unique.values()];
+  },[studio.projects]);
+  const manualCalendarEvents=useMemo(()=>manualEvents.map((event)=>{const start=parseDate(event.startDate,event.allDay?'00:00':event.startTime);let end=parseDate(event.endDate||event.startDate,event.allDay?'23:59':event.endTime||event.startTime);if(end<=start)end=new Date(start.getTime()+3600000);return{...event,start,end,allDay:event.allDay,color:event.color||categoryColors[event.category]||categoryColors.Outro}}),[manualEvents]);
+  const events=useMemo(()=>[...automaticEvents,...manualCalendarEvents],[automaticEvents,manualCalendarEvents]);
+  const upcoming=useMemo(()=>events.filter((event)=>event.end>=new Date()).sort((a,b)=>a.start-b.start).slice(0,12),[events]);
+  const internalAlerts=useMemo(()=>notificationSettings.events?upcoming.filter((event)=>event.start-new Date()<=notificationSettings.eventLeadHours*3600000&&event.start>=new Date()):[],[notificationSettings.eventLeadHours,notificationSettings.events,upcoming]);
+  const persistManual=(next)=>{setManualEvents(next);writeStorage(STORAGE_KEYS.agendaEvents,next)};
+  const saveManual=(draft)=>{const record={...draft,id:draft.id||createId('manual-event'),sourceType:'manual',origem:'manual',isManual:true,updatedAt:new Date().toISOString(),createdAt:draft.createdAt||new Date().toISOString()};persistManual(draft.id?manualEvents.map((item)=>item.id===draft.id?record:item):[record,...manualEvents]);setEditing(null);setSelected(null);setMessage(draft.id?'Evento atualizado.':'Evento criado com sucesso.');};
+  const removeManual=(event)=>{if(!window.confirm(`Excluir o evento “${event.title}”?`))return;persistManual(manualEvents.filter((item)=>item.id!==event.id));setSelected(null);setMessage('Evento excluído.');};
+  const duplicateManual=(event)=>{const copy={...event,id:createId('manual-event'),title:`${event.title} (cópia)`,createdAt:new Date().toISOString()};delete copy.start;delete copy.end;persistManual([copy,...manualEvents]);setSelected(null);setMessage('Evento duplicado.');};
+  const openNew=(slot)=>setEditing({...emptyEvent,startDate:slot?.start?format(slot.start,'yyyy-MM-dd'):format(date,'yyyy-MM-dd'),endDate:slot?.start?format(slot.start,'yyyy-MM-dd'):format(date,'yyyy-MM-dd'),reminder:String(notificationSettings.eventLeadHours||24)});
+  const calendarView=view==='list'?'month':view;
 
-  const events = useMemo(() => {
-    return (studio.projects || []).filter((project) => (
-      project.data && project.horario && project.local
-    )).map((project) => {
-      const start = toCalendarDate(project);
-      const end = new Date(start);
-      end.setHours(start.getHours() + 2);
-      return {
-        id: project.id,
-        title: project.tipoServico,
-        client: project.clienteNome,
-        start,
-        end,
-        project,
-      };
-    });
-  }, [studio.projects]);
-
-  const saveSchedule = async (project, schedule) => {
-    setScheduleError('');
-    try {
-      await updateProjectSchedule({ projectId: project.id, ...schedule });
-      await load();
-    } catch (error) {
-      console.error('Erro ao atualizar agenda:', error.message);
-      setScheduleError('Nao foi possivel atualizar data, horario e local.');
-    }
-  };
-
-  // Memoização estruturada para evitar re-filtros em renders repetitivos
-  const weekEvents = useMemo(() => {
-    const now = new Date();
-    const weekLimit = new Date();
-    weekLimit.setDate(weekLimit.getDate() + 7);
-    
-    return events
-      .filter((event) => event.start >= now && event.start <= weekLimit)
-      .sort((a, b) => a.start.getTime() - b.start.getTime());
-  }, [events]);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', gap: '24px' }}>
-      <div className="agenda-topo" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <h1 style={{ color: 'var(--text-main)', fontSize: '1.8rem', fontWeight: '600' }}>Agenda</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Projetos, events e entregas conectados automaticamente.</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-            {['month', 'week', 'day'].map((view) => (
-              <button key={view} onClick={() => setViewAtual(view)} style={{ padding: '8px 16px', border: 'none', background: viewAtual === view ? 'rgba(255,255,255,0.05)' : 'transparent', color: viewAtual === view ? 'var(--color-highlight)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500' }}>
-                {view === 'month' ? 'Mes' : view === 'week' ? 'Semana' : 'Dia'}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setDataAtual(new Date())} className="sf-secondary-button">Hoje</button>
-          <button onClick={() => setDataAtual(new Date(dataAtual.getFullYear(), dataAtual.getMonth() - 1, 1))} className="sf-secondary-button"><ChevronLeft size={16} /></button>
-          <button onClick={() => setDataAtual(new Date(dataAtual.getFullYear(), dataAtual.getMonth() + 1, 1))} className="sf-secondary-button"><ChevronRight size={16} /></button>
-        </div>
-      </div>
-
-      <div className="agenda-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(300px, 360px)', gap: '24px', alignItems: 'start' }}>
-        <div className="glass calendar-wrapper" style={{ height: '680px', padding: '16px', borderRadius: 'var(--radius-md)', minWidth: 0 }}>
-          <Calendar
-            localizer={localizer}
-            events={events}
-            date={dataAtual}
-            view={viewAtual}
-            onNavigate={setDataAtual}
-            onView={setViewAtual}
-            startAccessor="start"
-            endAccessor="end"
-            formats={formats}
-            style={{ height: '100%', width: '100%' }}
-            components={{ event: EventCard }}
-            onSelectEvent={(event) => setSelectedProject(event.project)}
-          />
-        </div>
-
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
-          {scheduleError && <div className="sf-alert">{scheduleError}</div>}
-          {selectedProject ? <ProjectPanel key={`${selectedProject.id}-${selectedProject.data}-${selectedProject.horario}-${selectedProject.local}`} project={selectedProject} onSave={saveSchedule} /> : (
-            <div className="sf-card">
-              <h3>Eventos da semana</h3>
-              {weekEvents.length === 0 && <p className="sf-muted">Nenhum projeto nos proximos 7 dias.</p>}
-              {weekEvents.map((event) => (
-                <button key={event.id} onClick={() => setSelectedProject(event.project)} className="sf-account" style={{ width: '100%', marginBottom: '8px' }}>
-                  <strong>{event.client}</strong>
-                  <span>{format(event.start, 'dd/MM/yyyy')} - {event.title}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </aside>
-      </div>
-
-      <style>{`
-        @media (max-width: 1150px) { .agenda-layout { grid-template-columns: 1fr !important; } }
-        @media (max-width: 768px) { .calendar-wrapper { height: 540px !important; } }
-      `}</style>
-    </div>
-  );
+  return <section className="agenda-page">
+    <header className="agenda-header"><div><span>Agenda integrada</span><h1>{format(date,"MMMM 'de' yyyy",{locale:ptBR})}</h1><p>Trabalhos e compromissos em uma única linha do tempo.</p></div><button className="agenda-primary" onClick={()=>openNew()}><CalendarPlus/>Novo evento</button></header>
+    {message&&<div className="agenda-message" role="status">{message}</div>}{internalAlerts.length>0&&<div className="agenda-alert">{internalAlerts.length} evento(s) dentro da antecedência configurada.</div>}
+    <div className="agenda-controls"><div>{['month','week','day','list'].map((item)=><button key={item} className={view===item?'active':''} onClick={()=>setView(item)}>{item==='month'?'Mês':item==='week'?'Semana':item==='day'?'Dia':'Lista'}</button>)}</div><div><button onClick={()=>setDate(subMonths(date,1))} aria-label="Mês anterior"><ChevronLeft/></button><button onClick={()=>setDate(new Date())}>Hoje</button><button onClick={()=>setDate(addMonths(date,1))} aria-label="Próximo mês"><ChevronRight/></button></div></div>
+    {view==='list'?<EventList events={upcoming} onSelect={setSelected}/>:<div className="agenda-calendar"><Calendar localizer={localizer} culture="pt-BR" events={events} date={date} view={calendarView} onNavigate={setDate} onView={setView} startAccessor="start" endAccessor="end" selectable onSelectSlot={openNew} onSelectEvent={setSelected} components={{event:EventCard}} formats={{weekdayFormat:(value)=>format(value,'EEE',{locale:ptBR}).toUpperCase()}} eventPropGetter={(event)=>({style:{backgroundColor:`${event.color}22`,borderColor:event.color,color:event.color}})} /></div>}
+    {selected&&<EventDetails event={selected} onClose={()=>setSelected(null)} onEdit={()=>setEditing({...selected,startDate:selected.startDate||format(selected.start,'yyyy-MM-dd'),endDate:selected.endDate||format(selected.end,'yyyy-MM-dd')})} onDelete={()=>removeManual(selected)} onDuplicate={()=>duplicateManual(selected)} onNavigate={navigate}/>} 
+    {editing&&<EventForm initial={editing} onClose={()=>setEditing(null)} onSave={saveManual}/>} 
+  </section>;
 }
 
-function EventCard({ event }) {
-  return (
-    <div style={{ backgroundColor: eventColor.bg, border: `1px solid ${eventColor.border}`, borderRadius: '6px', padding: '4px 8px', height: '100%', width: '100%', boxSizing: 'border-box', cursor: 'pointer', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: eventColor.text, fontSize: '0.8rem', fontWeight: '600', width: '100%' }}>
-        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: eventColor.dot, flexShrink: 0 }} />
-        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{event.client}</span>
-      </div>
-      <div style={{ color: eventColor.text, opacity: 0.82, fontSize: '0.72rem', marginTop: '2px', textAlign: 'center' }}>{event.title}</div>
-    </div>
-  );
-}
-
-function ProjectPanel({ project, onSave }) {
-  const [schedule, setSchedule] = useState({
-    data: project.data || '',
-    horario: project.horario || '',
-    local: project.local || '',
-  });
-  const [saving, setSaving] = useState(false);
-
-  const submit = async (event) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      await onSave(project, schedule);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div className="sf-card">
-        <div className="metric-label"><CalendarDays size={18} /> Projeto</div>
-        <strong>{project.clienteNome}</strong>
-        <p className="sf-muted">{project.tipoServico} - {project.data || 'Sem data'}</p>
-      </div>
-      <Info icon={Phone} label="Cliente" value={`${project.cliente?.telefone || project.cliente?.whatsapp || '-'} | ${project.cliente?.instagram || project.cliente?.cidade || '-'}`} />
-      <Info icon={MapPin} label="Local" value={project.local || 'Local nao informado'} />
-      <Info icon={DollarSign} label="Financeiro" value={`${formatMoney(project.valorRecebido)} recebidos de ${formatMoney(project.valorContratado)} | Saldo ${formatMoney(project.saldoRestante)}`} />
-      <Info icon={CheckSquare} label="Checklist" value={`${(project.checklist || []).filter((item) => item.done).length}/${(project.checklist || []).length} tarefas concluidas`} />
-      <Info icon={Users} label="Equipe" value={(project.equipe || []).join(', ') || 'Equipe nao definida'} />
-      <Info icon={Package} label="Equipamentos" value={project.equipamentosDetalhados?.map((item) => item.nome).join(', ') || 'Nenhum equipamento vinculado'} />
-      <form className="sf-card" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <h3 style={{ margin: 0 }}>Editar agenda</h3>
-        <label className="metric-label">Data<input required type="date" value={schedule.data} onChange={(event) => setSchedule((current) => ({ ...current, data: event.target.value }))} /></label>
-        <label className="metric-label">Horario<input required type="time" value={schedule.horario} onChange={(event) => setSchedule((current) => ({ ...current, horario: event.target.value }))} /></label>
-        <label className="metric-label">Local<input required value={schedule.local} onChange={(event) => setSchedule((current) => ({ ...current, local: event.target.value }))} /></label>
-        <button type="submit" className="sf-primary-button" disabled={saving}>
-          {saving ? <Loader2 size={15} /> : <Save size={15} />} Salvar na agenda
-        </button>
-      </form>
-      <div className="sf-card">
-        <h3>Observacoes</h3>
-        <p className="sf-muted">{project.observacoes || 'Sem observacoes.'}</p>
-      </div>
-    </div>
-  );
-}
-
-function Info({ icon: Icon, label, value }) {
-  return (
-    <div className="sf-card">
-      <div className="metric-label"><Icon size={17} /> {label}</div>
-      <p style={{ color: 'var(--text-main)', marginTop: '8px', lineHeight: 1.5 }}>{value}</p>
-    </div>
-  );
-}
+function EventCard({event}){return <div className="agenda-event"><strong>{event.title}</strong>{!event.allDay&&<span>{format(event.start,'HH:mm')}</span>}</div>}
+function EventList({events,onSelect}){return <div className="agenda-list">{events.map((event)=><button key={event.id} onClick={()=>onSelect(event)}><span className="agenda-dot" style={{background:event.color}}/><div><strong>{event.title}</strong><span>{format(event.start,"dd/MM/yyyy 'às' HH:mm")} · {event.location||'Sem local'}</span></div></button>)}{!events.length&&<p>Nenhum próximo evento.</p>}</div>}
+function EventDetails({event,onClose,onEdit,onDelete,onDuplicate,onNavigate}){return <div className="agenda-overlay" onMouseDown={(e)=>e.target===e.currentTarget&&onClose()}><article className="agenda-modal"><header><div><span>{event.sourceType==='manual'?'Evento manual':'Evento automático'}</span><h2>{event.title}</h2></div><button onClick={onClose} aria-label="Fechar"><X/></button></header><dl><div><dt>Data</dt><dd>{format(event.start,'dd/MM/yyyy',{locale:ptBR})}{!event.allDay&&` · ${format(event.start,'HH:mm')}–${format(event.end,'HH:mm')}`}</dd></div><div><dt>Categoria</dt><dd>{event.category}</dd></div><div><dt>Local</dt><dd>{event.location||'Não informado'}</dd></div><div><dt>Origem</dt><dd>{event.sourceType}</dd></div>{event.status&&<div><dt>Status</dt><dd>{event.status}</dd></div>}</dl>{event.description&&<p>{event.description}</p>}{!event.isManual&&<div className="agenda-source-note">Este evento foi criado automaticamente a partir de um trabalho.</div>}<footer>{event.isManual?<><button onClick={onEdit}><Pencil/>Editar</button><button onClick={onDuplicate}><Copy/>Duplicar</button><button className="danger" onClick={onDelete}><Trash2/>Excluir</button></>:<><button onClick={()=>onNavigate('/projetos')}><ExternalLink/>Abrir trabalho</button>{event.clientId&&<button onClick={()=>onNavigate('/clientes')}><ExternalLink/>Abrir cliente</button>}</>}</footer></article></div>}
+function EventForm({initial,onClose,onSave}){const[draft,setDraft]=useState(initial);const update=(key,value)=>setDraft((current)=>({...current,[key]:value}));const submit=(e)=>{e.preventDefault();onSave({...draft,endDate:draft.endDate||draft.startDate,color:draft.color||categoryColors[draft.category]})};return <div className="agenda-overlay"><form className="agenda-modal agenda-form" onSubmit={submit}><header><h2>{draft.id?'Editar evento':'Novo evento'}</h2><button type="button" onClick={onClose} aria-label="Fechar"><X/></button></header><label>Título<input required value={draft.title} onChange={(e)=>update('title',e.target.value)}/></label><div className="agenda-form-grid"><label>Categoria<select value={draft.category} onChange={(e)=>{update('category',e.target.value);update('color',categoryColors[e.target.value])}}>{categories.map((item)=><option key={item}>{item}</option>)}</select></label><label>Cor<input type="color" value={draft.color} onChange={(e)=>update('color',e.target.value)}/></label><label>Data inicial<input required type="date" value={draft.startDate} onChange={(e)=>update('startDate',e.target.value)}/></label><label>Hora inicial<input type="time" disabled={draft.allDay} value={draft.startTime} onChange={(e)=>update('startTime',e.target.value)}/></label><label>Data final<input type="date" min={draft.startDate} value={draft.endDate} onChange={(e)=>update('endDate',e.target.value)}/></label><label>Hora final<input type="time" disabled={draft.allDay} value={draft.endTime} onChange={(e)=>update('endTime',e.target.value)}/></label><label>Lembrete (horas)<input type="number" min="0" value={draft.reminder} onChange={(e)=>update('reminder',e.target.value)}/></label><label>Recorrência<select value={draft.recurrence} onChange={(e)=>update('recurrence',e.target.value)}><option value="none">Não repetir</option><option value="weekly">Semanal</option><option value="monthly">Mensal</option></select></label></div><label className="agenda-check"><input type="checkbox" checked={draft.allDay} onChange={(e)=>update('allDay',e.target.checked)}/>Evento de dia inteiro</label><label>Local<input value={draft.location} onChange={(e)=>update('location',e.target.value)}/></label><label>Descrição<textarea rows="3" value={draft.description} onChange={(e)=>update('description',e.target.value)}/></label><label>Observações<textarea rows="2" value={draft.notes} onChange={(e)=>update('notes',e.target.value)}/></label><footer><button type="button" onClick={onClose}>Cancelar</button><button className="agenda-primary" type="submit">Salvar evento</button></footer></form></div>}

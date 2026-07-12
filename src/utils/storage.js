@@ -11,6 +11,8 @@
   financeBalances: 'cv_finance_saldos',
   agendaEvents: 'meusEventosAgenda',
   equipment: 'cv_studio_equipamentos',
+  documents: 'cv_studio_documents',
+  settings: 'cv_studio_settings_v1',
 };
 
 export const safeJsonParse = (value, fallback) => {

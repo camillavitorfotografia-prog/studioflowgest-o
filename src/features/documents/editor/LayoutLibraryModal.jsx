@@ -1,0 +1,7 @@
+import { Copy, FileImage, LayoutTemplate, X } from 'lucide-react';
+import { PROPOSAL_PAGE_LAYOUTS } from './proposalLayoutLibrary';
+
+export default function LayoutLibraryModal({ open, onClose, onChoose, onImport, canDuplicate }) {
+  if (!open) return null;
+  return <div className="layout-library-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="layout-library" role="dialog" aria-modal="true" aria-labelledby="layout-title"><header><div><span>Biblioteca de layouts</span><h2 id="layout-title">Adicionar página</h2><p>Escolha uma composição A4. Todos os elementos poderão ser editados depois.</p></div><button type="button" aria-label="Fechar" onClick={onClose}><X /></button></header><div className="layout-grid">{PROPOSAL_PAGE_LAYOUTS.map((layout) => layout.id === 'import-jpeg' ? <label key={layout.id} className="layout-card"><FileImage /><strong>{layout.name}</strong><small>JPG, PNG ou WebP como fundo A4</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => onImport(event.target.files?.[0])} /></label> : <button type="button" key={layout.id} className="layout-card" disabled={layout.id === 'duplicate' && !canDuplicate} onClick={() => onChoose(layout.id)}>{layout.id === 'duplicate' ? <Copy /> : <LayoutTemplate />}<strong>{layout.name}</strong><small>{layout.id === 'duplicate' ? 'Copia a página selecionada' : 'Composição A4 editável'}</small></button>)}</div></section></div>;
+}

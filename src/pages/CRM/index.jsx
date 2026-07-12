@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { MessageCircle, Plus, UserRoundCheck, Loader2 } from 'lucide-react';
+import { Calculator, MessageCircle, Plus, UserRoundCheck, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import CRMStats from './CRMStats';
 import KanbanBoard from './KanbanBoard';
 import Modal from '../../components/Modal';
@@ -56,6 +57,7 @@ const saveLeadLocal = ({ id, payload }) => {
 };
 
 export default function CRM() {
+  const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
@@ -322,6 +324,10 @@ export default function CRM() {
             </div>
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => navigate('/precificacao', { state: { lead: { id: selectedLead.id, nome: selectedLead.nome, telefone: selectedLead.telefone, email: selectedLead.email, tipoServico: selectedLead.tipoServico }, returnTo: '/crm' } })}
+                style={{ background: '#c9a06c', color: '#17120c', border: 'none', padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}
+              ><Calculator size={16} /> Criar orçamento</button>
               <button
                 onClick={() => {
                   setEditingLead(selectedLead);

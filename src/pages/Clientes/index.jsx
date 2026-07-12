@@ -19,6 +19,10 @@ import {
   syncProjectDistributionLedger,
 } from '../../utils/financeEngine';
 import './Clientes.css';
+import { CONTRACT_MODELS, suggestContractModel } from '../../data/contractModels';
+import ContractWizard from '../../components/ContractWizard';
+import { loadSettings } from '../../utils/settings';
+import { saveDocument } from '../../features/documents/storage/documentStorageAdapter';
 
 const emptyForm = {
   id: null,
@@ -240,6 +244,9 @@ export default function Clientes() {
   const [syncStatus, setSyncStatus] = useState('saved');
   const [financeConfig, setFinanceConfig] = useState({ salario: 35, empresa: 45, reserva: 20 });
   const [withdrawalDraft, setWithdrawalDraft] = useState(emptyWithdrawal);
+  const [contractClient, setContractClient] = useState(null);
+  const [selectedContractModel, setSelectedContractModel] = useState('');
+  const [contractWizardClient, setContractWizardClient] = useState(null);
 
   const load = async () => {
     setSyncStatus('saving');
@@ -658,6 +665,18 @@ export default function Clientes() {
                   >
                     <Pencil size={14} /> Editar
                   </button>
+                  {(String(client.status || '').toLowerCase().includes('aprov') || client.projectId || client.tipoTrabalho) && (
+                    <button
+                      type="button"
+                      className="sf-secondary-button"
+                      style={{ padding: '8px 10px', marginLeft: '6px' }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setContractClient(client);
+                        setSelectedContractModel(suggestContractModel(client.tipoTrabalho).id);
+                      }}
+                    >Gerar contrato</button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -838,6 +857,20 @@ export default function Clientes() {
           </div>
         </form>
       </Modal>
+
+      <Modal isOpen={Boolean(contractClient)} onClose={() => setContractClient(null)} title="Selecionar modelo de contrato">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <p className="sf-muted">Modelo sugerido conforme o trabalho de {contractClient?.nome}. A geração será concluída na próxima etapa.</p>
+          {CONTRACT_MODELS.map((model) => (
+            <label key={model.id} className="sf-card" style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input type="radio" name="contract-model" value={model.id} checked={selectedContractModel === model.id} onChange={() => setSelectedContractModel(model.id)} />
+              <span><strong>{model.name}</strong><small style={{ display: 'block', color: '#777' }}>Versão {model.version} · {model.pages} páginas</small></span>
+            </label>
+          ))}
+          <button type="button" className="sf-primary-button" disabled={!selectedContractModel} onClick={() => { setContractWizardClient(contractClient); setContractClient(null); }}>Continuar</button>
+        </div>
+      </Modal>
+      {contractWizardClient && <ContractWizard initialModelId={selectedContractModel} client={contractWizardClient} project={(studio.projects || []).find((project) => String(project.id) === String(contractWizardClient.projectId))} proposal={{ id: contractWizardClient.proposalId || null, clientId: contractWizardClient.id, clientName: contractWizardClient.nome, service: contractWizardClient.tipoTrabalho, total: contractWizardClient.valorTotal }} studio={loadSettings().studio} onClose={() => setContractWizardClient(null)} onSave={async ({ model, data, generated }) => { const record = await saveDocument({ documentType: 'contract', templateId: model.id, templateVersion: model.version, status: 'generated', clientId: contractWizardClient.id, projectId: contractWizardClient.projectId || null, proposalId: contractWizardClient.proposalId || null, variableFields: data, originalPdfReference: model.sourceUrl, originalHashSnapshot: generated.originalHashSnapshot, metadata: { pdfFileName: generated.fileName }, history: [{ status: 'generated', at: new Date().toISOString() }] }); setContractWizardClient(null); return record; }} />}
     </div>
   );
 }
