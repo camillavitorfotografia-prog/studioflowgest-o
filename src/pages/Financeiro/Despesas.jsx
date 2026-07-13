@@ -5,6 +5,7 @@ import {
   Edit2,
   PackagePlus,
   Plus,
+  Search,
   Tag,
   Trash2,
   Undo2,
@@ -75,6 +76,10 @@ export default function Despesas({ area = 'fixa' }) {
   const [editingId, setEditingId] = useState(null);
   const [studio, setStudio] = useState({ projects: [], clients: [] });
   const [formData, setFormData] = useState({ ...emptyForm, tipo: area, projectId: '' });
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [periodFilter, setPeriodFilter] = useState('todos');
 
   const loadLocalData = () => {
     const rawTransactions = readStorage(STORAGE_KEYS.finances, []);
@@ -171,6 +176,74 @@ export default function Despesas({ area = 'fixa' }) {
       }));
   }, [area, transacoes]);
 
+  const filteredDespesas = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentYear = new Date().toISOString().slice(0, 4);
+
+    return despesas
+      .filter((item) => {
+        if (
+          statusFilter
+          && item.statusDerivado !== statusFilter
+        ) {
+          return false;
+        }
+
+        if (
+          categoryFilter
+          && item.categoria !== categoryFilter
+        ) {
+          return false;
+        }
+
+        const date = item.vencimento || '';
+
+        if (
+          periodFilter === 'mes'
+          && date.slice(0, 7) !== currentMonth
+        ) {
+          return false;
+        }
+
+        if (
+          periodFilter === 'ano'
+          && date.slice(0, 4) !== currentYear
+        ) {
+          return false;
+        }
+
+        if (
+          normalizedSearch
+          && ![
+            item.descricao,
+            item.categoria,
+            item.fornecedor,
+            item.formaPagamento,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(normalizedSearch)
+        ) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((first, second) => (
+        String(second.vencimento || '').localeCompare(
+          String(first.vencimento || ''),
+        )
+      ));
+  }, [
+    categoryFilter,
+    despesas,
+    periodFilter,
+    search,
+    statusFilter,
+  ]);
+
   const vencimentos = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const alertLimit = new Date();
@@ -250,8 +323,40 @@ export default function Despesas({ area = 'fixa' }) {
   };
 
   const maybeCreateEquipment = (expense) => {
-    if (expense.tipo !== 'variavel' || expense.categoria !== 'Equipamentos') return;
-    // Deixa a estrutura preparada, mas não cria o equipamento ou calcula a depreciação ainda, conforme solicitado.
+    if (
+      expense.tipo !== 'variavel'
+      || expense.categoria !== 'Equipamentos'
+    ) {
+      return;
+    }
+
+    const equipment = readStorage(STORAGE_KEYS.equipment, []);
+    const alreadyExists = equipment.some((item) => (
+      String(item.financeExpenseId || '') === String(expense.id)
+    ));
+
+    if (alreadyExists) return;
+
+    const equipmentRecord = {
+      id: `equipamento-financeiro-${expense.id}`,
+      nome: expense.descricao || 'Equipamento',
+      categoria: 'Equipamentos',
+      valorCompra: Number(expense.valor || 0),
+      dataCompra: expense.vencimento || '',
+      fornecedor: expense.fornecedor || '',
+      observacoes: expense.observacoes || '',
+      status: 'Ativo',
+      vidaUtilMeses: 60,
+      financeExpenseId: expense.id,
+      origem: 'financeiro',
+      criadoEm: new Date().toISOString(),
+      atualizadoEm: new Date().toISOString(),
+    };
+
+    writeStorage(
+      STORAGE_KEYS.equipment,
+      [equipmentRecord, ...equipment],
+    );
   };
 
   const saveExpense = async () => {
@@ -580,7 +685,14 @@ export default function Despesas({ area = 'fixa' }) {
   const title = area === 'fixa' ? 'Despesas Fixas' : 'Despesas Variáveis';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div
+      className="sf-finance-section"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '24px',
+      }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
@@ -610,6 +722,112 @@ export default function Despesas({ area = 'fixa' }) {
         <Metric label="Lançamentos" value={despesas.length} isNumber />
       </div>
 
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns:
+            'minmax(220px, 1.5fr) repeat(3, minmax(140px, .8fr)) auto',
+          gap: '9px',
+          alignItems: 'center',
+        }}
+      >
+        <label
+          style={{
+            minHeight: '42px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '0 10px',
+            background: 'var(--bg-card, #111)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+          }}
+        >
+          <Search
+            size={16}
+            color="var(--text-secondary)"
+          />
+
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Buscar descrição, fornecedor..."
+            style={{
+              width: '100%',
+              minWidth: 0,
+              background: 'transparent',
+              color: 'var(--text-main)',
+              border: 0,
+              outline: 0,
+            }}
+          />
+        </label>
+
+        <select
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+          style={inputStyle}
+        >
+          <option value="">Todos os status</option>
+          <option value="pendente">Pendentes</option>
+          <option value="vencida">Vencidas</option>
+          <option value="paga">Pagas</option>
+          <option value="cancelada">Canceladas</option>
+        </select>
+
+        <select
+          value={categoryFilter}
+          onChange={(event) => setCategoryFilter(event.target.value)}
+          style={inputStyle}
+        >
+          <option value="">Todas as categorias</option>
+
+          {categories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={periodFilter}
+          onChange={(event) => setPeriodFilter(event.target.value)}
+          style={inputStyle}
+        >
+          <option value="todos">Todo o período</option>
+          <option value="mes">Este mês</option>
+          <option value="ano">Este ano</option>
+        </select>
+
+        {(search
+          || statusFilter
+          || categoryFilter
+          || periodFilter !== 'todos') && (
+          <button
+            type="button"
+            className="sf-secondary-button"
+            onClick={() => {
+              setSearch('');
+              setStatusFilter('');
+              setCategoryFilter('');
+              setPeriodFilter('todos');
+            }}
+          >
+            Limpar
+          </button>
+        )}
+      </div>
+
+      {area === 'variavel' && (
+        <div className="sf-alert warning">
+          <PackagePlus size={20} />
+
+          <span>
+            Compras na categoria “Equipamentos” são enviadas automaticamente para o módulo de equipamentos com depreciação inicial de 60 meses.
+          </span>
+        </div>
+      )}
+
       <div className="sf-table-card">
         <table className="sf-table">
           <thead>
@@ -623,7 +841,7 @@ export default function Despesas({ area = 'fixa' }) {
             </tr>
           </thead>
           <tbody>
-            {despesas.map((expense) => (
+            {filteredDespesas.map((expense) => (
               <tr key={expense.id}>
                 <td>
                   <strong>{expense.descricao}</strong>
@@ -672,7 +890,7 @@ export default function Despesas({ area = 'fixa' }) {
                 </td>
               </tr>
             ))}
-            {despesas.length === 0 && (
+            {filteredDespesas.length === 0 && (
               <tr>
                 <td colSpan="6" className="empty">
                   Nenhuma despesa cadastrada nesta área.
@@ -709,7 +927,14 @@ export default function Despesas({ area = 'fixa' }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: '12px',
+            }}
+          >
             <Field label={area === 'fixa' ? 'Nome' : 'Descrição'}>
               <input
                 style={inputStyle}
@@ -733,7 +958,14 @@ export default function Despesas({ area = 'fixa' }) {
             </Field>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: '12px',
+            }}
+          >
             <Field label="Categoria">
               <select style={inputStyle} value={formData.categoria} onChange={(event) => setFormData({ ...formData, categoria: event.target.value })}>
                 <option value="">Selecione...</option>
@@ -761,7 +993,14 @@ export default function Despesas({ area = 'fixa' }) {
           </div>
 
           {area === 'fixa' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: '12px',
+            }}
+          >
               <Field label="Frequência / Recorrência">
                 <select style={inputStyle} value={formData.frequencia} onChange={(event) => setFormData({ ...formData, frequencia: event.target.value })}>
                   <option value="sem_recorrencia">Sem recorrência</option>
@@ -781,7 +1020,14 @@ export default function Despesas({ area = 'fixa' }) {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns:
+                'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: '12px',
+            }}
+          >
             <Field label="Forma de pagamento">
               <select style={inputStyle} value={formData.formaPagamento} onChange={(event) => setFormData({ ...formData, formaPagamento: event.target.value })}>
                 {PAYMENT_METHODS.map((method) => (
