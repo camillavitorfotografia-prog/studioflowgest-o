@@ -1,12 +1,13 @@
 export const CRM_STATUSES = [
-  { id: 'novo_lead', title: 'Novo contato', color: '#60a5fa' },
+  { id: 'novo_lead', title: 'Lead', color: '#60a5fa' },
   { id: 'orcamento_enviado', title: 'Orcamento enviado', color: '#c9a06c' },
   { id: 'em_negociacao', title: 'Negociacao', color: '#fb923c' },
   { id: 'aguardando_retorno', title: 'Aguardando resposta', color: '#a78bfa' },
-  { id: 'aprovado', title: 'Contrato fechado', color: '#34d399' },
+  { id: 'aprovado', title: 'Fechado', color: '#34d399' },
   { id: 'evento_realizado', title: 'Evento realizado', color: '#2dd4bf' },
   { id: 'finalizado', title: 'Cliente finalizado', color: '#94a3b8' },
   { id: 'perdido', title: 'Perdido', color: '#f87171' },
+  { id: 'cancelado', title: 'Cancelado', color: '#ef4444' },
 ];
 
 export const ACTIVE_LEAD_STATUSES = [
@@ -60,6 +61,8 @@ const STATUS_ALIASES = {
   cliente_finalizado: 'finalizado',
   finalizado: 'finalizado',
   perdido: 'perdido',
+  cancelado: 'cancelado',
+  cancelada: 'cancelado',
 };
 
 export const normalizeLeadStatus = (status) => {
