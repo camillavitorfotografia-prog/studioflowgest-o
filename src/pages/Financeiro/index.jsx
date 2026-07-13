@@ -49,7 +49,16 @@ import Modal from '../../components/Modal';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
 import { readStorage, writeStorage, STORAGE_KEYS, createId } from '../../utils/storage';
-import { maskCurrency } from '../../utils/masks';
+import {
+  dateToInput,
+  formatDateBR,
+  inputToDate,
+  inputToMonth,
+  maskCurrency,
+  maskDate,
+  maskMonth,
+  monthToInput,
+} from '../../utils/masks';
 import Despesas from './Despesas';
 import {
   FINANCE_STORAGE_KEYS,
@@ -354,6 +363,136 @@ const labelStyle = {
   display: 'block',
   fontWeight: '600',
 };
+
+function MoneyInput({
+  value,
+  onChange,
+  style,
+  placeholder = 'R$ 0,00',
+  ...props
+}) {
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      value={value || ''}
+      onChange={(event) => {
+        onChange(maskCurrency(event.target.value));
+      }}
+      placeholder={placeholder}
+      style={{
+        ...inputStyle,
+        ...style,
+      }}
+    />
+  );
+}
+
+function DateInput({
+  value,
+  onChange,
+  style,
+  placeholder = 'dd/mm/aaaa',
+  ...props
+}) {
+  const [displayValue, setDisplayValue] = useState(
+    dateToInput(value),
+  );
+
+  useEffect(() => {
+    setDisplayValue(dateToInput(value));
+  }, [value]);
+
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      maxLength={10}
+      value={displayValue}
+      placeholder={placeholder}
+      onChange={(event) => {
+        const masked = maskDate(event.target.value);
+        setDisplayValue(masked);
+
+        if (!masked) {
+          onChange('');
+          return;
+        }
+
+        const isoDate = inputToDate(masked);
+
+        if (isoDate) {
+          onChange(isoDate);
+        }
+      }}
+      onBlur={() => {
+        if (displayValue && !inputToDate(displayValue)) {
+          setDisplayValue(dateToInput(value));
+        }
+      }}
+      style={{
+        ...inputStyle,
+        ...style,
+      }}
+    />
+  );
+}
+
+function MonthInput({
+  value,
+  onChange,
+  style,
+  placeholder = 'mm/aaaa',
+  ...props
+}) {
+  const [displayValue, setDisplayValue] = useState(
+    monthToInput(value),
+  );
+
+  useEffect(() => {
+    setDisplayValue(monthToInput(value));
+  }, [value]);
+
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      maxLength={7}
+      value={displayValue}
+      placeholder={placeholder}
+      onChange={(event) => {
+        const masked = maskMonth(event.target.value);
+        setDisplayValue(masked);
+
+        if (!masked) {
+          onChange('');
+          return;
+        }
+
+        const isoMonth = inputToMonth(masked);
+
+        if (isoMonth) {
+          onChange(isoMonth);
+        }
+      }}
+      onBlur={() => {
+        if (displayValue && !inputToMonth(displayValue)) {
+          setDisplayValue(monthToInput(value));
+        }
+      }}
+      style={{
+        ...inputStyle,
+        ...style,
+      }}
+    />
+  );
+}
 
 function useFinanceData() {
   const [financasConfig, setFinancasConfig] = useState(() =>
@@ -1665,7 +1804,7 @@ function FinanceDashboard({ data }) {
           {data.proximosVencimentos.map((item) => (
             <div className="compact-row" key={item.id}>
               <span>{item.descricao}</span>
-              <strong>{item.vencimento}</strong>
+              <strong>{formatDateBR(item.vencimento)}</strong>
             </div>
           ))}
 
@@ -2790,7 +2929,7 @@ function Receitas({ data }) {
           </span>,
 
           row.clienteNome || '-',
-          row.vencimento || '-',
+          formatDateBR(row.vencimento) || '-',
 
           <span
             className={`sf-status ${row.statusDerivado.toLowerCase()}`}
@@ -2939,11 +3078,14 @@ function Receitas({ data }) {
               </select>
             </Field>
             <Field label="Data de vencimento">
-              <input
-                type="date"
-                style={inputStyle}
+              <DateInput
                 value={formData.vencimento}
-                onChange={(event) => setFormData({ ...formData, vencimento: event.target.value })}
+                onChange={(value) => {
+                  setFormData({
+                    ...formData,
+                    vencimento: value,
+                  });
+                }}
               />
             </Field>
           </div>
@@ -3561,7 +3703,7 @@ function AgendaFinanceira({ data }) {
 function SimuladorFinanceiro({ data }) {
   const [revenueChange, setRevenueChange] = useState(0);
   const [expenseChange, setExpenseChange] = useState(0);
-  const [investment, setInvestment] = useState(0);
+  const [investment, setInvestment] = useState('');
 
   const scenario = useMemo(() => {
     const baseRevenue = Number(data.receitaBruta || 0);
@@ -3577,7 +3719,7 @@ function SimuladorFinanceiro({ data }) {
 
     const projectedExpenses = (
       baseExpenses * (1 + Number(expenseChange || 0) / 100)
-      + Number(investment || 0)
+      + parseCurrency(investment)
     );
 
     const currentProfit = baseRevenue - baseExpenses;
@@ -3643,14 +3785,13 @@ function SimuladorFinanceiro({ data }) {
           </Field>
 
           <Field label="Novo investimento">
-            <input
-              type="number"
-              min="0"
+            <MoneyInput
               value={investment}
-              onChange={(event) => {
-                setInvestment(Number(event.target.value));
+              onChange={setInvestment}
+              style={{
+                color: 'var(--color-highlight)',
+                fontWeight: 700,
               }}
-              style={inputStyle}
             />
           </Field>
         </div>
@@ -3839,15 +3980,11 @@ function ComparativoFinanceiro({ data }) {
         title="Comparativo Mensal"
         subtitle="Compare receita, despesas, lucro e margem com o mês anterior."
         action={
-          <input
-            type="month"
+          <MonthInput
             value={referenceMonth}
-            onChange={(event) => {
-              setReferenceMonth(event.target.value);
-            }}
+            onChange={setReferenceMonth}
             style={{
-              ...inputStyle,
-              width: 'auto',
+              width: '150px',
             }}
           />
         }
@@ -4099,15 +4236,11 @@ function PlanejamentoFinanceiro({ data }) {
         title="Planejamento Orçamentário"
         subtitle="Defina limites por categoria e acompanhe o consumo do orçamento mensal."
         action={
-          <input
-            type="month"
+          <MonthInput
             value={referenceMonth}
-            onChange={(event) => {
-              setReferenceMonth(event.target.value);
-            }}
+            onChange={setReferenceMonth}
             style={{
-              ...inputStyle,
-              width: 'auto',
+              width: '150px',
             }}
           />
         }
@@ -4751,8 +4884,8 @@ function FerramentasFinanceiras({ data }) {
   ));
   const [pricing, setPricing] = useState({
     hours: 8,
-    hourlyValue: 250,
-    directCosts: 800,
+    hourlyValue: maskCurrency(250),
+    directCosts: maskCurrency(800),
     taxRate: 6,
     desiredMargin: 30,
   });
@@ -4798,8 +4931,8 @@ function FerramentasFinanceiras({ data }) {
 
   const pricingResult = useMemo(() => {
     const labor = Number(pricing.hours || 0)
-      * Number(pricing.hourlyValue || 0);
-    const subtotal = labor + Number(pricing.directCosts || 0);
+      * parseCurrency(pricing.hourlyValue);
+    const subtotal = labor + parseCurrency(pricing.directCosts);
     const taxRate = Number(pricing.taxRate || 0) / 100;
     const marginRate = Number(pricing.desiredMargin || 0) / 100;
     const denominator = Math.max(0.01, 1 - taxRate - marginRate);
@@ -5074,25 +5207,37 @@ function FerramentasFinanceiras({ data }) {
           gap: '10px',
         }}>
           {[
-            ['hours', 'Horas de trabalho'],
-            ['hourlyValue', 'Valor da hora'],
-            ['directCosts', 'Custos diretos'],
-            ['taxRate', 'Impostos (%)'],
-            ['desiredMargin', 'Margem desejada (%)'],
-          ].map(([field, label]) => (
+            ['hours', 'Horas de trabalho', 'number'],
+            ['hourlyValue', 'Valor da hora', 'money'],
+            ['directCosts', 'Custos diretos', 'money'],
+            ['taxRate', 'Impostos (%)', 'number'],
+            ['desiredMargin', 'Margem desejada (%)', 'number'],
+          ].map(([field, label, type]) => (
             <Field key={field} label={label}>
-              <input
-                type="number"
-                min="0"
-                value={pricing[field]}
-                onChange={(event) => {
-                  setPricing({
-                    ...pricing,
-                    [field]: Number(event.target.value),
-                  });
-                }}
-                style={inputStyle}
-              />
+              {type === 'money' ? (
+                <MoneyInput
+                  value={pricing[field]}
+                  onChange={(value) => {
+                    setPricing({
+                      ...pricing,
+                      [field]: value,
+                    });
+                  }}
+                />
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  value={pricing[field]}
+                  onChange={(event) => {
+                    setPricing({
+                      ...pricing,
+                      [field]: Number(event.target.value),
+                    });
+                  }}
+                  style={inputStyle}
+                />
+              )}
             </Field>
           ))}
         </div>
@@ -5198,13 +5343,14 @@ function FerramentasFinanceiras({ data }) {
             placeholder="Valor atual"
             style={inputStyle}
           />
-          <input
-            type="date"
+          <DateInput
             value={goalDraft.deadline}
-            onChange={(event) => {
-              setGoalDraft({ ...goalDraft, deadline: event.target.value });
+            onChange={(value) => {
+              setGoalDraft({
+                ...goalDraft,
+                deadline: value,
+              });
             }}
-            style={inputStyle}
           />
           <button type="button" className="sf-primary-button" onClick={addSavingsGoal}>
             Adicionar
@@ -5271,19 +5417,22 @@ function FerramentasFinanceiras({ data }) {
                   }} />
                 </div>
 
-                <input
-                  type="number"
-                  min="0"
-                  value={goal.current}
-                  onChange={(event) => {
-                    updateSavingsGoal(goal.id, Number(event.target.value));
+                <MoneyInput
+                  value={maskCurrency(Number(goal.current || 0))}
+                  onChange={(value) => {
+                    updateSavingsGoal(
+                      goal.id,
+                      parseCurrency(value),
+                    );
                   }}
-                  style={{ ...inputStyle, marginTop: '10px' }}
+                  style={{
+                    marginTop: '10px',
+                  }}
                 />
 
                 {goal.deadline && (
                   <div className="sf-muted" style={{ marginTop: '6px', fontSize: '0.66rem' }}>
-                    Prazo: {goal.deadline}
+                    Prazo: {formatDateBR(goal.deadline)}
                   </div>
                 )}
               </div>
@@ -6819,16 +6968,14 @@ function OperacoesFinanceiras({ data }) {
                   style={inputStyle}
                 />
 
-                <input
-                  type="date"
+                <DateInput
                   value={transferDraft.date}
-                  onChange={(event) => {
+                  onChange={(value) => {
                     setTransferDraft({
                       ...transferDraft,
-                      date: event.target.value,
+                      date: value,
                     });
                   }}
-                  style={inputStyle}
                 />
 
                 <button
@@ -6927,16 +7074,14 @@ function OperacoesFinanceiras({ data }) {
             </Field>
 
             <Field label="Primeiro vencimento">
-              <input
-                type="date"
+              <DateInput
                 value={installmentDraft.firstDueDate}
-                onChange={(event) => {
+                onChange={(value) => {
                   setInstallmentDraft({
                     ...installmentDraft,
-                    firstDueDate: event.target.value,
+                    firstDueDate: value,
                   });
                 }}
-                style={inputStyle}
               />
             </Field>
 
@@ -7222,16 +7367,14 @@ function OperacoesFinanceiras({ data }) {
                   style={inputStyle}
                 />
 
-                <input
-                  type="date"
+                <DateInput
                   value={cardPurchaseDraft.purchaseDate}
-                  onChange={(event) => {
+                  onChange={(value) => {
                     setCardPurchaseDraft({
                       ...cardPurchaseDraft,
-                      purchaseDate: event.target.value,
+                      purchaseDate: value,
                     });
                   }}
-                  style={inputStyle}
                 />
 
                 <button
@@ -7272,7 +7415,7 @@ function OperacoesFinanceiras({ data }) {
             render={(row) => [
               row.clienteNome || '-',
               row.descricao,
-              row.vencimento || '-',
+              formatDateBR(row.vencimento) || '-',
               formatCurrency(row.valor),
               <button
                 type="button"
@@ -7685,15 +7828,11 @@ function DreFinanceira({ data }) {
         title="DRE Automática"
         subtitle="Demonstrativo de resultado com receita, custos, despesas e lucro líquido."
         action={
-          <input
-            type="month"
+          <MonthInput
             value={referenceMonth}
-            onChange={(event) => {
-              setReferenceMonth(event.target.value);
-            }}
+            onChange={setReferenceMonth}
             style={{
-              ...inputStyle,
-              width: 'auto',
+              width: '150px',
             }}
           />
         }

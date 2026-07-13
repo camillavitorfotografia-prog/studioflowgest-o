@@ -14,7 +14,13 @@ import {
 import Modal from '../../components/Modal';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { maskCurrency } from '../../utils/masks';
+import {
+  dateToInput,
+  formatDateBR,
+  inputToDate,
+  maskCurrency,
+  maskDate,
+} from '../../utils/masks';
 import { readStorage, writeStorage, STORAGE_KEYS } from '../../utils/storage';
 import {
   FIXED_EXPENSE_CATEGORIES,
@@ -67,6 +73,56 @@ const labelStyle = {
   display: 'block',
   fontWeight: '600',
 };
+
+function DateInput({
+  value,
+  onChange,
+  style,
+  placeholder = 'dd/mm/aaaa',
+}) {
+  const [displayValue, setDisplayValue] = useState(
+    dateToInput(value),
+  );
+
+  useEffect(() => {
+    setDisplayValue(dateToInput(value));
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      maxLength={10}
+      value={displayValue}
+      placeholder={placeholder}
+      onChange={(event) => {
+        const masked = maskDate(event.target.value);
+        setDisplayValue(masked);
+
+        if (!masked) {
+          onChange('');
+          return;
+        }
+
+        const isoDate = inputToDate(masked);
+
+        if (isoDate) {
+          onChange(isoDate);
+        }
+      }}
+      onBlur={() => {
+        if (displayValue && !inputToDate(displayValue)) {
+          setDisplayValue(dateToInput(value));
+        }
+      }}
+      style={{
+        ...inputStyle,
+        ...style,
+      }}
+    />
+  );
+}
 
 export default function Despesas({ area = 'fixa' }) {
   const [transacoes, setTransacoes] = useState([]);
@@ -711,7 +767,7 @@ export default function Despesas({ area = 'fixa' }) {
         <div className="sf-alert warning">
           <AlertTriangle size={22} />
           <span>
-            Próximos vencimentos: {vencimentos.map((item) => `${item.descricao} (${item.vencimento})`).join(', ')}
+            Próximos vencimentos: {vencimentos.map((item) => `${item.descricao} (${formatDateBR(item.vencimento)})`).join(', ')}
           </span>
         </div>
       )}
@@ -851,7 +907,7 @@ export default function Despesas({ area = 'fixa' }) {
                     {expense.fornecedor ? ` | ${expense.fornecedor}` : ''}
                   </small>
                 </td>
-                <td>{expense.vencimento || '-'}</td>
+                <td>{formatDateBR(expense.vencimento) || '-'}</td>
                 <td>
                   <span className="sf-pill">
                     <CreditCard size={12} /> {expense.formaPagamento || expense.contaOrigem || '-'}
@@ -977,17 +1033,27 @@ export default function Despesas({ area = 'fixa' }) {
               </select>
             </Field>
             <Field label="Data de vencimento">
-              <input
-                type="date"
-                style={inputStyle}
-                value={area === 'fixa' ? formData.dataVencimento : formData.data}
-                onChange={(event) =>
+              <DateInput
+                value={
+                  area === 'fixa'
+                    ? formData.dataVencimento
+                    : formData.data
+                }
+                onChange={(value) => {
                   setFormData(
                     area === 'fixa'
-                      ? { ...formData, dataVencimento: event.target.value, data: event.target.value }
-                      : { ...formData, data: event.target.value, dataVencimento: event.target.value },
-                  )
-                }
+                      ? {
+                        ...formData,
+                        dataVencimento: value,
+                        data: value,
+                      }
+                      : {
+                        ...formData,
+                        data: value,
+                        dataVencimento: value,
+                      },
+                  );
+                }}
               />
             </Field>
           </div>

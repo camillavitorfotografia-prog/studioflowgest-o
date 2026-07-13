@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabase } from './supabase';
 import { parseCurrency } from './formatters';
 import { normalizeLeadStatus } from '../data/crm';
 import { isConfirmedPayment } from './financeEngine';
+import { normalizeProductionStatus } from './projectEngine.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFILE_TABLE = 'perfil';
@@ -467,10 +468,24 @@ export const mapTransactionFromDb = (transaction = {}) => ({
       || project.tipoServico
       || 'Evento',
     status:
-      project.status
-      || project.financeiro?.workflowStatus
-      || project.financeiro?.statusProjeto
-      || 'contrato_fechado',
+      normalizeProductionStatus(
+        project.status_producao
+        || project.statusProducao
+        || project.financeiro?.statusProducao
+        || project.status
+        || project.financeiro?.workflowStatus
+        || project.financeiro?.statusProjeto
+        || 'novo',
+      ),
+    statusProducao:
+      normalizeProductionStatus(
+        project.status_producao
+        || project.statusProducao
+        || project.financeiro?.statusProducao
+        || project.status
+        || project.financeiro?.workflowStatus
+        || 'novo',
+      ),
     calendarSync:
       project.calendario_sync
       || project.calendarSync
