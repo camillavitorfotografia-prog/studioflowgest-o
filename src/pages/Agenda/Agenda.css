@@ -590,3 +590,33 @@
     padding: 0;
   }
 }
+
+.agenda-event.has-conflict {
+  box-shadow: inset 3px 0 0 #f87171;
+}
+
+.agenda-conflict-badge {
+  display: inline-flex;
+  margin-left: 7px;
+  padding: 2px 5px;
+  color: #fca5a5;
+  background: rgba(248, 113, 113, .1);
+  border-radius: 999px;
+  font-size: .56rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.agenda-list section > button:has(.agenda-conflict-badge) {
+  background: rgba(248, 113, 113, .025);
+}
+
+@media (max-width: 768px) {
+  .agenda-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .agenda-filters > button {
+    width: 100%;
+  }
+}

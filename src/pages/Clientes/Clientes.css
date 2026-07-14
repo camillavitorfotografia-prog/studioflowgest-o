@@ -2,6 +2,20 @@
   max-width: 860px !important;
 }
 
+.sf-client-search {
+  padding: 12px;
+}
+
+.sf-client-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.sf-client-table-scroll .sf-table {
+  min-width: 980px;
+}
+
 .sf-client-finance-center,
 .sf-client-salary-center {
   padding: 16px;
@@ -179,11 +193,23 @@
 }
 
 @media (max-width: 520px) {
+  .sf-client-finance-title {
+    flex-direction: column;
+  }
+
   .sf-client-finance-grid,
   .sf-client-payment-fields,
   .sf-client-salary-config,
   .sf-client-salary-cards,
   .sf-client-withdrawal-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sf-client-withdrawal-list > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sf-client-withdrawal-list > div > span {
+    grid-column: 1 / -1;
   }
 }

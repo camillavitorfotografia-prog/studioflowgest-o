@@ -3,15 +3,24 @@ import {
   Bell,
   Building2,
   Database,
+  Edit3,
   Link2,
+  Plus,
   Save,
   Settings,
   ShieldCheck,
+  Trash2,
   Users,
 } from 'lucide-react';
 
 import { loadSettings, saveSettings } from '../../utils/settings';
 import { createBackupPayload, restoreBackupPayload } from '../../utils/backup';
+import {
+  capitalizeName,
+  maskCurrency,
+  maskPhone,
+} from '../../utils/masks';
+import { parseCurrency } from '../../utils/formatters';
 
 import './Configuracoes.css';
 import './ConfiguracoesEnhancements.css';
@@ -123,10 +132,28 @@ const ListEditor = ({
   </Field>
 );
 
+const emptyTeamMember = {
+  id: null,
+  nome: '',
+  funcao: 'Fotógrafo',
+  telefone: '',
+  email: '',
+  valorDiaria: '',
+  ativo: true,
+  observacoes: '',
+};
+
+const createTeamMemberId = () => (
+  globalThis.crypto?.randomUUID?.()
+  || `team-member-${Date.now()}-${Math.random().toString(16).slice(2)}`
+);
+
 export default function Configuracoes() {
   const [active, setActive] = useState('general');
   const [settings, setSettings] = useState(loadSettings);
   const [message, setMessage] = useState('');
+  const [teamDraft, setTeamDraft] = useState(emptyTeamMember);
+  const [teamFormOpen, setTeamFormOpen] = useState(false);
 
   const importRef = useRef(null);
 
@@ -190,6 +217,115 @@ export default function Configuracoes() {
     }
 
     event.target.value = '';
+  };
+
+  const openNewTeamMember = () => {
+    setTeamDraft(emptyTeamMember);
+    setTeamFormOpen(true);
+  };
+
+  const openEditTeamMember = (member) => {
+    setTeamDraft({
+      ...emptyTeamMember,
+      ...member,
+      valorDiaria: maskCurrency(
+        member.valorDiaria || 0,
+      ),
+    });
+    setTeamFormOpen(true);
+  };
+
+  const saveTeamMember = () => {
+    const nome = String(teamDraft.nome || '').trim();
+
+    if (!nome) {
+      setMessage('Informe o nome do membro da equipe.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const member = {
+      ...teamDraft,
+      id: teamDraft.id || createTeamMemberId(),
+      nome,
+      funcao: String(
+        teamDraft.funcao || 'Fotógrafo',
+      ).trim(),
+      telefone: String(teamDraft.telefone || '').trim(),
+      email: String(teamDraft.email || '').trim(),
+      valorDiaria: Math.max(
+        0,
+        parseCurrency(teamDraft.valorDiaria),
+      ),
+      ativo: teamDraft.ativo !== false,
+      observacoes: String(
+        teamDraft.observacoes || '',
+      ).trim(),
+      criadoEm: teamDraft.criadoEm || now,
+      atualizadoEm: now,
+    };
+
+    setSettings((current) => {
+      const members = Array.isArray(
+        current.team?.members,
+      )
+        ? current.team.members
+        : [];
+
+      const nextSettings = {
+        ...current,
+        team: {
+          ...current.team,
+          members: teamDraft.id
+            ? members.map((item) => (
+              item.id === teamDraft.id
+                ? member
+                : item
+            ))
+            : [...members, member],
+        },
+      };
+
+      saveSettings(nextSettings);
+
+      return nextSettings;
+    });
+
+    setTeamDraft(emptyTeamMember);
+    setTeamFormOpen(false);
+    setMessage(
+      teamDraft.id
+        ? 'Membro atualizado e salvo com sucesso.'
+        : 'Membro adicionado e salvo com sucesso.',
+    );
+  };
+
+  const removeTeamMember = (member) => {
+    const confirmed = window.confirm(
+      `Remover ${member.nome} da equipe central?`,
+    );
+
+    if (!confirmed) return;
+
+    setSettings((current) => {
+      const nextSettings = {
+        ...current,
+        team: {
+          ...current.team,
+          members: (
+            current.team?.members || []
+          ).filter((item) => item.id !== member.id),
+        },
+      };
+
+      saveSettings(nextSettings);
+
+      return nextSettings;
+    });
+
+    setMessage(
+      'Membro removido e alterações salvas.',
+    );
   };
 
   return (
@@ -661,29 +797,245 @@ export default function Configuracoes() {
             <>
               <Title
                 title="Equipe e Permissões"
-                text="Estrutura preparada; convites dependerão de backend multiusuário."
+                text="Cadastre a equipe central para reutilizar os mesmos profissionais em todos os trabalhos."
               />
 
-              <div className="role-grid">
-                {[
-                  'Administrador',
-                  'Financeiro',
-                  'Atendimento',
-                  'Fotógrafo',
-                  'Editor',
-                ].map((role) => (
-                  <article key={role}>
-                    <strong>{role}</strong>
-                    <span>Sem membros configurados</span>
+              <div className="settings-team-toolbar">
+                <div>
+                  <strong>
+                    {(settings.team?.members || []).length} membro(s)
+                  </strong>
+
+                  <span>
+                    A equipe cadastrada poderá ser vinculada aos projetos.
+                  </span>
+                </div>
+
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={openNewTeamMember}
+                >
+                  <Plus size={16} />
+                  Novo membro
+                </button>
+              </div>
+
+              {teamFormOpen && (
+                <div className="settings-team-form">
+                  <Grid>
+                    <Field label="Nome">
+                      <input
+                        value={teamDraft.nome}
+                        onChange={(event) => {
+                          setTeamDraft((draft) => ({
+                            ...draft,
+                            nome: capitalizeName(
+                              event.target.value,
+                            ),
+                          }));
+                        }}
+                      />
+                    </Field>
+
+                    <Field label="Função principal">
+                      <select
+                        value={teamDraft.funcao}
+                        onChange={(event) => {
+                          setTeamDraft((draft) => ({
+                            ...draft,
+                            funcao: event.target.value,
+                          }));
+                        }}
+                      >
+                        {[
+                          'Administrador',
+                          'Fotógrafo',
+                          'Videomaker',
+                          'Assistente',
+                          'Editor',
+                          'Atendimento',
+                          'Financeiro',
+                          'Outro',
+                        ].map((role) => (
+                          <option key={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field label="Telefone">
+                      <input
+                        value={teamDraft.telefone}
+                        onChange={(event) => {
+                          setTeamDraft((draft) => ({
+                            ...draft,
+                            telefone: maskPhone(
+                              event.target.value,
+                            ),
+                          }));
+                        }}
+                      />
+                    </Field>
+
+                    <Field label="E-mail">
+                      <input
+                        type="email"
+                        value={teamDraft.email}
+                        onChange={(event) => {
+                          setTeamDraft((draft) => ({
+                            ...draft,
+                            email: event.target.value,
+                          }));
+                        }}
+                      />
+                    </Field>
+
+                    <Field label="Valor padrão da diária">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={teamDraft.valorDiaria}
+                        placeholder="R$ 0,00"
+                        onChange={(event) => {
+                          setTeamDraft((draft) => ({
+                            ...draft,
+                            valorDiaria: maskCurrency(
+                              event.target.value,
+                            ),
+                          }));
+                        }}
+                      />
+                    </Field>
+
+                    <Field label="Status">
+                      <select
+                        value={
+                          teamDraft.ativo
+                            ? 'ativo'
+                            : 'inativo'
+                        }
+                        onChange={(event) => {
+                          setTeamDraft((draft) => ({
+                            ...draft,
+                            ativo:
+                              event.target.value === 'ativo',
+                          }));
+                        }}
+                      >
+                        <option value="ativo">Ativo</option>
+                        <option value="inativo">Inativo</option>
+                      </select>
+                    </Field>
+                  </Grid>
+
+                  <Field label="Observações">
+                    <textarea
+                      rows="3"
+                      value={teamDraft.observacoes}
+                      onChange={(event) => {
+                        setTeamDraft((draft) => ({
+                          ...draft,
+                          observacoes: event.target.value,
+                        }));
+                      }}
+                    />
+                  </Field>
+
+                  <div className="settings-team-form-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setTeamFormOpen(false);
+                        setTeamDraft(emptyTeamMember);
+                      }}
+                    >
+                      Cancelar
+                    </button>
 
                     <button
                       type="button"
-                      disabled
+                      className="btn btn-primary"
+                      onClick={saveTeamMember}
                     >
-                      Gerenciar permissões
+                      <Save size={16} />
+                      Salvar membro
                     </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="settings-team-list">
+                {(settings.team?.members || []).map((member) => (
+                  <article key={member.id}>
+                    <div className="settings-team-avatar">
+                      {String(member.nome || '?')
+                        .slice(0, 2)
+                        .toUpperCase()}
+                    </div>
+
+                    <div className="settings-team-copy">
+                      <strong>{member.nome}</strong>
+
+                      <span>
+                        {member.funcao}
+                        {member.telefone
+                          ? ` · ${member.telefone}`
+                          : ''}
+                      </span>
+
+                      <small>
+                        Diária padrão: {Number(
+                          member.valorDiaria || 0,
+                        ).toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                        })}
+                      </small>
+                    </div>
+
+                    <span
+                      className={
+                        member.ativo
+                          ? 'settings-team-status active'
+                          : 'settings-team-status'
+                      }
+                    >
+                      {member.ativo ? 'Ativo' : 'Inativo'}
+                    </span>
+
+                    <div className="settings-team-actions">
+                      <button
+                        type="button"
+                        title="Editar membro"
+                        onClick={() => {
+                          openEditTeamMember(member);
+                        }}
+                      >
+                        <Edit3 size={15} />
+                      </button>
+
+                      <button
+                        type="button"
+                        title="Excluir membro"
+                        className="danger"
+                        onClick={() => {
+                          removeTeamMember(member);
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </article>
                 ))}
+
+                {(settings.team?.members || []).length === 0 && (
+                  <div className="settings-team-empty">
+                    Nenhum membro cadastrado. Use “Novo membro” para criar a equipe central.
+                  </div>
+                )}
               </div>
             </>
           )}

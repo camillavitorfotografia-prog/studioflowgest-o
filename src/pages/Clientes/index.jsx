@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/PremiumUXKit';
@@ -49,6 +49,8 @@ const emptyForm = {
 const emptyWithdrawal = { pessoa: 'camilla', valor: '', data: '', observacao: '' };
 const emptyContact = { id: null, data: '', tipo: 'WhatsApp', observacao: '' };
 
+const CLIENTS_LOCAL_MODE = true;
+
 const inputStyle = {
   width: '100%',
   padding: '12px',
@@ -68,6 +70,52 @@ const labelStyle = {
 
 const normalizeDate = (value) => dateToInput(value || '');
 const displayDate = (value) => normalizeDate(value) || '-';
+
+const formatPersonName = (value = '') => {
+  const particles = new Set([
+    'da',
+    'das',
+    'de',
+    'do',
+    'dos',
+    'e',
+  ]);
+
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((part, index) => {
+      const normalized = part.toLocaleLowerCase('pt-BR');
+
+      if (index > 0 && particles.has(normalized)) {
+        return normalized;
+      }
+
+      return normalized
+        ? normalized.charAt(0).toLocaleUpperCase('pt-BR')
+          + normalized.slice(1)
+        : '';
+    })
+    .join(' ');
+};
+
+const maskCpfCnpj = (value = '') => {
+  const numbers = String(value).replace(/\D/g, '').slice(0, 14);
+
+  if (numbers.length <= 11) {
+    return numbers
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  }
+
+  return numbers
+    .replace(/(\d{2})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1/$2')
+    .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+};
 
 const getClientProject = (client, projects) => {
   return projects.find((project) =>
@@ -98,15 +146,21 @@ const mapClientRow = (client, projects) => {
     ...client,
     project,
     projectId: project?.id || null,
-    nome: client.nome || client.name || '',
+    nome: formatPersonName(
+      client.nome || client.name || '',
+    ),
     email: client.email || '',
     telefone: client.telefone || client.whatsapp || '',
-    cpfCnpj: client.cpfCnpj || client.cpf_cnpj || '', endereco: client.endereco || '', cidade: client.cidade || '',
+    cpfCnpj: maskCpfCnpj(
+      client.cpfCnpj || client.cpf_cnpj || '',
+    ),
+    endereco: client.endereco || '',
+    cidade: client.cidade || '',
     dataNascimento: normalizeDate(client.dataNascimento || client.data_nascimento), origem: client.origem || '',
-    indicacao: client.indicacao || '', indicacaoClienteId: client.indicacaoClienteId || '', observacoes: client.observacoes || '',
-    datasImportantes: client.datasImportantes || [], historicoContatos: client.historicoContatos || [],
-    dataPrimeiroContato: normalizeDate(client.dataPrimeiroContato), dataUltimoContato: normalizeDate(client.dataUltimoContato),
-    dataProximoRetorno: normalizeDate(client.dataProximoRetorno), statusComercial: client.statusComercial || 'novo',
+    indicacao: client.indicacao || '', indicacaoClienteId: client.indicacaoClienteId || client.indicacao_cliente_id || '', observacoes: client.observacoes || '',
+    datasImportantes: client.datasImportantes || client.datas_importantes || [], historicoContatos: client.historicoContatos || client.historico_contatos || [],
+    dataPrimeiroContato: normalizeDate(client.dataPrimeiroContato || client.data_primeiro_contato), dataUltimoContato: normalizeDate(client.dataUltimoContato || client.data_ultimo_contato),
+    dataProximoRetorno: normalizeDate(client.dataProximoRetorno || client.data_proximo_retorno), statusComercial: client.statusComercial || client.status_comercial || 'novo',
     instagram: client.instagram || '',
     tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
     dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || client.data_evento || '',
@@ -123,32 +177,85 @@ const mapClientRow = (client, projects) => {
 };
 
 const formFromClient = (client) => ({
+  ...emptyForm,
   id: client.id,
   projectId: client.projectId,
   nome: client.nome || '',
   email: client.email || '',
-  telefone: client.telefone || '',
+  telefone: client.telefone || client.whatsapp || '',
+  cpfCnpj: client.cpfCnpj || '',
+  endereco: client.endereco || '',
+  cidade: client.cidade || '',
+  dataNascimento: normalizeDate(client.dataNascimento),
+  origem: client.origem || '',
+  indicacao: client.indicacao || '',
+  indicacaoClienteId: client.indicacaoClienteId || client.indicacao_cliente_id || '',
+  observacoes: client.observacoes || '',
+  datasImportantes: Array.isArray(client.datasImportantes)
+    ? client.datasImportantes
+    : [],
+  historicoContatos: Array.isArray(client.historicoContatos)
+    ? client.historicoContatos
+    : [],
+  dataPrimeiroContato: normalizeDate(client.dataPrimeiroContato || client.data_primeiro_contato),
+  dataUltimoContato: normalizeDate(client.dataUltimoContato || client.data_ultimo_contato),
+  dataProximoRetorno: normalizeDate(client.dataProximoRetorno || client.data_proximo_retorno),
+  statusComercial: client.statusComercial || client.status_comercial || 'novo',
   instagram: client.instagram || '',
-  tipoTrabalho: client.tipoTrabalho === '-' ? '' : client.tipoTrabalho || '',
+  tipoTrabalho: client.tipoTrabalho === '-'
+    ? ''
+    : client.tipoTrabalho || '',
   dataTrabalho: normalizeDate(client.dataTrabalho),
-  valorTotal: client.valorTotal ? maskCurrency(String(Math.round(Number(client.valorTotal) * 100))) : '',
-  valorRestante: client.valorRestante ? maskCurrency(String(Math.round(Number(client.valorRestante) * 100))) : '',
+  valorTotal: client.valorTotal
+    ? maskCurrency(
+        String(Math.round(Number(client.valorTotal) * 100)),
+      )
+    : '',
+  valorRestante: client.valorRestante
+    ? maskCurrency(
+        String(Math.round(Number(client.valorRestante) * 100)),
+      )
+    : '',
   status: client.status || 'Ativo',
   contrato: client.contrato || '',
   pagamentos: (client.pagamentos || []).map((payment) => ({
     ...payment,
     id: payment.id || createId('payment'),
-    valor: payment.valor ? maskCurrency(String(Math.round(parseMoney(payment.valor) * 100))) : '',
+    valor: payment.valor
+      ? maskCurrency(
+          String(Math.round(parseMoney(payment.valor) * 100)),
+        )
+      : '',
     data: normalizeDate(payment.data),
     status: payment.status || 'Recebido',
-    formaPagamento: payment.formaPagamento || payment.forma_pagamento || 'Pix',
-    observacao: payment.observacao || payment.observacoes || '',
+    formaPagamento:
+      payment.formaPagamento
+      || payment.forma_pagamento
+      || 'Pix',
+    observacao:
+      payment.observacao
+      || payment.observacoes
+      || '',
   })),
-  divisaoSalarios: normalizeSalarySplit(client.divisaoSalarios || DEFAULT_SALARY_SPLIT),
-  retiradasSalariais: (client.retiradasSalariais || []).map((withdrawal) => ({
+  divisaoSalarios: normalizeSalarySplit(
+    client.divisaoSalarios || DEFAULT_SALARY_SPLIT,
+  ),
+  retiradasSalariais: (
+    client.retiradasSalariais || []
+  ).map((withdrawal) => ({
     ...withdrawal,
-    id: withdrawal.id || createId('salary-withdrawal'),
-    valor: withdrawal.valor ? maskCurrency(String(Math.round(parseMoney(withdrawal.valor) * 100))) : '',
+    id:
+      withdrawal.id
+      || createId('salary-withdrawal'),
+    valor: withdrawal.valor
+      ? maskCurrency(
+          String(
+            Math.round(
+              parseMoney(withdrawal.valor) * 100,
+            ),
+          ),
+        )
+      : '',
     data: normalizeDate(withdrawal.data),
   })),
 });
@@ -163,11 +270,11 @@ const saveLocalMirrors = (clients, projects) => {
     instagram: client.instagram || '',
     cidade: client.cidade || '',
     cpfCnpj: client.cpfCnpj || '', endereco: client.endereco || '', dataNascimento: client.dataNascimento || '',
-    origem: client.origem || '', indicacao: client.indicacao || '', indicacaoClienteId: client.indicacaoClienteId || '',
-    observacoes: client.observacoes || '', datasImportantes: client.datasImportantes || [],
-    historicoContatos: client.historicoContatos || [], dataPrimeiroContato: client.dataPrimeiroContato || '',
+    origem: client.origem || '', indicacao: client.indicacao || '', indicacaoClienteId: client.indicacaoClienteId || client.indicacao_cliente_id || '',
+    observacoes: client.observacoes || '', datasImportantes: client.datasImportantes || client.datas_importantes || [],
+    historicoContatos: client.historicoContatos || client.historico_contatos || [], dataPrimeiroContato: client.dataPrimeiroContato || '',
     dataUltimoContato: client.dataUltimoContato || '', dataProximoRetorno: client.dataProximoRetorno || '',
-    statusComercial: client.statusComercial || 'novo',
+    statusComercial: client.statusComercial || client.status_comercial || 'novo',
     clienteDesde: client.created_at || client.clienteDesde || new Date().toISOString(),
     status: client.status || 'ativo',
     createdAt: client.created_at || client.createdAt || new Date().toISOString(),
@@ -224,6 +331,162 @@ const saveLocalMirrors = (clients, projects) => {
   window.dispatchEvent(new Event('sf_storage_update'));
 };
 
+const getRecordTimestamp = (record = {}) => {
+  const value = (
+    record.updated_at
+    || record.updatedAt
+    || record.created_at
+    || record.createdAt
+    || ''
+  );
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const mergeClientRecords = (
+  remoteClients = [],
+  localClients = [],
+) => {
+  const localById = new Map(
+    localClients.map((client) => [
+      String(client.id),
+      client,
+    ]),
+  );
+
+  const mergedRemote = remoteClients.map((remote) => {
+    const local = localById.get(String(remote.id)) || {};
+    const localIsNewer = (
+      getRecordTimestamp(local)
+      >= getRecordTimestamp(remote)
+    );
+
+    const preferred = localIsNewer
+      ? local
+      : remote;
+
+    const secondary = localIsNewer
+      ? remote
+      : local;
+
+    return {
+      ...secondary,
+      ...preferred,
+      id: remote.id || local.id,
+      nome:
+        preferred.nome
+        || secondary.nome
+        || '',
+      email:
+        preferred.email
+        || secondary.email
+        || '',
+      telefone:
+        preferred.telefone
+        || preferred.whatsapp
+        || secondary.telefone
+        || secondary.whatsapp
+        || '',
+      whatsapp:
+        preferred.whatsapp
+        || preferred.telefone
+        || secondary.whatsapp
+        || secondary.telefone
+        || '',
+      instagram:
+        preferred.instagram
+        || secondary.instagram
+        || '',
+      cpfCnpj:
+        preferred.cpfCnpj
+        || preferred.cpf_cnpj
+        || secondary.cpfCnpj
+        || secondary.cpf_cnpj
+        || '',
+      endereco:
+        preferred.endereco
+        || secondary.endereco
+        || '',
+      cidade:
+        preferred.cidade
+        || secondary.cidade
+        || '',
+      dataNascimento:
+        preferred.dataNascimento
+        || preferred.data_nascimento
+        || secondary.dataNascimento
+        || secondary.data_nascimento
+        || '',
+      origem:
+        preferred.origem
+        || secondary.origem
+        || '',
+      indicacao:
+        preferred.indicacao
+        || secondary.indicacao
+        || '',
+      indicacaoClienteId:
+        preferred.indicacaoClienteId
+        || preferred.indicacao_cliente_id
+        || secondary.indicacaoClienteId
+        || secondary.indicacao_cliente_id
+        || '',
+      observacoes:
+        preferred.observacoes
+        || secondary.observacoes
+        || '',
+      datasImportantes:
+        preferred.datasImportantes
+        || preferred.datas_importantes
+        || secondary.datasImportantes
+        || secondary.datas_importantes
+        || [],
+      historicoContatos:
+        preferred.historicoContatos
+        || preferred.historico_contatos
+        || secondary.historicoContatos
+        || secondary.historico_contatos
+        || [],
+      dataPrimeiroContato:
+        preferred.dataPrimeiroContato
+        || preferred.data_primeiro_contato
+        || secondary.dataPrimeiroContato
+        || secondary.data_primeiro_contato
+        || '',
+      dataUltimoContato:
+        preferred.dataUltimoContato
+        || preferred.data_ultimo_contato
+        || secondary.dataUltimoContato
+        || secondary.data_ultimo_contato
+        || '',
+      dataProximoRetorno:
+        preferred.dataProximoRetorno
+        || preferred.data_proximo_retorno
+        || secondary.dataProximoRetorno
+        || secondary.data_proximo_retorno
+        || '',
+      statusComercial:
+        preferred.statusComercial
+        || preferred.status_comercial
+        || secondary.statusComercial
+        || secondary.status_comercial
+        || 'novo',
+    };
+  });
+
+  const remoteIds = new Set(
+    remoteClients.map((client) => String(client.id)),
+  );
+
+  const localOnly = localClients.filter(
+    (client) => !remoteIds.has(String(client.id)),
+  );
+
+  return [...mergedRemote, ...localOnly];
+};
+
 const loadLocalStudio = () => ({
   clients: readStorage(STORAGE_KEYS.clients, []),
   projects: readStorage(STORAGE_KEYS.projects, []),
@@ -233,6 +496,49 @@ const saveLocalStudio = (clients, projects) => {
   saveLocalMirrors(clients, projects);
   writeStorage(STORAGE_KEYS.clients, clients);
   writeStorage(STORAGE_KEYS.projects, projects);
+};
+
+const isMissingClientColumnError = (error) => {
+  const message = String(
+    error?.message || error || '',
+  ).toLocaleLowerCase('pt-BR');
+
+  return (
+    message.includes("could not find the")
+    && message.includes("column of 'clientes'")
+  ) || (
+    message.includes('schema cache')
+    && message.includes("'clientes'")
+  );
+};
+
+const saveClientRowSafely = async ({
+  id,
+  fullPayload,
+  basicPayload,
+}) => {
+  try {
+    return await saveRow({
+      table: 'clientes',
+      id,
+      payload: fullPayload,
+    });
+  } catch (error) {
+    if (!isMissingClientColumnError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      'A tabela clientes não possui todos os campos opcionais. '
+      + 'Salvando colunas básicas no Supabase e mantendo os demais dados localmente.',
+    );
+
+    return saveRow({
+      table: 'clientes',
+      id,
+      payload: basicPayload,
+    });
+  }
 };
 
 
@@ -268,55 +574,61 @@ export default function Clientes() {
   const [duplicate, setDuplicate] = useState(null);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [contactDraft, setContactDraft] = useState(emptyContact);
+  const nameInputRef = useRef(null);
 
   const load = async () => {
     setSyncStatus('saving');
+
     try {
-      if (!isSupabaseConfigured) {
-        const localStudio = loadLocalStudio();
-        setStudio(localStudio);
-        saveLocalMirrors(localStudio.clients, localStudio.projects);
-        return;
-      }
-
-      const [clientsRes, projectsRes] = await Promise.all([
-        supabase.from('clientes').select('*').order('created_at', { ascending: false }),
-        supabase.from('projetos').select('*'),
-      ]);
-
-      if (clientsRes.error) throw clientsRes.error;
-      if (projectsRes.error) throw projectsRes.error;
-
-      const nextStudio = {
-        clients: clientsRes.data || [],
-        projects: projectsRes.data || [],
-      };
-
-      setStudio(nextStudio);
-      saveLocalMirrors(nextStudio.clients, nextStudio.projects);
-    } catch (error) {
-      console.error('Erro ao carregar clientes:', error.message);
       const localStudio = loadLocalStudio();
-      setStudio(localStudio);
+
+      setStudio({
+        clients: Array.isArray(localStudio.clients)
+          ? localStudio.clients
+          : [],
+        projects: Array.isArray(localStudio.projects)
+          ? localStudio.projects
+          : [],
+      });
+    } catch (error) {
+      console.error(
+        'Erro ao carregar clientes locais:',
+        error.message,
+      );
+
+      setStudio({
+        clients: [],
+        projects: [],
+      });
     } finally {
       setSyncStatus('saved');
     }
   };
 
   useEffect(() => {
-    setTimeout(() => { void load(); }, 0);
+    let active = true;
 
-    window.addEventListener('focus', load);
+    const refresh = () => {
+      if (!active) return;
+      void load();
+    };
 
-    const channel = supabase
-      .channel('clientes-projetos-db')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'projetos' }, load)
-      .subscribe();
+    setTimeout(refresh, 0);
+    window.addEventListener('focus', refresh);
+    window.addEventListener(
+      'sf_storage_update',
+      refresh,
+    );
+    window.addEventListener('storage', refresh);
 
     return () => {
-      window.removeEventListener('focus', load);
-      supabase.removeChannel(channel);
+      active = false;
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(
+        'sf_storage_update',
+        refresh,
+      );
+      window.removeEventListener('storage', refresh);
     };
   }, []);
 
@@ -347,7 +659,34 @@ export default function Clientes() {
   });
 
   const updateField = (field, value) => {
-    setFormData((current) => ({ ...current, [field]: value }));
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const updateNameField = (event) => {
+    const input = event.currentTarget;
+    const cursorStart = input.selectionStart;
+    const cursorEnd = input.selectionEnd;
+    const formattedName = formatPersonName(input.value);
+
+    updateField('nome', formattedName);
+
+    requestAnimationFrame(() => {
+      const nameInput = nameInputRef.current;
+
+      if (
+        nameInput
+        && cursorStart !== null
+        && cursorEnd !== null
+      ) {
+        nameInput.setSelectionRange(
+          cursorStart,
+          cursorEnd,
+        );
+      }
+    });
   };
 
   const updatePayment = (index, field, value) => {
@@ -405,11 +744,160 @@ export default function Clientes() {
     }));
   };
 
-  const saveContact = () => {
-    if (!contactDraft.data || !contactDraft.observacao.trim()) return alert('Informe a data e a observação do contato.');
-    const record = { ...contactDraft, id: contactDraft.id || createId('contact'), data: inputToDate(contactDraft.data), createdAt: contactDraft.createdAt || new Date().toISOString() };
-    setFormData((current) => ({ ...current, dataUltimoContato: contactDraft.data, dataPrimeiroContato: current.dataPrimeiroContato || contactDraft.data, historicoContatos: [...current.historicoContatos.filter((item) => item.id !== record.id), record].sort((a, b) => String(b.data).localeCompare(String(a.data))) }));
-    setContactDraft(emptyContact);
+  const saveContact = async () => {
+    if (
+      !contactDraft.data
+      || !contactDraft.observacao.trim()
+    ) {
+      alert(
+        'Informe a data e a observação do contato.',
+      );
+      return;
+    }
+
+    const record = {
+      ...contactDraft,
+      id:
+        contactDraft.id
+        || createId('contact'),
+      data: inputToDate(contactDraft.data),
+      createdAt:
+        contactDraft.createdAt
+        || new Date().toISOString(),
+    };
+
+    const nextHistory = [
+      ...(Array.isArray(formData.historicoContatos)
+        ? formData.historicoContatos
+        : []
+      ).filter((item) => item.id !== record.id),
+      record,
+    ].sort((first, second) => (
+      String(second.data || '').localeCompare(
+        String(first.data || ''),
+      )
+    ));
+
+    const nextFirstContact = (
+      formData.dataPrimeiroContato
+      || contactDraft.data
+    );
+
+    const nextLastContact = contactDraft.data;
+
+    setFormData((current) => ({
+      ...current,
+      dataUltimoContato: nextLastContact,
+      dataPrimeiroContato:
+        current.dataPrimeiroContato
+        || nextFirstContact,
+      historicoContatos: nextHistory,
+    }));
+
+    setSyncStatus('saving');
+
+    try {
+      if (formData.id) {
+        const now = new Date().toISOString();
+
+        if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
+          try {
+            await saveRow({
+              table: 'clientes',
+              id: formData.id,
+              payload: {
+                historico_contatos: nextHistory,
+                data_primeiro_contato:
+                  inputToDate(nextFirstContact) || null,
+                data_ultimo_contato:
+                  inputToDate(nextLastContact) || null,
+                updated_at: now,
+              },
+            });
+          } catch (error) {
+            if (!isMissingClientColumnError(error)) {
+              throw error;
+            }
+
+            await saveRow({
+              table: 'clientes',
+              id: formData.id,
+              payload: {
+                updated_at: now,
+              },
+            });
+          }
+        }
+
+        const localStudio = loadLocalStudio();
+
+        const nextClients = localStudio.clients.map(
+          (client) => (
+            String(client.id)
+            === String(formData.id)
+              ? {
+                  ...client,
+                  historicoContatos: nextHistory,
+                  historico_contatos: nextHistory,
+                  dataPrimeiroContato:
+                    inputToDate(nextFirstContact),
+                  data_primeiro_contato:
+                    inputToDate(nextFirstContact),
+                  dataUltimoContato:
+                    inputToDate(nextLastContact),
+                  data_ultimo_contato:
+                    inputToDate(nextLastContact),
+                  updatedAt: now,
+                  updated_at: now,
+                }
+              : client
+          ),
+        );
+
+        saveLocalStudio(
+          nextClients,
+          localStudio.projects,
+        );
+
+        setStudio((current) => ({
+          ...current,
+          clients: current.clients.map((client) => (
+            String(client.id)
+            === String(formData.id)
+              ? {
+                  ...client,
+                  historicoContatos: nextHistory,
+                  historico_contatos: nextHistory,
+                  dataPrimeiroContato:
+                    inputToDate(nextFirstContact),
+                  data_primeiro_contato:
+                    inputToDate(nextFirstContact),
+                  dataUltimoContato:
+                    inputToDate(nextLastContact),
+                  data_ultimo_contato:
+                    inputToDate(nextLastContact),
+                  updated_at: now,
+                }
+              : client
+          )),
+        }));
+      }
+
+      setContactDraft(emptyContact);
+    } catch (error) {
+      console.error(
+        'Erro ao salvar contato do cliente:',
+        error.message,
+      );
+
+      alert(
+        `Não foi possível salvar o contato: ${
+          error.message || 'erro desconhecido'
+        }`,
+      );
+    } finally {
+      setSyncStatus('saved');
+    }
   };
 
   const removeContact = (id) => {
@@ -418,8 +906,18 @@ export default function Clientes() {
   };
 
   const openNewClient = () => {
-    setFormData(emptyForm);
+    setFormData({
+      ...emptyForm,
+      divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
+      pagamentos: [],
+      retiradasSalariais: [],
+      historicoContatos: [],
+      datasImportantes: [],
+    });
     setSelectedClientId(null);
+    setDuplicate(null);
+    setAllowDuplicate(false);
+    setContactDraft(emptyContact);
     setIsModalOpen(true);
     setWithdrawalDraft(emptyWithdrawal);
   };
@@ -427,13 +925,26 @@ export default function Clientes() {
   const openEditClient = (client) => {
     setSelectedClientId(client.id);
     setFormData(formFromClient(client));
+    setDuplicate(null);
+    setAllowDuplicate(false);
+    setContactDraft(emptyContact);
     setIsModalOpen(true);
     setWithdrawalDraft(emptyWithdrawal);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
-    setFormData(emptyForm);
+    setFormData({
+      ...emptyForm,
+      divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
+      pagamentos: [],
+      retiradasSalariais: [],
+      historicoContatos: [],
+      datasImportantes: [],
+    });
+    setDuplicate(null);
+    setAllowDuplicate(false);
+    setContactDraft(emptyContact);
     setWithdrawalDraft(emptyWithdrawal);
   };
 
@@ -467,8 +978,8 @@ export default function Clientes() {
     }
 
     try {
-      const existingClient = studio.clients.find((client) => client.id === formData.id) || {};
-      const existingProject = studio.projects.find((project) => project.id === formData.projectId) || {};
+      const existingClient = studio.clients.find((client) => String(client.id) === String(formData.id)) || {};
+      const existingProject = studio.projects.find((project) => String(project.id) === String(formData.projectId)) || {};
       const currentFinance = existingProject.financeiro && typeof existingProject.financeiro === 'object'
         ? existingProject.financeiro
         : {};
@@ -477,36 +988,162 @@ export default function Clientes() {
       const persistedTotal = String(formData.valorTotal || '').trim()
         ? valorTotal
         : Number(existingProject.valor_contratado || 0);
-      const clientBasePayload = {
-        nome: preserveText(formData.nome, existingClient.nome),
-        email: preserveText(formData.email, existingClient.email),
-        telefone: preserveText(formData.telefone, existingClient.telefone || existingClient.whatsapp),
-        whatsapp: preserveText(formData.telefone, existingClient.whatsapp || existingClient.telefone),
-        instagram: preserveText(formData.instagram, existingClient.instagram),
-        cpfCnpj: formData.cpfCnpj, endereco: formData.endereco, cidade: formData.cidade,
-        dataNascimento: inputToDate(formData.dataNascimento), origem: formData.origem,
-        indicacao: formData.indicacao, indicacaoClienteId: formData.indicacaoClienteId,
-        observacoes: formData.observacoes, datasImportantes: formData.datasImportantes,
-        historicoContatos: formData.historicoContatos, dataPrimeiroContato: inputToDate(formData.dataPrimeiroContato),
-        dataUltimoContato: inputToDate(formData.dataUltimoContato), dataProximoRetorno: inputToDate(formData.dataProximoRetorno),
-        statusComercial: formData.statusComercial,
-        cliente_desde: existingClient.cliente_desde || existingClient.clienteDesde || now,
+      const normalizedDocument = String(
+        formData.cpfCnpj || '',
+      ).replace(/\D/g, '');
+
+      const clientLocalPayload = {
+        nome: formatPersonName(
+          preserveText(
+            formData.nome,
+            existingClient.nome,
+          ),
+        ),
+        email: preserveText(
+          formData.email,
+          existingClient.email,
+        ),
+        telefone: preserveText(
+          formData.telefone,
+          existingClient.telefone
+          || existingClient.whatsapp,
+        ),
+        whatsapp: preserveText(
+          formData.telefone,
+          existingClient.whatsapp
+          || existingClient.telefone,
+        ),
+        instagram: preserveText(
+          formData.instagram,
+          existingClient.instagram,
+        ),
+        cpfCnpj: normalizedDocument,
+        endereco: formData.endereco || '',
+        cidade: formData.cidade || '',
+        dataNascimento:
+          inputToDate(formData.dataNascimento) || null,
+        origem: formData.origem || '',
+        indicacao: formData.indicacao || '',
+        indicacaoClienteId:
+          formData.indicacaoClienteId || '',
+        observacoes: formData.observacoes || '',
+        datasImportantes: Array.isArray(
+          formData.datasImportantes,
+        )
+          ? formData.datasImportantes
+          : [],
+        historicoContatos: Array.isArray(
+          formData.historicoContatos,
+        )
+          ? formData.historicoContatos
+          : [],
+        dataPrimeiroContato:
+          inputToDate(formData.dataPrimeiroContato) || null,
+        dataUltimoContato:
+          inputToDate(formData.dataUltimoContato) || null,
+        dataProximoRetorno:
+          inputToDate(formData.dataProximoRetorno) || null,
+        statusComercial:
+          formData.statusComercial || 'novo',
+        clienteDesde:
+          existingClient.cliente_desde
+          || existingClient.clienteDesde
+          || now,
+        updatedAt: now,
+      };
+
+      const clientDatabasePayload = {
+        nome: clientLocalPayload.nome,
+        email: clientLocalPayload.email,
+        telefone: clientLocalPayload.telefone,
+        whatsapp: clientLocalPayload.whatsapp,
+        instagram: clientLocalPayload.instagram,
+        cpf_cnpj: clientLocalPayload.cpfCnpj,
+        endereco: clientLocalPayload.endereco,
+        cidade: clientLocalPayload.cidade,
+        data_nascimento:
+          clientLocalPayload.dataNascimento,
+        origem: clientLocalPayload.origem,
+        indicacao: clientLocalPayload.indicacao,
+        indicacao_cliente_id:
+          clientLocalPayload.indicacaoClienteId || null,
+        observacoes: clientLocalPayload.observacoes,
+        datas_importantes:
+          clientLocalPayload.datasImportantes,
+        historico_contatos:
+          clientLocalPayload.historicoContatos,
+        data_primeiro_contato:
+          clientLocalPayload.dataPrimeiroContato,
+        data_ultimo_contato:
+          clientLocalPayload.dataUltimoContato,
+        data_proximo_retorno:
+          clientLocalPayload.dataProximoRetorno,
+        status_comercial:
+          clientLocalPayload.statusComercial,
+        cliente_desde:
+          existingClient.cliente_desde
+          || existingClient.clienteDesde
+          || now,
+        updated_at: now,
+      };
+
+      const clientBasicDatabasePayload = {
+        nome: clientLocalPayload.nome,
+        email: clientLocalPayload.email,
+        telefone: clientLocalPayload.telefone,
+        whatsapp: clientLocalPayload.whatsapp,
+        instagram: clientLocalPayload.instagram,
+        cpf_cnpj: clientLocalPayload.cpfCnpj,
+        endereco: clientLocalPayload.endereco,
+        cidade: clientLocalPayload.cidade,
+        data_nascimento:
+          clientLocalPayload.dataNascimento,
+        origem: clientLocalPayload.origem,
+        indicacao: clientLocalPayload.indicacao,
+        observacoes: clientLocalPayload.observacoes,
+        updated_at: now,
       };
 
       let savedClient;
       let savedProject;
 
-      if (isSupabaseConfigured) {
-        savedClient = await saveRow({
-          table: 'clientes',
+      if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
+        const savedDatabaseClient = await saveClientRowSafely({
           id: formData.id,
-          payload: formData.id ? clientBasePayload : { ...clientBasePayload, created_at: now },
+          fullPayload: formData.id
+            ? clientDatabasePayload
+            : {
+                ...clientDatabasePayload,
+                created_at: now,
+              },
+          basicPayload: formData.id
+            ? clientBasicDatabasePayload
+            : {
+                ...clientBasicDatabasePayload,
+                created_at: now,
+              },
         });
+
+        savedClient = {
+          ...existingClient,
+          ...savedDatabaseClient,
+          ...clientLocalPayload,
+          id:
+            savedDatabaseClient?.id
+            || formData.id
+            || createId('client'),
+          updated_at: now,
+        };
       } else {
         savedClient = {
           id: formData.id || createId('client'),
-          ...clientBasePayload,
-          created_at: formData.id ? undefined : now,
+          ...existingClient,
+          ...clientLocalPayload,
+          created_at:
+            existingClient.created_at
+            || existingClient.createdAt
+            || now,
+          updated_at: now,
         };
       }
 
@@ -535,7 +1172,7 @@ export default function Clientes() {
           ...existingProject,
           id: formData.projectId || '',
           cliente_id: savedClient.id,
-          clienteNome: clientBasePayload.nome,
+          clienteNome: clientLocalPayload.nome,
           valor_contratado: persistedTotal,
           financeiro: {
             ...currentFinance,
@@ -547,7 +1184,7 @@ export default function Clientes() {
         config: distributionConfig,
         context: {
           clientId: savedClient.id,
-          clientName: clientBasePayload.nome,
+          clientName: clientLocalPayload.nome,
           salarySplit: formData.divisaoSalarios,
         },
       });
@@ -555,12 +1192,20 @@ export default function Clientes() {
 
       const projectPayload = {
         cliente_id: savedClient.id,
-        tipo_servico: preserveText(formData.tipoTrabalho, existingProject.tipo_servico || 'Evento'),
+        tipo_servico: preserveText(
+          formData.tipoTrabalho,
+          existingProject.tipo_servico || 'Evento',
+        ),
         data: eventDate,
         valor_contratado: persistedTotal,
         valor_recebido: financialState.valorRecebido,
         contrato: {
-          ...(existingProject.contrato && typeof existingProject.contrato === 'object' ? existingProject.contrato : {}),
+          ...(
+            existingProject.contrato
+            && typeof existingProject.contrato === 'object'
+              ? existingProject.contrato
+              : {}
+          ),
           status: formData.contrato || 'Nao informado',
         },
         financeiro: {
@@ -569,7 +1214,16 @@ export default function Clientes() {
         },
       };
 
-      if (isSupabaseConfigured) {
+      const shouldPersistProject = Boolean(
+        formData.projectId
+        || String(formData.tipoTrabalho || '').trim()
+        || eventDate
+        || persistedTotal > 0
+        || payments.length > 0
+        || String(formData.contrato || '').trim(),
+      );
+
+      if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE && shouldPersistProject) {
         savedProject = await saveRow({
           table: 'projetos',
           id: formData.projectId,
@@ -578,46 +1232,140 @@ export default function Clientes() {
       } else {
         savedClient = {
           ...savedClient,
-          tipo_trabalho: projectPayload.tipo_servico,
-          data_trabalho: eventDate,
-          valor_total: persistedTotal,
-          valor_restante: financialState.saldoRestante,
-          historico_pagamentos: payments,
-          status: financialState.statusFinanceiro,
-        };
-        savedProject = {
-          id: formData.projectId || createId('project'),
-          ...projectPayload,
-          created_at: formData.projectId ? undefined : now,
+          ...(shouldPersistProject
+            ? {
+                tipo_trabalho: projectPayload.tipo_servico,
+                data_trabalho: eventDate,
+                valor_total: persistedTotal,
+                valor_restante:
+                  financialState.saldoRestante,
+                historico_pagamentos: payments,
+                status:
+                  financialState.statusFinanceiro,
+              }
+            : {}),
         };
 
+        savedProject = shouldPersistProject
+          ? {
+              id:
+                formData.projectId
+                || createId('project'),
+              ...projectPayload,
+              created_at: formData.projectId
+                ? existingProject.created_at
+                : now,
+            }
+          : null;
+
         const localStudio = loadLocalStudio();
+
         const nextClients = formData.id
-          ? localStudio.clients.map((client) => (client.id === formData.id ? { ...client, ...savedClient } : client))
-          : [{ ...savedClient, created_at: now }, ...localStudio.clients];
-        const nextProjects = formData.projectId
-          ? localStudio.projects.map((project) => (project.id === formData.projectId ? { ...project, ...savedProject } : project))
-          : [{ ...savedProject, created_at: now }, ...localStudio.projects];
+          ? localStudio.clients.map((client) => (
+              String(client.id) === String(formData.id)
+                ? { ...client, ...savedClient }
+                : client
+            ))
+          : [
+              { ...savedClient, created_at: now },
+              ...localStudio.clients,
+            ];
+
+        let nextProjects = localStudio.projects;
+
+        if (savedProject) {
+          nextProjects = formData.projectId
+            ? localStudio.projects.map((project) => (
+                String(project.id) === String(formData.projectId)
+                  ? { ...project, ...savedProject }
+                  : project
+              ))
+            : [savedProject, ...localStudio.projects];
+        }
+
         saveLocalStudio(nextClients, nextProjects);
       }
 
-      if (savedProject && isSupabaseConfigured) {
+      if (
+        savedProject
+        && isSupabaseConfigured
+        && !CLIENTS_LOCAL_MODE
+        && shouldPersistProject
+      ) {
         await createFinanceSeed(savedProject, savedClient);
         await syncProjectDistributionLedger({
           payments,
           projectId: savedProject.id,
           clientId: savedClient.id,
-          clientName: savedClient.nome || clientBasePayload.nome,
+          clientName: savedClient.nome || clientLocalPayload.nome,
         });
         await upsertAgendaEvent(savedProject, savedClient);
         emitDbUpdate();
       }
 
+      setStudio((current) => {
+        const nextClients = formData.id
+          ? current.clients.map((client) => (
+              String(client.id)
+              === String(savedClient.id)
+                ? {
+                    ...client,
+                    ...savedClient,
+                  }
+                : client
+            ))
+          : [
+              savedClient,
+              ...current.clients.filter(
+                (client) => (
+                  String(client.id)
+                  !== String(savedClient.id)
+                ),
+              ),
+            ];
+
+        let nextProjects = current.projects;
+
+        if (savedProject) {
+          nextProjects = formData.projectId
+            ? current.projects.map((project) => (
+                String(project.id)
+                === String(savedProject.id)
+                  ? {
+                      ...project,
+                      ...savedProject,
+                    }
+                  : project
+              ))
+            : [
+                savedProject,
+                ...current.projects.filter(
+                  (project) => (
+                    String(project.id)
+                    !== String(savedProject.id)
+                  ),
+                ),
+              ];
+        }
+
+        return {
+          clients: nextClients,
+          projects: nextProjects,
+        };
+      });
+
       setSelectedClientId(savedClient.id);
       closeModal();
-      await load();
     } catch (error) {
-      console.error('Erro ao salvar cliente:', error.message);
+      console.error(
+        'Erro ao salvar cliente localmente:',
+        error.message,
+      );
+      alert(
+        `Não foi possível salvar as alterações: ${
+          error.message || 'erro desconhecido'
+        }`,
+      );
     } finally {
       setSyncStatus('saved');
     }
@@ -635,7 +1383,7 @@ export default function Clientes() {
     setSyncStatus('saving');
 
     try {
-      if (!isSupabaseConfigured) {
+      if (!isSupabaseConfigured || CLIENTS_LOCAL_MODE) {
         const localStudio = loadLocalStudio();
         const nextProjects = localStudio.projects;
         const nextClients = localStudio.clients.filter((client) => client.id !== formData.id);
@@ -674,8 +1422,19 @@ export default function Clientes() {
       </div>
 
       <div className="sf-table-card">
-        <div style={{ padding: '12px' }}><input style={inputStyle} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone, e-mail, CPF/CNPJ ou cidade" /></div>
-        <table className="sf-table">
+        <div className="sf-client-search">
+          <input
+            style={inputStyle}
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+            }}
+            placeholder="Buscar por nome, telefone, e-mail, CPF/CNPJ ou cidade"
+          />
+        </div>
+
+        <div className="sf-client-table-scroll">
+          <table className="sf-table">
           <thead>
             <tr>
               <th>Nome do cliente</th>
@@ -735,50 +1494,71 @@ export default function Clientes() {
               </tr>
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <Modal isOpen={isModalOpen} onClose={closeModal} title={formData.id ? 'Editar Cliente' : 'Novo Cliente'}>
         <form className="sf-client-form" onSubmit={saveClient} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <Field label="Nome">
-            <input required style={inputStyle} value={formData.nome} onChange={(event) => updateField('nome', capitalizeName(event.target.value))} />
+            <input
+              ref={nameInputRef}
+              required
+              style={inputStyle}
+              value={formData.nome || ''}
+              onChange={updateNameField}
+              autoCapitalize="words"
+            />
           </Field>
 
           <Field label="E-mail">
-            <input type="email" autoComplete="email" style={inputStyle} value={formData.email} onChange={(event) => updateField('email', event.target.value)} />
+            <input type="email" autoComplete="email" style={inputStyle} value={formData.email || ''} onChange={(event) => updateField('email', event.target.value)} />
           </Field>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <Field label="Telefone">
-              <input style={inputStyle} placeholder="(00) 9 0000-0000" value={formData.telefone} onChange={(event) => updateField('telefone', maskPhone(event.target.value))} />
+              <input style={inputStyle} placeholder="(00) 9 0000-0000" value={formData.telefone || ''} onChange={(event) => updateField('telefone', maskPhone(event.target.value))} />
             </Field>
             <Field label="Instagram">
-              <input style={inputStyle} placeholder="@cliente" value={formData.instagram} onChange={(event) => updateField('instagram', maskInstagram(event.target.value))} />
+              <input style={inputStyle} placeholder="@cliente" value={formData.instagram || ''} onChange={(event) => updateField('instagram', maskInstagram(event.target.value))} />
             </Field>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <Field label="CPF ou CNPJ"><input style={inputStyle} value={formData.cpfCnpj} onChange={(event) => updateField('cpfCnpj', event.target.value)} /></Field>
-            <Field label="Data de nascimento"><input style={inputStyle} placeholder="dd/mm/aaaa" value={formData.dataNascimento} onChange={(event) => updateField('dataNascimento', maskDate(event.target.value))} /></Field>
-            <Field label="Endereço"><input style={inputStyle} value={formData.endereco} onChange={(event) => updateField('endereco', event.target.value)} /></Field>
-            <Field label="Cidade"><input style={inputStyle} value={formData.cidade} onChange={(event) => updateField('cidade', event.target.value)} /></Field>
-            <Field label="Origem"><select style={inputStyle} value={formData.origem} onChange={(event) => updateField('origem', event.target.value)}><option value="">Selecione</option>{['Instagram', 'Google', 'Indicação', 'Site', 'WhatsApp', 'Anúncio', 'Parceiro', 'Evento', 'Outro'].map((item) => <option key={item}>{item}</option>)}</select></Field>
-            <Field label="Indicação"><input style={inputStyle} value={formData.indicacao} onChange={(event) => updateField('indicacao', event.target.value)} placeholder="Cliente, parceiro ou texto livre" /></Field>
-            <Field label="Status comercial"><select style={inputStyle} value={formData.statusComercial} onChange={(event) => updateField('statusComercial', event.target.value)}>{['novo', 'contato iniciado', 'orçamento enviado', 'aguardando retorno', 'negociação', 'convertido', 'perdido', 'cliente ativo'].map((item) => <option key={item}>{item}</option>)}</select></Field>
-            <Field label="Próximo retorno"><input style={inputStyle} placeholder="dd/mm/aaaa" value={formData.dataProximoRetorno} onChange={(event) => updateField('dataProximoRetorno', maskDate(event.target.value))} /></Field>
+            <Field label="CPF ou CNPJ">
+              <input
+                style={inputStyle}
+                inputMode="numeric"
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                value={maskCpfCnpj(formData.cpfCnpj || '')}
+                onChange={(event) => {
+                  updateField(
+                    'cpfCnpj',
+                    maskCpfCnpj(event.target.value),
+                  );
+                }}
+              />
+            </Field>
+            <Field label="Data de nascimento"><input style={inputStyle} placeholder="dd/mm/aaaa" value={formData.dataNascimento || ''} onChange={(event) => updateField('dataNascimento', maskDate(event.target.value))} /></Field>
+            <Field label="Endereço"><input style={inputStyle} value={formData.endereco || ''} onChange={(event) => updateField('endereco', event.target.value)} /></Field>
+            <Field label="Cidade"><input style={inputStyle} value={formData.cidade || ''} onChange={(event) => updateField('cidade', event.target.value)} /></Field>
+            <Field label="Origem"><select style={inputStyle} value={formData.origem || ''} onChange={(event) => updateField('origem', event.target.value)}><option value="">Selecione</option>{['Instagram', 'Google', 'Indicação', 'Site', 'WhatsApp', 'Anúncio', 'Parceiro', 'Evento', 'Outro'].map((item) => <option key={item}>{item}</option>)}</select></Field>
+            <Field label="Indicação"><input style={inputStyle} value={formData.indicacao || ''} onChange={(event) => updateField('indicacao', event.target.value)} placeholder="Cliente, parceiro ou texto livre" /></Field>
+            <Field label="Status comercial"><select style={inputStyle} value={formData.statusComercial || ''} onChange={(event) => updateField('statusComercial', event.target.value)}>{['novo', 'contato iniciado', 'orçamento enviado', 'aguardando retorno', 'negociação', 'convertido', 'perdido', 'cliente ativo'].map((item) => <option key={item}>{item}</option>)}</select></Field>
+            <Field label="Próximo retorno"><input style={inputStyle} placeholder="dd/mm/aaaa" value={formData.dataProximoRetorno || ''} onChange={(event) => updateField('dataProximoRetorno', maskDate(event.target.value))} /></Field>
           </div>
-          <Field label="Observações"><textarea rows="3" style={inputStyle} value={formData.observacoes} onChange={(event) => updateField('observacoes', event.target.value)} /></Field>
+          <Field label="Observações"><textarea rows="3" style={inputStyle} value={formData.observacoes || ''} onChange={(event) => updateField('observacoes', event.target.value)} /></Field>
 
           <Field label="Tipo de trabalho">
-            <input style={inputStyle} value={formData.tipoTrabalho} onChange={(event) => updateField('tipoTrabalho', capitalizeFirst(event.target.value))} />
+            <input style={inputStyle} value={formData.tipoTrabalho || ''} onChange={(event) => updateField('tipoTrabalho', capitalizeFirst(event.target.value))} />
           </Field>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <Field label="Data">
-              <input style={inputStyle} inputMode="numeric" placeholder="dd/mm/aaaa" value={formData.dataTrabalho} onChange={(event) => updateField('dataTrabalho', maskDate(event.target.value))} />
+              <input style={inputStyle} inputMode="numeric" placeholder="dd/mm/aaaa" value={formData.dataTrabalho || ''} onChange={(event) => updateField('dataTrabalho', maskDate(event.target.value))} />
             </Field>
             <Field label="Status">
-              <input style={inputStyle} value={formData.status} onChange={(event) => updateField('status', capitalizeFirst(event.target.value))} />
+              <input style={inputStyle} value={formData.status || ''} onChange={(event) => updateField('status', capitalizeFirst(event.target.value))} />
             </Field>
           </div>
 
@@ -792,10 +1572,10 @@ export default function Clientes() {
 
             <div className="sf-client-finance-grid">
               <Field label="Contrato">
-                <input style={inputStyle} placeholder="Ex.: Assinado" value={formData.contrato} onChange={(event) => updateField('contrato', capitalizeFirst(event.target.value))} />
+                <input style={inputStyle} placeholder="Ex.: Assinado" value={formData.contrato || ''} onChange={(event) => updateField('contrato', capitalizeFirst(event.target.value))} />
               </Field>
               <Field label="Valor contratado">
-                <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formData.valorTotal} onChange={(event) => updateField('valorTotal', maskCurrency(event.target.value))} />
+                <input style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" value={formData.valorTotal || ''} onChange={(event) => updateField('valorTotal', maskCurrency(event.target.value))} />
               </Field>
               <Field label="Total recebido">
                 <input style={inputStyle} value={maskCurrency(String(Math.round(paymentSummary.valorRecebido * 100)))} readOnly />

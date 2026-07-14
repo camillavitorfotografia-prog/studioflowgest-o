@@ -37,7 +37,6 @@ import {
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
 import {
   convertLeadToClientProject,
-  emitDbUpdate,
   isMissingRelationError,
   mapLeadFromDb,
   saveLeadRow,
@@ -117,6 +116,51 @@ const WHATSAPP_TEMPLATES = [
 const getLeadFirstName = (lead = {}) => (
   String(lead.nome || 'cliente').trim().split(/\s+/)[0] || 'cliente'
 );
+
+const normalizeLeadPhone = (value = '') => (
+  String(value || '').replace(/\D/g, '')
+);
+
+const normalizeLeadEmail = (value = '') => (
+  String(value || '').trim().toLowerCase()
+);
+
+const findDuplicateLead = (
+  leads = [],
+  candidate = {},
+  ignoredId = '',
+) => {
+  const candidatePhone = normalizeLeadPhone(
+    candidate.whatsapp || candidate.telefone,
+  );
+
+  const candidateEmail = normalizeLeadEmail(
+    candidate.email,
+  );
+
+  return leads.find((lead) => {
+    if (String(lead.id) === String(ignoredId || '')) {
+      return false;
+    }
+
+    const leadPhone = normalizeLeadPhone(
+      lead.whatsapp || lead.telefone,
+    );
+
+    const leadEmail = normalizeLeadEmail(lead.email);
+
+    return (
+      candidatePhone
+      && leadPhone
+      && candidatePhone === leadPhone
+    ) || (
+      candidateEmail
+      && leadEmail
+      && candidateEmail === leadEmail
+    );
+  }) || null;
+};
+
 
 const getWhatsAppNumber = (lead) => {
   const safeLead = lead || {};
@@ -1090,7 +1134,10 @@ const normalizeAssistantQuestion = (value = '') => (
     .trim()
 );
 
-const buildStudioFlowAssistantData = (leads = []) => {
+const buildStudioFlowAssistantData = (
+  leads = [],
+  automationRules = DEFAULT_AUTOMATION_RULES,
+) => {
   const activeLeads = leads.filter((lead) => (
     !['aprovado', 'perdido', 'cancelado'].includes(lead.status)
   ));
@@ -1916,70 +1963,42 @@ export default function CRM() {
 
   const fetchLeads = async () => {
     try {
-      if (!isSupabaseConfigured) {
-        const localLeads = readLocalLeads();
-
-        setLeads(localLeads);
-        emitDbUpdate();
-
-        return localLeads;
-      }
-
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const mappedLeads = (data || [])
-        .map(mapLeadFromDb)
-        .map(enrichLeadBudgetFields);
-
-      setLeads(mappedLeads);
-      emitDbUpdate();
-
-      return mappedLeads;
-    } catch (err) {
-      console.error(
-        'Erro ao buscar leads no Supabase:',
-        err.message,
-      );
-
       const localLeads = readLocalLeads();
 
       setLeads(localLeads);
 
       return localLeads;
+    } catch (error) {
+      console.error(
+        'Erro ao carregar leads locais:',
+        error.message,
+      );
+
+      setLeads([]);
+      return [];
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    setTimeout(() => {
-      void fetchLeads();
-    }, 0);
+    let active = true;
 
-    const channel = supabase
-      .channel('realtime-leads-crm')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'leads',
-        },
-        () => {
-          setTimeout(() => {
-            void fetchLeads();
-          }, 0);
-        },
-      )
-      .subscribe();
+    const load = () => {
+      if (!active) return;
+      void fetchLeads();
+    };
+
+    setTimeout(load, 0);
+    window.addEventListener('focus', load);
+    window.addEventListener('sf_storage_update', load);
+    window.addEventListener('storage', load);
 
     return () => {
-      supabase.removeChannel(channel);
+      active = false;
+      window.removeEventListener('focus', load);
+      window.removeEventListener('sf_storage_update', load);
+      window.removeEventListener('storage', load);
     };
   }, []);
 
@@ -2014,6 +2033,34 @@ export default function CRM() {
   });
 
   const handleSaveLead = async (leadData) => {
+    const duplicateLead = findDuplicateLead(
+      leads,
+      leadData,
+      leadData.id,
+    );
+
+    if (duplicateLead) {
+      const duplicatedBy = (
+        normalizeLeadPhone(
+          leadData.whatsapp || leadData.telefone,
+        )
+        && normalizeLeadPhone(
+          duplicateLead.whatsapp || duplicateLead.telefone,
+        ) === normalizeLeadPhone(
+          leadData.whatsapp || leadData.telefone,
+        )
+      )
+        ? 'telefone'
+        : 'e-mail';
+
+      alert(
+        `Já existe um lead com este ${duplicatedBy}: `
+        + `${duplicateLead.nome || 'Lead sem nome'}.`,
+      );
+
+      return;
+    }
+
     setSaveStatus('saving');
 
     const now = new Date().toISOString();
@@ -2042,17 +2089,10 @@ export default function CRM() {
           },
         ];
 
-        if (isSupabaseConfigured) {
-          await saveLeadToDb({
-            id: leadData.id,
-            payload,
-          });
-        } else {
-          saveLeadLocal({
-            id: leadData.id,
-            payload,
-          });
-        }
+        saveLeadLocal({
+          id: leadData.id,
+          payload,
+        });
       } else {
         payload.historico = [
           {
@@ -2072,14 +2112,11 @@ export default function CRM() {
 
         payload.created_at = now;
 
-        if (isSupabaseConfigured) {
-          await saveLeadToDb({ payload });
-        } else {
-          saveLeadLocal({ payload });
-        }
+        saveLeadLocal({ payload });
       }
 
       await fetchLeads();
+      window.dispatchEvent(new Event('sf_storage_update'));
 
       setIsModalOpen(false);
       setEditingLead(null);
@@ -2180,7 +2217,8 @@ export default function CRM() {
       },
     };
 
-    const nextHistorico = [      ...(currentLead.historico || []),
+    const nextHistorico = [
+      ...(currentLead.historico || []),
       historyItem,
     ];
 
@@ -2210,22 +2248,16 @@ export default function CRM() {
     setSelectedLead(optimisticLead);
 
     try {
-      if (isSupabaseConfigured) {
-        await saveLeadRow({
-          id: currentLead.id,
-          payload,
-        });
-      } else {
-        saveLeadLocal({
-          id: currentLead.id,
-          payload: {
-            ...currentLead,
-            ...payload,
-          },
-        });
-      }
+      saveLeadLocal({
+        id: currentLead.id,
+        payload: {
+          ...currentLead,
+          ...payload,
+        },
+      });
 
       const updatedLeads = await fetchLeads();
+      window.dispatchEvent(new Event('sf_storage_update'));
 
       const refreshedLead = updatedLeads.find(
         (lead) => lead.id === currentLead.id,
@@ -2278,13 +2310,28 @@ export default function CRM() {
   };
 
   const convertLeadToClient = async (lead) => {
+    const alreadyConverted = (
+      lead.convertidoEmCliente
+      || lead.convertido_em_cliente
+      || lead.clientId
+      || lead.clienteId
+      || (lead.historico || []).some((item) => (
+        item?.tipo === 'conversao'
+        || item?.acao === 'Lead convertido em cliente e trabalho'
+      ))
+    );
+
+    if (alreadyConverted) {
+      return true;
+    }
+
     try {
       await convertLeadToClientProject(lead);
 
       return true;
     } catch (error) {
       console.error(
-        'Erro ao converter lead em cliente/projeto no Supabase:',
+        'Erro ao converter lead em cliente/projeto:',
         error.message,
       );
 
@@ -2306,7 +2353,10 @@ export default function CRM() {
   }) => {
     setSaveStatus('saving');
 
-    if (normalizedStatus === 'aprovado') {
+    if (
+      normalizedStatus === 'aprovado'
+      && normalizeLeadStatus(currentLead.status) !== 'aprovado'
+    ) {
       const converted = await convertLeadToClient(currentLead);
 
       if (!converted) {
@@ -2379,20 +2429,13 @@ export default function CRM() {
     }
 
     try {
-      if (isSupabaseConfigured) {
-        await saveLeadRow({
-          id: currentLead.id,
-          payload: statusPayload,
-        });
-      } else {
-        saveLeadLocal({
-          id: currentLead.id,
-          payload: {
-            ...currentLead,
-            ...statusPayload,
-          },
-        });
-      }
+      saveLeadLocal({
+        id: currentLead.id,
+        payload: {
+          ...currentLead,
+          ...statusPayload,
+        },
+      });
 
       const updatedLeads = await fetchLeads();
       const refreshedLead = updatedLeads.find(
@@ -3495,7 +3538,7 @@ export default function CRM() {
         id: createId('prioridade-assistente'),
         data: now,
         tipo: 'atualizacao',
-        acao: `Prioridade alterada para ${TASK_PRIORITY_LABELS[priority] || priority} pelo StudioFlow AI`,
+        acao: `Prioridade alterada para ${TASK_PRIORITY_LABELS[priority] || priority} pelo sistema de regras comerciais`,
         dadosComerciais: {
           ...buildCommercialSnapshot(lead),
           prioridade: priority,
@@ -3996,8 +4039,11 @@ export default function CRM() {
   };
 
   const assistantData = useMemo(() => (
-    buildStudioFlowAssistantData(filteredLeads)
-  ), [filteredLeads]);
+    buildStudioFlowAssistantData(
+      filteredLeads,
+      automationRules,
+    )
+  ), [automationRules, filteredLeads]);
 
   const assistantGreeting = useMemo(() => {
     const totalAttention = assistantData.attentionItems.length;
@@ -4340,7 +4386,7 @@ export default function CRM() {
               }}
             >
               <Sparkles size={18} />
-              StudioFlow AI
+              Assistente comercial
               {assistantData.attentionItems.length > 0 && (
                 <span
                   style={{
@@ -6457,7 +6503,7 @@ export default function CRM() {
           <aside
             role="dialog"
             aria-modal="true"
-            aria-label="StudioFlow AI"
+            aria-label="Assistente comercial"
             onClick={(event) => event.stopPropagation()}
             style={{
               width: 'min(520px, 100%)',
@@ -6510,7 +6556,7 @@ export default function CRM() {
                       fontSize: '1rem',
                     }}
                   >
-                    StudioFlow AI
+                    Assistente comercial
                   </h2>
 
                   <div

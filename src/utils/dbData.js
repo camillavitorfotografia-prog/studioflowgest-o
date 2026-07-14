@@ -393,20 +393,37 @@ export const mapTransactionFromDb = (transaction = {}) => ({
   clients = [],
   transactions = [],
 ) => {
+  const financeiroBase = (
+    project.financeiro
+    && typeof project.financeiro === 'object'
+      ? project.financeiro
+      : {}
+  );
+
+  const projectData = (
+    financeiroBase.projectData
+    && typeof financeiroBase.projectData === 'object'
+      ? financeiroBase.projectData
+      : {}
+  );
+
   const clientId =
     project.cliente_id
     || project.client_id
     || project.clientId
     || project.clienteId
-    || project.legacyClientId;
+    || project.legacyClientId
+    || projectData.clienteId
+    || '';
 
-  const client = clients.find((item) => item.id === clientId)
-    || mapClientFromDb(project.cliente || {});
+  const client = clients.find(
+    (item) => String(item.id) === String(clientId),
+  ) || mapClientFromDb(project.cliente || {});
 
   const payments = readPayments(project);
 
   const expenses = transactions.filter((item) => (
-    item.projectId === project.id
+    String(item.projectId || '') === String(project.id || '')
     && (
       item.tipoGeral === 'Saida'
       || item.tipo === 'fixa'
@@ -416,108 +433,191 @@ export const mapTransactionFromDb = (transaction = {}) => ({
 
   const total = Number(
     project.valor_contratado
-      ?? project.valorContratado
-      ?? 0,
+    ?? project.valorContratado
+    ?? financeiroBase.valorContratado
+    ?? projectData.valorContratado
+    ?? 0,
   );
 
-  const paymentSummary = calculatePaymentsSummary(payments, total);
+  const paymentSummary = calculatePaymentsSummary(
+    payments,
+    total,
+  );
 
   const paid = payments.length
     ? paymentSummary.valorRecebido
     : Number(
       project.valor_recebido
-        ?? project.valorRecebido
-        ?? 0,
+      ?? project.valorRecebido
+      ?? financeiroBase.valorRecebido
+      ?? 0,
     );
 
   const remaining = payments.length
     ? paymentSummary.valorRestante
     : Number(
       project.saldo_restante
-        ?? project.saldoRestante
-        ?? Math.max(0, total - paid),
+      ?? project.saldoRestante
+      ?? financeiroBase.saldoRestante
+      ?? Math.max(0, total - paid),
     );
 
   const costs = expenses.reduce(
-    (sum, item) => sum + normalizePaymentValue(item.valor),
+    (sum, item) => (
+      sum + normalizePaymentValue(item.valor)
+    ),
     0,
+  );
+
+  const data =
+    project.data
+    || project.data_trabalho
+    || project.dataTrabalho
+    || projectData.data
+    || '';
+
+  const horario =
+    project.horario
+    || projectData.horario
+    || financeiroBase.horario
+    || '';
+
+  const local =
+    project.local
+    || projectData.local
+    || financeiroBase.local
+    || client.cidade
+    || '';
+
+  const operationalStatus = normalizeProductionStatus(
+    project.status_producao
+    || project.statusProducao
+    || financeiroBase.statusProducao
+    || project.status
+    || financeiroBase.workflowStatus
+    || financeiroBase.statusProjeto
+    || 'novo',
   );
 
   return {
     ...project,
+    ...projectData,
     id: project.id,
-    leadId: project.lead_id || project.leadId || '',
+    leadId:
+      project.lead_id
+      || project.leadId
+      || financeiroBase.crmLeadId
+      || '',
     clientId,
     clienteId: clientId,
     clienteNome:
       project.cliente_nome
       || project.clienteNome
+      || projectData.clienteNome
       || client.nome
       || '',
     cliente: client,
+    titulo:
+      project.titulo
+      || projectData.titulo
+      || '',
     tipoServico:
       project.tipo_servico
       || project.servico
       || project.tipoServico
       || project.tipoTrabalho
+      || projectData.tipoServico
       || 'Evento',
     categoria:
       project.categoria
+      || projectData.categoria
       || project.tipo_servico
       || project.servico
       || project.tipoServico
       || 'Evento',
-    status:
-      normalizeProductionStatus(
-        project.status_producao
-        || project.statusProducao
-        || project.financeiro?.statusProducao
-        || project.status
-        || project.financeiro?.workflowStatus
-        || project.financeiro?.statusProjeto
-        || 'novo',
-      ),
-    statusProducao:
-      normalizeProductionStatus(
-        project.status_producao
-        || project.statusProducao
-        || project.financeiro?.statusProducao
-        || project.status
-        || project.financeiro?.workflowStatus
-        || 'novo',
-      ),
+    descricao:
+      project.descricao
+      || projectData.descricao
+      || '',
+    observacoes:
+      project.observacoes
+      || projectData.observacoes
+      || '',
+    status: operationalStatus,
+    statusProducao: operationalStatus,
+    statusComercial:
+      project.statusComercial
+      || project.status_comercial
+      || projectData.statusComercial
+      || 'novo_contato',
+    prioridade:
+      project.prioridade
+      || projectData.prioridade
+      || 'normal',
     calendarSync:
       project.calendario_sync
       || project.calendarSync
-      || project.financeiro?.calendarSync
+      || financeiroBase.calendarSync
       || {},
     valorContratado: total,
     valorRecebido: paid,
     saldoRestante: remaining,
-    data:
-      project.data
-      || project.data_trabalho
-      || project.dataTrabalho
+    data,
+    dataEvento: data,
+    horario,
+    horaInicio: horario,
+    horaFim:
+      project.horaFim
+      || projectData.horaFim
       || '',
-    horario:
-      project.horario
-      || project.financeiro?.horario
-      || '',
-    local:
-      project.local
-      || project.financeiro?.local
+    local,
+    cidade:
+      project.cidade
+      || projectData.cidade
       || client.cidade
       || '',
+    estado:
+      project.estado
+      || projectData.estado
+      || '',
+    endereco:
+      project.endereco
+      || projectData.endereco
+      || '',
+    prazoEntregaDias: Number(
+      project.prazoEntregaDias
+      ?? projectData.prazoEntregaDias
+      ?? 0,
+    ),
+    dataPrevistaEntrega:
+      project.dataPrevistaEntrega
+      || projectData.dataPrevistaEntrega
+      || '',
+    dataRealEntrega:
+      project.dataRealEntrega
+      || projectData.dataRealEntrega
+      || '',
+    custoEstimado: Number(
+      project.custoEstimado
+      ?? projectData.custoEstimado
+      ?? 0,
+    ),
+    custoReal: Number(
+      project.custoReal
+      ?? projectData.custoReal
+      ?? 0,
+    ),
+    arquivado: Boolean(
+      project.arquivado
+      ?? projectData.arquivado
+      ?? false,
+    ),
     receitas: payments,
     pagamentos: payments,
     historicoPagamentos: payments,
     financeiro: {
-      ...(
-        project.financeiro
-        && typeof project.financeiro === 'object'
-          ? project.financeiro
-          : {}
-      ),
+      ...financeiroBase,
+      projectData,
       receitas: payments,
       despesas: expenses,
       custos: costs,
@@ -530,19 +630,20 @@ export const mapTransactionFromDb = (transaction = {}) => ({
       saldoRestante: remaining,
     },
     agenda: {
-      data: project.data || '',
-      horario: project.horario || '',
-      local: project.local || client.cidade || '',
+      data,
+      horario,
+      local,
     },
     checklist:
       project.checklist
-      || project.financeiro?.checklist
+      || financeiroBase.checklist
       || [],
     equipamentos: project.equipamentos || [],
     equipamentosDetalhados: [],
     timelineCompleta:
       project.timeline
       || project.historico
+      || financeiroBase.timeline
       || [],
     createdAt:
       project.created_at
@@ -551,11 +652,47 @@ export const mapTransactionFromDb = (transaction = {}) => ({
     updatedAt:
       project.updated_at
       || project.updatedAt
+      || financeiroBase.updatedAt
       || new Date().toISOString(),
   };
 };
 
+const unavailableTables = new Set();
+
+/*
+ * Estas tabelas ainda não existem no Supabase deste projeto.
+ * Enquanto não forem criadas, o StudioFlow usa somente o
+ * armazenamento local e não realiza requisições que gerariam 404.
+ */
+const LOCAL_ONLY_TABLES = new Set([
+  'leads',
+  'equipamentos',
+]);
+
+const readLocalArray = (key) => {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+};
+
+const TABLE_FALLBACKS = {
+  leads: () => readLocalArray('cv_crm_leads'),
+  equipamentos: () => readLocalArray('cv_studio_equipamentos'),
+};
+
 const selectAll = async (table, orderColumn = 'created_at') => {
+  const fallback = TABLE_FALLBACKS[table];
+
+  if (
+    LOCAL_ONLY_TABLES.has(table)
+    || unavailableTables.has(table)
+  ) {
+    return fallback ? fallback() : [];
+  }
+
   try {
     assertSupabaseConfigured();
 
@@ -573,8 +710,13 @@ const selectAll = async (table, orderColumn = 'created_at') => {
 
     return data || [];
   } catch (error) {
+    if (isMissingRelationError(error, table)) {
+      unavailableTables.add(table);
+      return fallback ? fallback() : [];
+    }
+
     console.error(`Erro ao carregar ${table}:`, error.message);
-    return [];
+    return fallback ? fallback() : [];
   }
 };
 
@@ -786,10 +928,12 @@ const saveMirrors = ({
   transactions,
   equipment,
 }) => {
-  localStorage.setItem(
-    'cv_crm_leads',
-    JSON.stringify(leads),
-  );
+  if (!unavailableTables.has('leads')) {
+    localStorage.setItem(
+      'cv_crm_leads',
+      JSON.stringify(leads),
+    );
+  }
 
   localStorage.setItem(
     'cv_studio_clients',
@@ -806,10 +950,12 @@ const saveMirrors = ({
     JSON.stringify(transactions),
   );
 
-  localStorage.setItem(
-    'cv_studio_equipamentos',
-    JSON.stringify(equipment),
-  );
+  if (!unavailableTables.has('equipamentos')) {
+    localStorage.setItem(
+      'cv_studio_equipamentos',
+      JSON.stringify(equipment),
+    );
+  }
 };
 
 export const getDbStudioData = async () => {
@@ -861,65 +1007,30 @@ export const getDbStudioData = async () => {
 };
 
 export const subscribeDbUpdates = (callback) => {
-  const channel = supabase
-    .channel(
-      `studioflow-db-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    )
-    .on(
+  const channel = supabase.channel(
+    `studioflow-db-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
+
+  const tables = [
+    'clientes',
+    'projetos',
+    'financas',
+    PROFILE_TABLE,
+  ];
+
+  tables.forEach((table) => {
+    channel.on(
       'postgres_changes',
       {
         event: '*',
         schema: 'public',
-        table: 'leads',
+        table,
       },
       callback,
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'clientes',
-      },
-      callback,
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'projetos',
-      },
-      callback,
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'financas',
-      },
-      callback,
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'equipamentos',
-      },
-      callback,
-    )
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: PROFILE_TABLE,
-      },
-      callback,
-    )
-    .subscribe();
+    );
+  });
+
+  channel.subscribe();
 
   return () => supabase.removeChannel(channel);
 };export const updateProjectSchedule = async ({

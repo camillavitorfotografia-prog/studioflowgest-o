@@ -83,6 +83,9 @@ import {
   monthKey,
   isDistributionConfigValid,
   PAYMENT_DISTRIBUTION_ROW_TYPE,
+  appendFinancialAudit,
+  getTransactionCompetence,
+  isInternalTransfer,
 } from '../../utils/financeEngine';
 
 const tabs = [
@@ -603,6 +606,27 @@ function useFinanceData() {
         if (origin in localSaldos) localSaldos[origin] -= d.valor || 0;
       }
     });
+
+    transacoes
+      .filter(isInternalTransfer)
+      .forEach((transfer) => {
+        const value = Number(transfer.valor || 0);
+
+        if (transfer.transferDirection === 'out') {
+          const origin = transfer.contaOrigem || 'empresa';
+          if (origin in localSaldos) localSaldos[origin] -= value;
+        }
+
+        if (transfer.transferDirection === 'in') {
+          const destination = transfer.contaDestino
+            || transfer.contaOrigem
+            || 'empresa';
+
+          if (destination in localSaldos) {
+            localSaldos[destination] += value;
+          }
+        }
+      });
 
     const saldos = {
       salario: Math.round(localSaldos.salario * 100) / 100,
@@ -6106,7 +6130,9 @@ function OperacoesFinanceiras({ data }) {
     const balances = {};
 
     accounts.forEach((account) => {
-      balances[account.id] = Number(account.initialBalance || 0);
+      balances[account.id] = Number(
+        account.initialBalance || 0,
+      );
     });
 
     balances.empresa = (
@@ -6124,36 +6150,45 @@ function OperacoesFinanceiras({ data }) {
       + Number(data.saldos.salario || 0)
     );
 
-    data.consolidated.todasReceitas
-      .filter((item) => deriveFinancialStatus(item) === 'recebida')
-      .forEach((item) => {
-        const accountId = item.contaOrigem || 'empresa';
-
-        balances[accountId] = (
-          Number(balances[accountId] || 0)
-          + Number(item.valor || 0)
+    data.transacoes
+      .filter((item) => {
+        const accountId = item.contaOrigem || '';
+        return (
+          accountId
+          && !['empresa', 'reserva', 'salario'].includes(accountId)
         );
-      });
-
-    data.consolidated.despesas
-      .filter((item) => deriveFinancialStatus(item) === 'paga')
+      })
       .forEach((item) => {
-        const accountId = item.contaOrigem || 'empresa';
+        const accountId = item.contaOrigem;
+        const status = deriveFinancialStatus(item);
+        const value = Number(item.valor || 0);
 
-        balances[accountId] = (
-          Number(balances[accountId] || 0)
-          - Number(item.valor || 0)
-        );
+        if (
+          !isInternalTransfer(item)
+          && status === 'recebida'
+        ) {
+          balances[accountId] = Number(
+            balances[accountId] || 0,
+          ) + value;
+        }
+
+        if (
+          !isInternalTransfer(item)
+          && status === 'paga'
+        ) {
+          balances[accountId] = Number(
+            balances[accountId] || 0,
+          ) - value;
+        }
       });
 
     return balances;
   }, [
     accounts,
-    data.consolidated.despesas,
-    data.consolidated.todasReceitas,
     data.saldos.empresa,
     data.saldos.reserva,
     data.saldos.salario,
+    data.transacoes,
   ]);
 
   const addAccount = () => {
@@ -6212,11 +6247,13 @@ function OperacoesFinanceiras({ data }) {
     const rows = [
       {
         id: `${transferId}-saida`,
-        tipo: 'variavel',
-        tipoGeral: 'despesa',
+        tipo: 'transferencia_interna',
+        tipoGeral: 'Transferencia',
+        transferDirection: 'out',
         descricao: transferDraft.description || 'Transferência',
         categoria: 'Transferência',
         valor: value,
+        competencia: transferDraft.date.slice(0, 7),
         vencimento: transferDraft.date,
         dataPagamento: transferDraft.date,
         status: 'paga',
@@ -6228,11 +6265,13 @@ function OperacoesFinanceiras({ data }) {
       },
       {
         id: `${transferId}-entrada`,
-        tipo: 'receita_avulsa',
-        tipoGeral: 'receita',
+        tipo: 'transferencia_interna',
+        tipoGeral: 'Transferencia',
+        transferDirection: 'in',
         descricao: transferDraft.description || 'Transferência',
         categoria: 'Transferência',
         valor: value,
+        competencia: transferDraft.date.slice(0, 7),
         vencimento: transferDraft.date,
         dataRecebimento: transferDraft.date,
         status: 'recebida',
@@ -6248,6 +6287,18 @@ function OperacoesFinanceiras({ data }) {
       STORAGE_KEYS.finances,
       [...current, ...rows],
     );
+
+    appendFinancialAudit({
+      action: 'internal_transfer_created',
+      entity: 'transfer',
+      entityId: transferId,
+      after: rows,
+      details: {
+        from: transferDraft.from,
+        to: transferDraft.to,
+        value,
+      },
+    });
 
     await data.loadAll();
     window.dispatchEvent(new Event('sf_storage_update'));
@@ -6306,6 +6357,7 @@ function OperacoesFinanceiras({ data }) {
           descricao: `${installmentDraft.description} — ${index + 1}/${installments}`,
           categoria: installmentDraft.category,
           valor: value,
+          competencia: dueDate.toISOString().slice(0, 7),
           vencimento: dueDate.toISOString().slice(0, 10),
           status: 'pendente',
           formaPagamento: 'Parcelado',
@@ -6331,6 +6383,17 @@ function OperacoesFinanceiras({ data }) {
       STORAGE_KEYS.finances,
       [...current, ...rows],
     );
+
+    appendFinancialAudit({
+      action: 'installment_purchase_created',
+      entity: 'installment_group',
+      entityId: groupId,
+      after: rows,
+      details: {
+        totalValue,
+        installments,
+      },
+    });
 
     await data.loadAll();
     window.dispatchEvent(new Event('sf_storage_update'));
@@ -6453,6 +6516,7 @@ function OperacoesFinanceiras({ data }) {
           descricao: `${cardPurchaseDraft.description} — ${index + 1}/${installments}`,
           categoria: cardPurchaseDraft.category,
           valor: value,
+          competencia: dueDate.toISOString().slice(0, 7),
           vencimento: dueDate.toISOString().slice(0, 10),
           status: 'pendente',
           formaPagamento: `Cartão — ${card.name}`,
@@ -6473,6 +6537,18 @@ function OperacoesFinanceiras({ data }) {
       STORAGE_KEYS.finances,
       [...current, ...rows],
     );
+
+    appendFinancialAudit({
+      action: 'card_purchase_created',
+      entity: 'card_purchase',
+      entityId: purchaseId,
+      after: rows,
+      details: {
+        cardId: card.id,
+        totalValue,
+        installments,
+      },
+    });
 
     const nextCards = cards.map((item) => (
       item.id === card.id
@@ -7641,7 +7717,7 @@ function DreFinanceira({ data }) {
     const revenues = data.consolidated.todasReceitas.filter(
       (item) => (
         deriveFinancialStatus(item) !== 'cancelada'
-        && String(item.vencimento || '').slice(0, 7)
+        && StringgetTransactionCompetence(item)
           === referenceMonth
       ),
     );
@@ -7649,7 +7725,7 @@ function DreFinanceira({ data }) {
     const expenses = data.consolidated.despesas.filter(
       (item) => (
         deriveFinancialStatus(item) !== 'cancelada'
-        && String(item.vencimento || '').slice(0, 7)
+        && StringgetTransactionCompetence(item)
           === referenceMonth
       ),
     );

@@ -4,7 +4,9 @@ import {
   dateFnsLocalizer,
 } from 'react-big-calendar';
 import {
+  addDays,
   addMonths,
+  addWeeks,
   endOfDay,
   format,
   getDay,
@@ -13,7 +15,9 @@ import {
   parse,
   startOfDay,
   startOfWeek,
+  subDays,
   subMonths,
+  subWeeks,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import {
@@ -46,6 +50,10 @@ import {
   writeStorage,
 } from '../../utils/storage';
 import { loadSettings } from '../../utils/settings';
+import {
+  deriveFinancialStatus,
+  formatCurrency,
+} from '../../utils/financeEngine';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './Agenda.css';
 
@@ -233,6 +241,7 @@ const sourceLabels = {
   manual: 'Manual',
   trabalho: 'Projeto',
   crm: 'CRM',
+  financeiro: 'Financeiro',
 };
 
 export default function Agenda() {
@@ -242,6 +251,7 @@ export default function Agenda() {
   const [studio, setStudio] = useState({
     projects: [],
     leads: [],
+    transactions: [],
   });
 
   const [manualEvents, setManualEvents] = useState(() => (
@@ -271,6 +281,7 @@ export default function Agenda() {
           ...data,
           projects: data.projects || [],
           leads: data.leads || [],
+          transactions: data.transactions || [],
         });
       }
     };
@@ -381,6 +392,55 @@ export default function Agenda() {
     return [...unique.values()];
   }, [studio.projects]);
 
+  const projectDeliveryEvents = useMemo(() => (
+    (studio.projects || [])
+      .map((project) => {
+        const deliveryDate = (
+          project.dataPrevistaEntrega
+          || project.data_prevista_entrega
+          || project.prazoEntrega
+          || ''
+        );
+
+        const start = parseDate(deliveryDate, '09:00');
+
+        if (!start) return null;
+
+        const service = (
+          project.tipoServico
+          || project.tipo_servico
+          || 'Trabalho'
+        );
+
+        const client = (
+          project.clienteNome
+          || project.cliente?.nome
+          || 'Cliente'
+        );
+
+        return {
+          id: `project-delivery-${project.id}-${deliveryDate}`,
+          title: `Entrega — ${client}`,
+          category: 'Entrega',
+          start,
+          end: new Date(start.getTime() + 30 * 60000),
+          allDay: false,
+          location: '',
+          description: `Prazo de entrega do ${service}.`,
+          status: project.status,
+          sourceType: 'trabalho',
+          origem: 'trabalho',
+          sourceId: project.id,
+          projectId: project.id,
+          clientId: project.clienteId || project.clientId,
+          project,
+          isManual: false,
+          color: categoryColors.Entrega,
+        };
+      })
+      .filter(Boolean)
+  ), [studio.projects]);
+
   const crmEvents = useMemo(() => {
     const items = [];
 
@@ -482,47 +542,137 @@ export default function Agenda() {
     return items;
   }, [studio.leads]);
 
-  const manualCalendarEvents = useMemo(() => (
-    manualEvents
-      .map((event) => {
-        const start = parseDate(
-          event.startDate,
-          event.allDay ? '00:00' : event.startTime,
+  const financeEvents = useMemo(() => (
+    (studio.transactions || [])
+      .filter((transaction) => {
+        const status = deriveFinancialStatus(transaction);
+
+        return ![
+          'paga',
+          'recebida',
+          'cancelada',
+        ].includes(status);
+      })
+      .map((transaction) => {
+        const dueDate = (
+          transaction.vencimento
+          || transaction.dataVencimento
+          || transaction.data_vencimento
+          || transaction.data
+          || ''
         );
+
+        const start = parseDate(dueDate, '08:30');
 
         if (!start) return null;
 
-        let end = parseDate(
-          event.endDate || event.startDate,
-          event.allDay ? '23:59' : event.endTime || event.startTime,
+        const isExpense = (
+          transaction.tipoGeral === 'Saida'
+          || transaction.tipo === 'fixa'
+          || transaction.tipo === 'variavel'
         );
 
-        if (!end || end <= start) {
-          end = new Date(start.getTime() + 3600000);
-        }
-
         return {
-          ...event,
+          id: `finance-${transaction.id}-${dueDate}`,
+          title: `${
+            isExpense ? 'Pagar' : 'Receber'
+          } — ${
+            transaction.descricao
+            || transaction.nome
+            || 'Lançamento financeiro'
+          }`,
+          category: 'Tarefa',
           start,
-          end,
+          end: new Date(start.getTime() + 30 * 60000),
+          allDay: false,
+          location: '',
+          description: `${
+            isExpense ? 'Conta a pagar' : 'Conta a receber'
+          } · ${formatCurrency(transaction.valor || 0)}`,
+          status: deriveFinancialStatus(transaction),
+          sourceType: 'financeiro',
+          origem: 'financeiro',
+          transactionId: transaction.id,
+          transaction,
+          isManual: false,
+          color: '#34d399',
+        };
+      })
+      .filter(Boolean)
+  ), [studio.transactions]);
+
+  const manualCalendarEvents = useMemo(() => {
+    const occurrences = [];
+
+    manualEvents.forEach((event) => {
+      const baseStart = parseDate(
+        event.startDate,
+        event.allDay ? '00:00' : event.startTime,
+      );
+
+      if (!baseStart) return;
+
+      let baseEnd = parseDate(
+        event.endDate || event.startDate,
+        event.allDay ? '23:59' : event.endTime || event.startTime,
+      );
+
+      if (!baseEnd || baseEnd <= baseStart) {
+        baseEnd = new Date(baseStart.getTime() + 3600000);
+      }
+
+      const duration = baseEnd.getTime() - baseStart.getTime();
+      const recurrence = event.recurrence || 'none';
+      const totalOccurrences = recurrence === 'weekly'
+        ? 52
+        : recurrence === 'monthly'
+          ? 24
+          : 1;
+
+      for (let index = 0; index < totalOccurrences; index += 1) {
+        const start = recurrence === 'weekly'
+          ? addWeeks(baseStart, index)
+          : recurrence === 'monthly'
+            ? addMonths(baseStart, index)
+            : baseStart;
+
+        occurrences.push({
+          ...event,
+          id: index === 0
+            ? event.id
+            : `${event.id}-occurrence-${index}`,
+          recurrenceParentId: event.id,
+          occurrenceIndex: index,
+          start,
+          end: new Date(start.getTime() + duration),
           allDay: event.allDay,
           color: (
             event.color
             || categoryColors[event.category]
             || categoryColors.Outro
           ),
-        };
-      })
-      .filter(Boolean)
-  ), [manualEvents]);
+        });
+      }
+    });
+
+    return occurrences;
+  }, [manualEvents]);
 
   const allEvents = useMemo(() => (
     [
       ...projectEvents,
+      ...projectDeliveryEvents,
       ...crmEvents,
+      ...financeEvents,
       ...manualCalendarEvents,
     ]
-  ), [crmEvents, manualCalendarEvents, projectEvents]);
+  ), [
+    crmEvents,
+    financeEvents,
+    manualCalendarEvents,
+    projectDeliveryEvents,
+    projectEvents,
+  ]);
 
   const filteredEvents = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -583,6 +733,30 @@ export default function Agenda() {
     }))
   ), [filteredEvents]);
 
+  const conflictIds = useMemo(() => {
+    const ids = new Set();
+
+    eventsWithTiming.forEach((event, index) => {
+      if (event.allDay) return;
+
+      eventsWithTiming.slice(index + 1).forEach((other) => {
+        if (other.allDay) return;
+
+        const overlaps = (
+          event.start < other.end
+          && event.end > other.start
+        );
+
+        if (overlaps) {
+          ids.add(String(event.id));
+          ids.add(String(other.id));
+        }
+      });
+    });
+
+    return ids;
+  }, [eventsWithTiming]);
+
   const upcoming = useMemo(() => (
     eventsWithTiming
       .filter((event) => event.end >= startOfDay(new Date()))
@@ -609,15 +783,24 @@ export default function Agenda() {
     };
   }, [date, eventsWithTiming]);
 
-  const internalAlerts = useMemo(() => (
-    notificationSettings.events
-      ? upcoming.filter((event) => (
-        event.start - new Date()
-          <= notificationSettings.eventLeadHours * 3600000
-        && event.start >= new Date()
-      ))
-      : []
-  ), [
+  const internalAlerts = useMemo(() => {
+    if (!notificationSettings.events) return [];
+
+    const now = new Date();
+
+    return upcoming.filter((event) => {
+      const reminderHours = Number(
+        event.reminder
+        || notificationSettings.eventLeadHours
+        || 24,
+      );
+
+      return (
+        event.start >= now
+        && event.start - now <= reminderHours * 3600000
+      );
+    });
+  }, [
     notificationSettings.eventLeadHours,
     notificationSettings.events,
     upcoming,
@@ -647,7 +830,10 @@ export default function Agenda() {
   const saveManual = (draft) => {
     const record = {
       ...draft,
-      id: draft.id || createId('manual-event'),
+      id:
+        draft.recurrenceParentId
+        || draft.id
+        || createId('manual-event'),
       sourceType: 'manual',
       origem: 'manual',
       isManual: true,
@@ -656,9 +842,11 @@ export default function Agenda() {
     };
 
     persistManual(
-      draft.id
+      (draft.recurrenceParentId || draft.id)
         ? manualEvents.map((item) => (
-          item.id === draft.id ? record : item
+          item.id === (draft.recurrenceParentId || draft.id)
+            ? record
+            : item
         ))
         : [record, ...manualEvents],
     );
@@ -833,6 +1021,7 @@ export default function Agenda() {
             <option value="manual">Manual</option>
             <option value="trabalho">Projetos</option>
             <option value="crm">CRM</option>
+            <option value="financeiro">Financeiro</option>
           </select>
         </label>
 
@@ -878,8 +1067,16 @@ export default function Agenda() {
 
         <div>
           <button
-            onClick={() => setDate(subMonths(date, 1))}
-            aria-label="Mês anterior"
+            onClick={() => {
+              setDate(
+                view === 'day'
+                  ? subDays(date, 1)
+                  : view === 'week'
+                    ? subWeeks(date, 1)
+                    : subMonths(date, 1),
+              );
+            }}
+            aria-label="Período anterior"
           >
             <ChevronLeft />
           </button>
@@ -889,8 +1086,16 @@ export default function Agenda() {
           </button>
 
           <button
-            onClick={() => setDate(addMonths(date, 1))}
-            aria-label="Próximo mês"
+            onClick={() => {
+              setDate(
+                view === 'day'
+                  ? addDays(date, 1)
+                  : view === 'week'
+                    ? addWeeks(date, 1)
+                    : addMonths(date, 1),
+              );
+            }}
+            aria-label="Próximo período"
           >
             <ChevronRight />
           </button>
@@ -902,6 +1107,7 @@ export default function Agenda() {
           ['trabalho', 'Projetos', '#c9a06c'],
           ['crm', 'CRM', '#60a5fa'],
           ['manual', 'Manual', '#aa88b5'],
+          ['financeiro', 'Financeiro', '#34d399'],
         ].map(([key, label, color]) => (
           <span key={key}>
             <i style={{ background: color }} />
@@ -913,6 +1119,7 @@ export default function Agenda() {
       {view === 'list' ? (
         <EventList
           groups={groupedList}
+          conflictIds={conflictIds}
           onSelect={setSelected}
         />
       ) : (
@@ -931,7 +1138,12 @@ export default function Agenda() {
             onSelectSlot={openNew}
             onSelectEvent={setSelected}
             components={{
-              event: EventCard,
+              event: (props) => (
+                <EventCard
+                  {...props}
+                  hasConflict={conflictIds.has(String(props.event.id))}
+                />
+              ),
             }}
             formats={{
               weekdayFormat: (value) => (
@@ -1008,9 +1220,9 @@ function SummaryCard({
   );
 }
 
-function EventCard({ event }) {
+function EventCard({ event, hasConflict = false }) {
   return (
-    <div className="agenda-event">
+    <div className={`agenda-event ${hasConflict ? 'has-conflict' : ''}`}>
       <strong>{event.title}</strong>
 
       {!event.allDay && (
@@ -1022,6 +1234,7 @@ function EventCard({ event }) {
 
 function EventList({
   groups,
+  conflictIds,
   onSelect,
 }) {
   return (
@@ -1054,7 +1267,14 @@ function EventList({
                 />
 
                 <div>
-                  <strong>{event.title}</strong>
+                  <strong>
+                    {event.title}
+                    {conflictIds.has(String(event.id)) && (
+                      <em className="agenda-conflict-badge">
+                        Conflito
+                      </em>
+                    )}
+                  </strong>
 
                   <span>
                     {event.allDay
@@ -1193,7 +1413,7 @@ function EventDetails({
           ) : (
             <>
               {event.sourceType === 'trabalho' && (
-                <button onClick={() => onNavigate('/projetos')}>
+                <button onClick={() => onNavigate('/trabalhos')}>
                   <ExternalLink />
                   Abrir projeto
                 </button>
@@ -1210,6 +1430,13 @@ function EventDetails({
                 <button onClick={() => onNavigate('/crm')}>
                   <ExternalLink />
                   Abrir CRM
+                </button>
+              )}
+
+              {event.sourceType === 'financeiro' && (
+                <button onClick={() => onNavigate('/financeiro')}>
+                  <ExternalLink />
+                  Abrir Financeiro
                 </button>
               )}
             </>
@@ -1253,9 +1480,40 @@ function EventForm({
   const submit = (event) => {
     event.preventDefault();
 
+    const start = parseDate(
+      draft.startDate,
+      draft.allDay ? '00:00' : draft.startTime,
+    );
+
+    const normalizedEndDate = draft.endDate || draft.startDate;
+    const end = parseDate(
+      normalizedEndDate,
+      draft.allDay ? '23:59' : draft.endTime || draft.startTime,
+    );
+
+    if (!start) {
+      alert('Informe uma data inicial válida.');
+      return;
+    }
+
+    if (!draft.allDay && !draft.startTime) {
+      alert('Informe a hora inicial.');
+      return;
+    }
+
+    if (!draft.allDay && !draft.endTime) {
+      alert('Informe a hora final.');
+      return;
+    }
+
+    if (!end || end <= start) {
+      alert('A data e a hora finais devem ser posteriores ao início.');
+      return;
+    }
+
     onSave({
       ...draft,
-      endDate: draft.endDate || draft.startDate,
+      endDate: normalizedEndDate,
       color: (
         draft.color
         || categoryColors[draft.category]

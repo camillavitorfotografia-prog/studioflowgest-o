@@ -80,6 +80,7 @@ export const EQUIPMENT_KEYWORDS = [
 
 export const FINANCE_STORAGE_KEYS = {
   transactions: 'cv_studio_financas',
+  audit: 'studioflow_finance_audit_log',
   balances: 'cv_finance_saldos',
   config: 'cv_finance_config',
   replacement: 'cv_finance_reposicao',
@@ -98,6 +99,81 @@ export const DEFAULT_SALARY_SPLIT = { camilla: 50, junior: 50 };
 const CONFIRMED_PAYMENT_STATUSES = new Set(['recebido', 'recebida', 'pago', 'paga', 'confirmado', 'confirmada', 'quitado', 'quitada']);
 const normalizeStatus = (value) => String(value || '').trim().toLowerCase();
 const roundMoney = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
+
+export const isInternalTransfer = (transaction = {}) => (
+  transaction.tipo === 'transferencia_interna'
+  || transaction.tipoGeral === 'Transferencia'
+  || transaction.tipoGeral === 'Transferência'
+  || Boolean(transaction.transferId)
+);
+
+export const getTransactionCompetence = (transaction = {}) => {
+  const explicitCompetence = String(
+    transaction.competencia
+    || transaction.competence
+    || '',
+  ).slice(0, 7);
+
+  if (/^\d{4}-\d{2}$/.test(explicitCompetence)) {
+    return explicitCompetence;
+  }
+
+  const referenceDate = (
+    transaction.vencimento
+    || transaction.dataVencimento
+    || transaction.data_vencimento
+    || transaction.data
+    || transaction.dataPagamento
+    || transaction.dataRecebimento
+    || ''
+  );
+
+  return /^\d{4}-\d{2}/.test(String(referenceDate))
+    ? String(referenceDate).slice(0, 7)
+    : '';
+};
+
+export const appendFinancialAudit = ({
+  action,
+  entity = 'finance',
+  entityId = '',
+  before = null,
+  after = null,
+  details = {},
+}) => {
+  if (typeof localStorage === 'undefined') return null;
+
+  let current = [];
+
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(FINANCE_STORAGE_KEYS.audit) || '[]',
+    );
+
+    current = Array.isArray(saved) ? saved : [];
+  } catch {
+    current = [];
+  }
+
+  const entry = {
+    id: `finance-audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    action,
+    entity,
+    entityId: String(entityId || ''),
+    before,
+    after,
+    details,
+    createdAt: new Date().toISOString(),
+  };
+
+  localStorage.setItem(
+    FINANCE_STORAGE_KEYS.audit,
+    JSON.stringify([entry, ...current].slice(0, 2000)),
+  );
+
+  return entry;
+};
 
 export const isConfirmedPayment = (payment = {}) =>
   parseCurrency(payment.valor) > 0 && CONFIRMED_PAYMENT_STATUSES.has(normalizeStatus(payment.status));
@@ -127,10 +203,39 @@ export const normalizeSalarySplit = (config = {}) => {
 };
 
 export const parseCurrency = (value) => {
-  if (!value) return 0;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const normalized = value.toString().replace(/\D/g, '');
-  return normalized ? parseFloat(normalized) / 100 : 0;
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const rawValue = String(value).trim();
+
+  if (!rawValue) {
+    return 0;
+  }
+
+  const hasBrazilianDecimal = rawValue.includes(',');
+  const hasCurrencyFormatting = /R\$|\s/.test(rawValue);
+
+  if (hasBrazilianDecimal || hasCurrencyFormatting) {
+    const normalized = rawValue
+      .replace(/R\$/gi, '')
+      .replace(/\s/g, '')
+      .replace(/\./g, '')
+      .replace(',', '.')
+      .replace(/[^\d.-]/g, '');
+
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  const normalized = rawValue.replace(/[^\d.-]/g, '');
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
 export const formatCurrency = (value) =>
@@ -169,7 +274,13 @@ export const dateToInput = (date) => {
 
 export const getTransactionValue = (transaction) => parseCurrency(transaction?.valor);
 
-export const getTransactionDate = (transaction) => transaction?.data || transaction?.dataVencimento || '';
+export const getTransactionDate = (transaction = {}) => (
+  transaction.data
+  || transaction.dataVencimento
+  || transaction.vencimento
+  || transaction.data_vencimento
+  || ''
+);
 
 export const getTransactionStatus = (transaction) => {
   if (transaction?.status) return transaction.status;
@@ -230,10 +341,24 @@ export const hasEquipmentKeyword = (expense) => {
 
 export const calculateDepreciation = (equipment = {}, referenceDate = new Date()) => {
   const purchaseValue = Number(equipment.valorCompra ?? equipment.valor ?? 0);
-  const usefulLifeYears = Number(equipment.vidaUtilAnos || 5);
+  const configuredUsefulLifeMonths = Number(
+    equipment.vidaUtilMeses
+    ?? equipment.vida_util_meses
+    ?? 0,
+  );
+  const usefulLifeYears = Number(
+    equipment.vidaUtilAnos
+    ?? equipment.vida_util_anos
+    ?? 5,
+  );
   const residualValue = Number(equipment.valorResidual || 0);
   const depreciableValue = Math.max(0, purchaseValue - residualValue);
-  const usefulLifeMonths = Math.max(1, usefulLifeYears * 12);
+  const usefulLifeMonths = Math.max(
+    1,
+    configuredUsefulLifeMonths > 0
+      ? configuredUsefulLifeMonths
+      : usefulLifeYears * 12,
+  );
   const purchaseDate = toDate(equipment.dataCompra) || referenceDate;
   const monthsElapsed = Math.max(
     0,
@@ -961,8 +1086,10 @@ export const calculateFinancialIndicators = ({
       }
     }
 
-    const mesVencimento = r.vencimento ? r.vencimento.slice(0, 7) : '';
-    const mesRecebimento = r.dataRecebimento ? r.dataRecebimento.slice(0, 7) : '';
+    const mesVencimento = getTransactionCompetence(r);
+    const mesRecebimento = r.dataRecebimento
+      ? r.dataRecebimento.slice(0, 7)
+      : '';
 
     if (statusDerivado === 'recebida' && mesRecebimento === targetMonth) {
       receitasRecebidasMes += val;
@@ -986,8 +1113,10 @@ export const calculateFinancialIndicators = ({
       }
     }
 
-    const mesVencimento = d.vencimento ? d.vencimento.slice(0, 7) : '';
-    const mesPagamento = d.dataPagamento ? d.dataPagamento.slice(0, 7) : '';
+    const mesVencimento = getTransactionCompetence(d);
+    const mesPagamento = d.dataPagamento
+      ? d.dataPagamento.slice(0, 7)
+      : '';
 
     if (statusDerivado === 'paga' && mesPagamento === targetMonth) {
       despesasPagasMes += val;
@@ -1041,9 +1170,27 @@ export const calculateProjectFinancials = ({
     .reduce((sum, r) => sum + (r.valor || 0), 0);
 
   const parcelasRecebidas = projectContracts
-    .flatMap((c) => c.parcelas || [])
-    .filter((p) => p.valorPago >= p.valor)
-    .reduce((sum, p) => sum + (p.valorPago || 0), 0);
+    .flatMap((contract) => contract.parcelas || [])
+    .reduce((sum, installment) => {
+      const paidValue = Number(
+        installment.valorPago
+        ?? installment.valor_pago
+        ?? (
+          ['recebida', 'recebido', 'paga', 'pago'].includes(
+            normalizeStatus(installment.status),
+          )
+            ? installment.valor
+            : 0
+        )
+        ?? 0,
+      );
+
+      return sum + (
+        Number.isFinite(paidValue)
+          ? Math.max(0, paidValue)
+          : 0
+      );
+    }, 0);
   const receitaRecebida = parcelasRecebidas + receitaAvulsaRecebida;
 
   const lucroEstimado = receitaContratada + receitaAvulsaPrevista - custoEstimado;

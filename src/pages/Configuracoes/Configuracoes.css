@@ -18,3 +18,168 @@
 .settings-layout{gap:24px;background:transparent;border:0;overflow:visible}.settings-tabs{border:1px solid rgba(255,255,255,.06);border-radius:12px}.settings-panel{background:#101111;border:1px solid rgba(255,255,255,.06);border-radius:12px}.settings-model-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.settings-model-grid article{min-width:0;min-height:210px;padding:18px;display:flex;align-items:flex-start;flex-direction:column;gap:12px;background:rgba(255,255,255,.018);border:1px solid rgba(255,255,255,.06);border-radius:11px;transition:.18s}.settings-model-grid article:hover{background:rgba(255,255,255,.03);border-color:rgba(201,160,108,.16);transform:translateY(-2px)}.model-card-icon{width:42px;height:42px;display:grid;place-items:center;color:#c9a06c;background:rgba(201,160,108,.08);border-radius:9px}.model-card-icon svg{width:20px}.settings-model-grid h3{font-size:.92rem}.settings-model-grid p{margin-top:4px;color:#777;font-size:.7rem;line-height:1.5}.model-status{padding:3px 7px;color:#91d0a6;background:rgba(16,185,129,.08);border-radius:99px;font-size:.62rem}.settings-model-grid button{width:100%;min-height:40px;margin-top:auto;color:#e1c18c;background:transparent;border:1px solid rgba(201,160,108,.19);border-radius:8px}.settings-model-grid button:hover{background:rgba(201,160,108,.08)}.new-model-card{border-style:dashed!important}.module-copy strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:1199px){.settings-layout{gap:16px}.settings-model-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-panel{padding:24px}.sidebar-preference-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:767px){.settings-layout{gap:0}.settings-panel{padding:18px 16px}.settings-model-grid{grid-template-columns:1fr}.settings-model-grid article{min-height:190px}.sidebar-preference-grid{grid-template-columns:1fr}.settings-sidebar-item{row-gap:10px}.module-copy{padding-right:6px}}
+
+/* Equipe central */
+.settings-team-toolbar {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-team-toolbar > div {
+  min-width: 0;
+}
+
+.settings-team-toolbar strong,
+.settings-team-toolbar span {
+  display: block;
+}
+
+.settings-team-toolbar span {
+  margin-top: 4px;
+  color: #858585;
+  font-size: .7rem;
+}
+
+.settings-team-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-team-form {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: rgba(255,255,255,.018);
+  border: 1px solid rgba(201,160,108,.14);
+  border-radius: 10px;
+}
+
+.settings-team-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-team-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-team-list article {
+  min-width: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 42px minmax(0,1fr) auto auto;
+  align-items: center;
+  gap: 11px;
+  background: rgba(255,255,255,.016);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 9px;
+}
+
+.settings-team-avatar {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: #d9b275;
+  background: rgba(201,160,108,.09);
+  border-radius: 50%;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.settings-team-copy {
+  min-width: 0;
+}
+
+.settings-team-copy strong,
+.settings-team-copy span,
+.settings-team-copy small {
+  display: block;
+}
+
+.settings-team-copy strong {
+  color: #eee;
+}
+
+.settings-team-copy span,
+.settings-team-copy small {
+  margin-top: 3px;
+  color: #858585;
+  font-size: .68rem;
+  overflow-wrap: anywhere;
+}
+
+.settings-team-status {
+  padding: 4px 7px;
+  color: #999;
+  background: rgba(255,255,255,.04);
+  border-radius: 999px;
+  font-size: .62rem;
+}
+
+.settings-team-status.active {
+  color: #8fd0a4;
+  background: rgba(16,185,129,.08);
+}
+
+.settings-team-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.settings-team-actions button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: #aaa;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 7px;
+}
+
+.settings-team-actions button.danger {
+  color: #ef9494;
+}
+
+.settings-team-empty {
+  padding: 20px;
+  color: #888;
+  text-align: center;
+  background: rgba(255,255,255,.014);
+  border: 1px dashed rgba(255,255,255,.08);
+  border-radius: 9px;
+  font-size: .75rem;
+}
+
+@media(max-width:767px) {
+  .settings-team-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-team-toolbar button,
+  .settings-team-form-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .settings-team-form-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .settings-team-list article {
+    grid-template-columns: 42px minmax(0,1fr);
+  }
+
+  .settings-team-status,
+  .settings-team-actions {
+    grid-column: 2;
+  }
+}

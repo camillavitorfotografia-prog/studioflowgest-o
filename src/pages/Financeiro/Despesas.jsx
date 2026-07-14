@@ -31,6 +31,9 @@ import {
   deriveFinancialStatus,
   generateRecurrentExpenses,
   getConsolidatedFinances,
+  hasEquipmentKeyword,
+  appendFinancialAudit,
+  getTransactionCompetence,
   parseCurrency,
 } from '../../utils/financeEngine';
 
@@ -42,6 +45,7 @@ const emptyForm = {
   valor: '',
   data: '',
   dataVencimento: '',
+  diaVencimento: '',
   frequencia: 'sem_recorrencia',
   formaPagamento: 'Pix',
   status: 'Pendente',
@@ -72,6 +76,58 @@ const labelStyle = {
   marginBottom: '6px',
   display: 'block',
   fontWeight: '600',
+};
+
+const clampDueDay = (year, monthIndex, day) => {
+  const lastDayOfMonth = new Date(
+    year,
+    monthIndex + 1,
+    0,
+  ).getDate();
+
+  return Math.min(
+    Math.max(1, Number(day) || 1),
+    lastDayOfMonth,
+  );
+};
+
+const buildDueDateForMonth = (
+  monthReference,
+  day,
+) => {
+  const reference = monthReference
+    ? new Date(`${monthReference}T12:00:00`)
+    : new Date();
+
+  const year = reference.getFullYear();
+  const monthIndex = reference.getMonth();
+  const validDay = clampDueDay(
+    year,
+    monthIndex,
+    day,
+  );
+
+  return [
+    year,
+    String(monthIndex + 1).padStart(2, '0'),
+    String(validDay).padStart(2, '0'),
+  ].join('-');
+};
+
+const replaceDueDay = (
+  currentDate,
+  day,
+) => {
+  const monthReference = /^\d{4}-\d{2}-\d{2}$/.test(
+    String(currentDate || ''),
+  )
+    ? `${String(currentDate).slice(0, 7)}-01`
+    : null;
+
+  return buildDueDateForMonth(
+    monthReference,
+    day,
+  );
 };
 
 function DateInput({
@@ -354,7 +410,14 @@ export default function Despesas({ area = 'fixa' }) {
       ...emptyForm,
       tipo: area,
       status: 'Pendente',
-      projectId: studio.projects[0]?.id || '',
+      frequencia:
+        area === 'fixa'
+          ? 'mensal'
+          : 'sem_recorrencia',
+      projectId:
+        area === 'variavel'
+          ? studio.projects[0]?.id || ''
+          : '',
       formaPagamento: 'Pix',
       contaOrigem: 'empresa',
     });
@@ -372,8 +435,30 @@ export default function Despesas({ area = 'fixa' }) {
       valor: maskCurrency(valueStr),
       data: expense.vencimento || '',
       dataVencimento: expense.vencimento || '',
-      projectId: expense.trabalhoId || expense.projectId || '',
-      frequencia: expense.recorrenciaId ? 'mensal' : 'sem_recorrencia',
+      diaVencimento: String(
+        expense.diaVencimento
+        || (
+          expense.vencimento
+            ? Number(String(expense.vencimento).slice(8, 10))
+            : ''
+        )
+        || '',
+      ),
+      projectId:
+        area === 'variavel'
+          ? expense.trabalhoId || expense.projectId || ''
+          : '',
+      frequencia:
+        area === 'fixa'
+          ? (
+            expense.frequencia
+            || (
+              expense.recorrenciaId
+                ? 'mensal'
+                : 'sem_recorrencia'
+            )
+          )
+          : 'sem_recorrencia',
     });
     setModalOpen(true);
   };
@@ -381,37 +466,86 @@ export default function Despesas({ area = 'fixa' }) {
   const maybeCreateEquipment = (expense) => {
     if (
       expense.tipo !== 'variavel'
-      || expense.categoria !== 'Equipamentos'
+      || !(
+        expense.categoria === 'Equipamentos'
+        || hasEquipmentKeyword(expense)
+      )
     ) {
       return;
     }
 
     const equipment = readStorage(STORAGE_KEYS.equipment, []);
-    const alreadyExists = equipment.some((item) => (
-      String(item.financeExpenseId || '') === String(expense.id)
+    const existingIndex = equipment.findIndex((item) => (
+      String(
+        item.financeExpenseId
+        || item.origemFinanceiraId
+        || '',
+      ) === String(expense.id)
     ));
 
-    if (alreadyExists) return;
+    const existingEquipment = existingIndex >= 0
+      ? equipment[existingIndex]
+      : {};
 
     const equipmentRecord = {
-      id: `equipamento-financeiro-${expense.id}`,
-      nome: expense.descricao || 'Equipamento',
-      categoria: 'Equipamentos',
-      valorCompra: Number(expense.valor || 0),
-      dataCompra: expense.vencimento || '',
-      fornecedor: expense.fornecedor || '',
-      observacoes: expense.observacoes || '',
-      status: 'Ativo',
-      vidaUtilMeses: 60,
+      ...existingEquipment,
+      id:
+        existingEquipment.id
+        || `equipamento-financeiro-${expense.id}`,
+      nome:
+        expense.descricao
+        || existingEquipment.nome
+        || 'Equipamento',
+      categoria:
+        existingEquipment.categoria
+        || 'Equipamentos',
+      valor:
+        Number(expense.valor || 0),
+      valorCompra:
+        Number(expense.valor || 0),
+      dataCompra:
+        expense.vencimento
+        || existingEquipment.dataCompra
+        || '',
+      fornecedor:
+        expense.fornecedor
+        || existingEquipment.fornecedor
+        || '',
+      observacoes:
+        expense.observacoes
+        || existingEquipment.observacoes
+        || '',
+      status:
+        existingEquipment.status
+        || 'Ativo',
+      vidaUtilMeses: Number(
+        existingEquipment.vidaUtilMeses
+        ?? 60,
+      ),
+      vidaUtilAnos: Number(
+        existingEquipment.vidaUtilAnos
+        ?? 5,
+      ),
       financeExpenseId: expense.id,
+      origemFinanceiraId: expense.id,
       origem: 'financeiro',
-      criadoEm: new Date().toISOString(),
+      criadoEm:
+        existingEquipment.criadoEm
+        || new Date().toISOString(),
       atualizadoEm: new Date().toISOString(),
     };
 
+    const nextEquipment = existingIndex >= 0
+      ? equipment.map((item, index) => (
+        index === existingIndex
+          ? equipmentRecord
+          : item
+      ))
+      : [equipmentRecord, ...equipment];
+
     writeStorage(
       STORAGE_KEYS.equipment,
-      [equipmentRecord, ...equipment],
+      nextEquipment,
     );
   };
 
@@ -424,11 +558,35 @@ export default function Despesas({ area = 'fixa' }) {
       return;
     }
     if (value <= 0) {
-      alert('Valor válido e não negativo obrigatório.');
+      alert('Informe um valor maior que zero.');
       return;
     }
     
-    const venc = area === 'fixa' ? formData.dataVencimento : formData.data;
+    const fixedDueDay = Number(
+      formData.diaVencimento,
+    );
+
+    if (
+      area === 'fixa'
+      && (
+        !Number.isInteger(fixedDueDay)
+        || fixedDueDay < 1
+        || fixedDueDay > 31
+      )
+    ) {
+      alert('Informe um dia de vencimento entre 1 e 31.');
+      return;
+    }
+
+    const venc = area === 'fixa'
+      ? buildDueDateForMonth(
+        editingId && formData.dataVencimento
+          ? `${formData.dataVencimento.slice(0, 7)}-01`
+          : null,
+        fixedDueDay,
+      )
+      : formData.data;
+
     if (!venc || !/^\d{4}-\d{2}-\d{2}$/.test(venc)) {
       alert('Vencimento válido obrigatório.');
       return;
@@ -438,7 +596,7 @@ export default function Despesas({ area = 'fixa' }) {
 
     // Se houver recorrência (despesas fixas)
     if (area === 'fixa' && formData.frequencia !== 'sem_recorrencia') {
-      const targetDay = Number(venc.split('-')[2]) || 1;
+      const targetDay = fixedDueDay;
       const baseRecurrence = {
         id: formData.recorrenciaId || `recorrencia-${Date.now()}`,
         descricao: description,
@@ -473,6 +631,24 @@ export default function Despesas({ area = 'fixa' }) {
               fornecedor: baseRecurrence.fornecedor,
               observacoes: baseRecurrence.observacoes,
               contaOrigem: baseRecurrence.contaOrigem,
+              vencimento: replaceDueDay(
+                t.vencimento,
+                baseRecurrence.diaVencimento,
+              ),
+              data: replaceDueDay(
+                t.data || t.vencimento,
+                baseRecurrence.diaVencimento,
+              ),
+              dataVencimento: replaceDueDay(
+                t.dataVencimento || t.vencimento,
+                baseRecurrence.diaVencimento,
+              ),
+              competencia: String(
+                replaceDueDay(
+                  t.vencimento,
+                  baseRecurrence.diaVencimento,
+                ),
+              ).slice(0, 7),
               atualizadoEm: new Date().toISOString(),
             };
           }
@@ -492,6 +668,8 @@ export default function Despesas({ area = 'fixa' }) {
                 conta_origem: item.contaOrigem,
                 fornecedor: item.fornecedor,
                 observacoes: item.observacoes,
+                data: item.vencimento,
+                data_vencimento: item.vencimento,
                 updated_at: new Date().toISOString(),
               }).eq('id', String(item.id));
             }
@@ -558,6 +736,22 @@ export default function Despesas({ area = 'fixa' }) {
         }
       }
 
+      appendFinancialAudit({
+        action: formData.recorrenciaId
+          ? 'recurrence_updated'
+          : 'recurrence_created',
+        entity: 'recurrence',
+        entityId: baseRecurrence.id,
+        before: formData.recorrenciaId
+          ? recurrences.find((item) => item.id === baseRecurrence.id) || null
+          : null,
+        after: baseRecurrence,
+        details: {
+          generatedItems: newRecs.length,
+          competence,
+        },
+      });
+
     } else {
       // Lançamento avulso
       const baseExpense = {
@@ -576,7 +770,10 @@ export default function Despesas({ area = 'fixa' }) {
         formaPagamento: formData.formaPagamento || 'Pix',
         fornecedor: formData.fornecedor || '',
         observacoes: formData.observacoes || '',
-        trabalhoId: formData.projectId || '',
+        trabalhoId:
+          area === 'variavel'
+            ? formData.projectId || ''
+            : '',
         criadoEm: formData.criadoEm || new Date().toISOString(),
         atualizadoEm: new Date().toISOString(),
       };
@@ -619,6 +816,20 @@ export default function Despesas({ area = 'fixa' }) {
         }
       }
       maybeCreateEquipment(baseExpense);
+
+      appendFinancialAudit({
+        action: editingId ? 'expense_updated' : 'expense_created',
+        entity: 'expense',
+        entityId: baseExpense.id,
+        before: editingId
+          ? transactions.find((item) => String(item.id) === String(editingId)) || null
+          : null,
+        after: baseExpense,
+        details: {
+          competence: getTransactionCompetence(baseExpense),
+          area,
+        },
+      });
     }
 
     setModalOpen(false);
@@ -630,20 +841,111 @@ export default function Despesas({ area = 'fixa' }) {
       alert('Despesas pagas devem ser revertidas ou canceladas antes da exclusão.');
       return;
     }
-    const confirmed = window.confirm('Deseja excluir permanentemente este lançamento?');
-    if (!confirmed) return;
+
+    let removeSeries = false;
+
+    if (expense.recorrenciaId) {
+      removeSeries = window.confirm(
+        'Esta despesa pertence a uma recorrência.\n\n'
+        + 'OK: excluir esta competência e encerrar os lançamentos futuros.\n'
+        + 'Cancelar: excluir somente esta competência.',
+      );
+    } else {
+      const confirmed = window.confirm(
+        'Deseja excluir permanentemente este lançamento?',
+      );
+
+      if (!confirmed) return;
+    }
 
     const transactions = readStorage(STORAGE_KEYS.finances, []);
-    const nextTransactions = transactions.filter((t) => String(t.id) !== String(expense.id));
+    const removedItems = [];
+
+    const nextTransactions = transactions.filter((item) => {
+      const sameItem = String(item.id) === String(expense.id);
+
+      const futureFromSeries = (
+        removeSeries
+        && expense.recorrenciaId
+        && item.recorrenciaId === expense.recorrenciaId
+        && deriveFinancialStatus(item) !== 'paga'
+        && getTransactionCompetence(item)
+          >= getTransactionCompetence(expense)
+      );
+
+      if (sameItem || futureFromSeries) {
+        removedItems.push(item);
+        return false;
+      }
+
+      return true;
+    });
+
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    if (removeSeries && expense.recorrenciaId) {
+      const currentRecurrences = readStorage(
+        STORAGE_KEYS.recurrences,
+        [],
+      );
+
+      writeStorage(
+        STORAGE_KEYS.recurrences,
+        currentRecurrences.map((item) => (
+          item.id === expense.recorrenciaId
+            ? {
+              ...item,
+              ativo: false,
+              atualizadoEm: new Date().toISOString(),
+            }
+            : item
+        )),
+      );
+    }
+
+    const equipment = readStorage(STORAGE_KEYS.equipment, []);
+    const removedIds = new Set(
+      removedItems.map((item) => String(item.id)),
+    );
+
+    const nextEquipment = equipment.filter((item) => (
+      !removedIds.has(String(
+        item.financeExpenseId
+        || item.origemFinanceiraId
+        || '',
+      ))
+    ));
+
+    if (nextEquipment.length !== equipment.length) {
+      writeStorage(STORAGE_KEYS.equipment, nextEquipment);
+    }
 
     if (isSupabaseConfigured) {
       try {
-        await supabase.from('financas').delete().eq('id', String(expense.id));
-      } catch (e) {
-        console.error(e);
+        for (const item of removedItems) {
+          await supabase
+            .from('financas')
+            .delete()
+            .eq('id', String(item.id));
+        }
+      } catch (error) {
+        console.error(error);
       }
     }
+
+    appendFinancialAudit({
+      action: removeSeries
+        ? 'expense_series_deleted'
+        : 'expense_deleted',
+      entity: 'expense',
+      entityId: expense.id,
+      before: removedItems,
+      after: null,
+      details: {
+        recurrenceId: expense.recorrenciaId || '',
+        removedCount: removedItems.length,
+      },
+    });
 
     loadLocalData();
   };
@@ -663,6 +965,14 @@ export default function Despesas({ area = 'fixa' }) {
       return t;
     });
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    appendFinancialAudit({
+      action: 'expense_paid',
+      entity: 'expense',
+      entityId: expense.id,
+      before: expense,
+      after: nextTransactions.find((item) => String(item.id) === String(expense.id)) || null,
+    });
 
     if (isSupabaseConfigured) {
       try {
@@ -694,6 +1004,14 @@ export default function Despesas({ area = 'fixa' }) {
     });
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
 
+    appendFinancialAudit({
+      action: 'expense_payment_reversed',
+      entity: 'expense',
+      entityId: expense.id,
+      before: expense,
+      after: nextTransactions.find((item) => String(item.id) === String(expense.id)) || null,
+    });
+
     if (isSupabaseConfigured) {
       try {
         await supabase.from('financas').update({
@@ -722,6 +1040,14 @@ export default function Despesas({ area = 'fixa' }) {
       return t;
     });
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+    appendFinancialAudit({
+      action: 'expense_cancelled',
+      entity: 'expense',
+      entityId: expense.id,
+      before: expense,
+      after: nextTransactions.find((item) => String(item.id) === String(expense.id)) || null,
+    });
 
     if (isSupabaseConfigured) {
       try {
@@ -1032,30 +1358,49 @@ export default function Despesas({ area = 'fixa' }) {
                 ))}
               </select>
             </Field>
-            <Field label="Data de vencimento">
-              <DateInput
-                value={
-                  area === 'fixa'
-                    ? formData.dataVencimento
-                    : formData.data
-                }
-                onChange={(value) => {
-                  setFormData(
-                    area === 'fixa'
-                      ? {
-                        ...formData,
-                        dataVencimento: value,
-                        data: value,
-                      }
-                      : {
-                        ...formData,
-                        data: value,
-                        dataVencimento: value,
-                      },
-                  );
-                }}
-              />
-            </Field>
+            {area === 'fixa' ? (
+              <Field label="Dia do vencimento">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="31"
+                  style={inputStyle}
+                  value={formData.diaVencimento}
+                  onChange={(event) => {
+                    const rawValue = event.target.value;
+                    const numericValue = rawValue
+                      ? Math.min(
+                        31,
+                        Math.max(
+                          1,
+                          Number(rawValue) || 1,
+                        ),
+                      )
+                      : '';
+
+                    setFormData({
+                      ...formData,
+                      diaVencimento: numericValue,
+                    });
+                  }}
+                  placeholder="Ex.: 5"
+                />
+              </Field>
+            ) : (
+              <Field label="Data de vencimento">
+                <DateInput
+                  value={formData.data}
+                  onChange={(value) => {
+                    setFormData({
+                      ...formData,
+                      data: value,
+                      dataVencimento: value,
+                    });
+                  }}
+                />
+              </Field>
+            )}
           </div>
 
           {area === 'fixa' && (
@@ -1103,16 +1448,38 @@ export default function Despesas({ area = 'fixa' }) {
                 ))}
               </select>
             </Field>
-            <Field label="Trabalho vinculado">
-              <select style={inputStyle} value={formData.projectId} onChange={(event) => setFormData({ ...formData, projectId: event.target.value })}>
-                <option value="">Selecione...</option>
-                {studio.projects.map((project) => (
-                  <option key={project.id} value={project.id}>{project.clienteNome} - {project.tipoServico}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Fornecedor">
-              <input style={inputStyle} value={formData.fornecedor} onChange={(event) => setFormData({ ...formData, fornecedor: event.target.value })} />
+            {area === 'variavel' && (
+              <Field label="Trabalho vinculado">
+                <select
+                  style={inputStyle}
+                  value={formData.projectId}
+                  onChange={(event) => setFormData({
+                    ...formData,
+                    projectId: event.target.value,
+                  })}
+                >
+                  <option value="">Nenhum trabalho</option>
+                  {studio.projects.map((project) => (
+                    <option
+                      key={project.id}
+                      value={project.id}
+                    >
+                      {project.clienteNome} - {project.tipoServico}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            <Field label="Fornecedor (opcional)">
+              <input
+                style={inputStyle}
+                value={formData.fornecedor}
+                onChange={(event) => setFormData({
+                  ...formData,
+                  fornecedor: event.target.value,
+                })}
+              />
             </Field>
           </div>
 

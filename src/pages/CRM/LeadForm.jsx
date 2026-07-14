@@ -143,9 +143,24 @@ export default function LeadForm({
     const name = formData.nome;
 
     return (Array.isArray(leads) ? leads : [])
-      .filter((lead) => lead?.id !== currentId)
+      .filter((lead) => (
+        String(lead?.id || '')
+        !== String(currentId || '')
+      ))
       .map((lead) => {
         const reasons = [];
+
+        const sameOriginalRecord = (
+          currentId
+          && String(lead?.id || '') === String(currentId)
+        );
+
+        if (sameOriginalRecord) {
+          return {
+            lead,
+            reasons: [],
+          };
+        }
         const leadEmail = normalizeDuplicateText(lead.email);
         const leadPhone = normalizeDuplicatePhone(lead.telefone);
         const leadWhatsapp = normalizeDuplicatePhone(

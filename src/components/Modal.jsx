@@ -1,72 +1,133 @@
+import {
+  useEffect,
+} from 'react';
 import { X } from 'lucide-react';
 
-export default function Modal({ isOpen, onClose, title, children }) {
-  // Se o modal não estiver aberto, não renderiza nada na tela
+export default function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  maxWidth = '500px',
+}) {
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.6)',
-      backdropFilter: 'blur(5px)', /* Efeito de vidro no fundo */
-      zIndex: 1000, /* Garante que fique por cima de tudo */
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: '24px'
-    }}>
-      <div className="glass" style={{
-        width: '100%',
-        maxWidth: '500px',
-        borderRadius: 'var(--radius-lg)',
-        padding: '32px',
-        position: 'relative',
-        boxShadow: 'var(--shadow-lg)',
-        maxHeight: '90vh',
-        overflowY: 'auto' // Permite rolar se o formulário for muito grande
-      }}>
-        
-        {/* Cabeçalho do Modal */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h2 style={{ color: 'var(--text-main)', fontSize: '1.5rem', fontWeight: '600' }}>
+    <div
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        padding: 'clamp(10px, 2.4vw, 24px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backdropFilter: 'blur(5px)',
+      }}
+    >
+      <div
+        className="glass"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        style={{
+          width: '100%',
+          maxWidth,
+          maxHeight: '90vh',
+          padding: 'clamp(16px, 3vw, 32px)',
+          position: 'relative',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-lg)',
+          scrollbarWidth: 'thin',
+        }}
+      >
+        <div
+          style={{
+            marginBottom: '24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}
+        >
+          <h2
+            style={{
+              margin: 0,
+              color: 'var(--text-main)',
+              fontSize: 'clamp(1.15rem, 2.5vw, 1.5rem)',
+              fontWeight: '600',
+            }}
+          >
             {title}
           </h2>
-          <button 
-            onClick={onClose} 
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              color: 'var(--text-secondary)', 
-              cursor: 'pointer',
-              padding: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+
+          <button
+            type="button"
+            aria-label="Fechar"
+            onClick={onClose}
+            style={{
+              width: '36px',
+              height: '36px',
+              flex: '0 0 auto',
+              padding: 0,
+              display: 'grid',
+              placeItems: 'center',
+              color: 'var(--text-secondary)',
+              background: 'transparent',
+              border: 'none',
               borderRadius: '50%',
-              transition: 'var(--transition-fast)'
+              cursor: 'pointer',
+              transition: 'var(--transition-fast)',
             }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-              e.currentTarget.style.color = 'var(--text-main)';
+            onMouseOver={(event) => {
+              event.currentTarget.style.backgroundColor =
+                'rgba(255, 255, 255, 0.1)';
+              event.currentTarget.style.color =
+                'var(--text-main)';
             }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
+            onMouseOut={(event) => {
+              event.currentTarget.style.backgroundColor =
+                'transparent';
+              event.currentTarget.style.color =
+                'var(--text-secondary)';
             }}
           >
             <X size={24} />
           </button>
         </div>
 
-        {/* Conteúdo dinâmico (Formulário, texto, etc) que passaremos para ele */}
         <div>
           {children}
         </div>
-
       </div>
     </div>
   );
