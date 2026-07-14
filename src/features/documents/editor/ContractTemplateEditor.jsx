@@ -49,6 +49,9 @@ import {
   CONTRACT_BLUEPRINT_VERSION,
   CONTRACT_FIELD_OPTIONS,
 } from './contractTemplateBlueprints';
+import EditorToolbar from './EditorToolbar';
+import MobileTabs from './MobileTabs';
+import PagesPanel from './PagesPanel';
 import './ContractTemplateEditor.css';
 
 const newPage = (order) => ({
@@ -1406,282 +1409,88 @@ export default function ContractTemplateEditor() {
 
   return (
     <section className="contract-template-editor">
-      <header>
-        <button
-          type="button"
-          onClick={() => {
-            navigate('/configuracoes/modelos-contratos');
-          }}
-        >
-          <ArrowLeft />
-          Voltar
-        </button>
+      <EditorToolbar
+        template={template}
+        canUndo={Boolean(history.past.length)}
+        canRedo={Boolean(history.future.length)}
+        onBack={() => navigate('/configuracoes/modelos-contratos')}
+        onNameChange={(name) => {
+          commitTemplateChange((current) => ({
+            ...current,
+            name,
+          }));
+        }}
+        onUndo={undo}
+        onRedo={redo}
+        onApplyBlueprint={applyCompleteModel}
+        onSave={save}
+        onPublish={publish}
+      />
 
-        <div>
-          <input
-            value={template.name}
-            onChange={(event) => {
-              setTemplate({
-                ...template,
-                name: event.target.value,
-              });
-            }}
-          />
-
-          <span>
-            {template.category}
-            {' · '}
-            v{template.version}
-            {' · '}
-            {template.isPublished
-              ? 'Publicado'
-              : 'Rascunho'}
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={undo}
-          disabled={!history.past.length}
-          title="Desfazer (Ctrl+Z)"
-        >
-          <Undo2 />
-          Desfazer
-        </button>
-
-        <button
-          type="button"
-          onClick={redo}
-          disabled={!history.future.length}
-          title="Refazer (Ctrl+Shift+Z)"
-        >
-          <Redo2 />
-          Refazer
-        </button>
-
-        <button
-          type="button"
-          className="apply-blueprint"
-          onClick={applyCompleteModel}
-        >
-          <FileImage />
-          Aplicar modelo completo
-        </button>
-
-        <button
-          type="button"
-          onClick={save}
-        >
-          <Save />
-          Salvar
-        </button>
-
-        <button
-          type="button"
-          className="publish"
-          onClick={publish}
-        >
-          Publicar nova versão
-        </button>
-      </header>
-
-      <nav className="contract-mobile-tabs">
-        {['pages', 'canvas', 'fields'].map((tab) => (
-          <button
-            type="button"
-            key={tab}
-            className={
-              mobileTab === tab
-                ? 'active'
-                : ''
-            }
-            onClick={() => {
-              setMobileTab(tab);
-            }}
-          >
-            {tab === 'pages'
-              ? 'Páginas'
-              : tab === 'canvas'
-                ? 'Visualização'
-                : 'Elementos'}
-          </button>
-        ))}
-      </nav>
+      <MobileTabs
+        value={mobileTab}
+        onChange={setMobileTab}
+      />
 
       <div className="contract-editor-grid">
-        <aside
-          className={`contract-pages ${
-            mobileTab === 'pages'
-              ? 'mobile-active'
-              : ''
-          }`}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              const item = newPage(pages.length);
-
-              updatePages([...pages, item]);
-              setPageId(item.id);
+        <PagesPanel
+          pages={pages}
+          pageId={pageId}
+          mobileActive={mobileTab === 'pages'}
+          onAddPage={() => {
+            const item = newPage(pages.length);
+            updatePages([...pages, item]);
+            setPageId(item.id);
+            setFieldId(null);
+            setSelectedIds([]);
+          }}
+          onSelectPage={(id) => {
+            setPageId(id);
+            setFieldId(null);
+            setSelectedIds([]);
+          }}
+          onRenamePage={(id, name) => {
+            updatePages(pages.map((item) => (
+              item.id === id ? { ...item, name } : item
+            )));
+          }}
+          onTogglePage={(id, active) => {
+            updatePages(pages.map((item) => (
+              item.id === id ? { ...item, active } : item
+            )));
+          }}
+          onMovePage={(index, delta) => {
+            const next = [...pages];
+            const target = index + delta;
+            [next[index], next[target]] = [next[target], next[index]];
+            updatePages(next);
+          }}
+          onDuplicatePage={(item, index) => {
+            const copy = {
+              ...item,
+              id: createId('page'),
+              name: `${item.name} cópia`,
+              elements: (item.elements || []).map((element) => ({
+                ...element,
+                id: createId(element.type),
+              })),
+            };
+            updatePages([
+              ...pages.slice(0, index + 1),
+              copy,
+              ...pages.slice(index + 1),
+            ]);
+          }}
+          onDeletePage={(id) => {
+            const next = pages.filter((item) => item.id !== id);
+            updatePages(next);
+            if (id === pageId) {
+              setPageId(next[0]?.id || null);
               setFieldId(null);
-            }}
-          >
-            <FilePlus2 />
-            Adicionar página
-          </button>
-
-          {pages.map((item, index) => (
-            <article
-              key={item.id}
-              className={
-                item.id === pageId
-                  ? 'active'
-                  : ''
-              }
-              onClick={() => {
-                setPageId(item.id);
-                setFieldId(null);
-                setSelectedIds([]);
-              }}
-            >
-              <span>{index + 1}</span>
-
-              <input
-                value={item.name}
-                onClick={(event) => {
-                  event.stopPropagation();
-                }}
-                onChange={(event) => {
-                  updatePages(
-                    pages.map((entry) => (
-                      entry.id === item.id
-                        ? {
-                            ...entry,
-                            name: event.target.value,
-                          }
-                        : entry
-                    )),
-                  );
-                }}
-              />
-
-              <input
-                aria-label="Ativar página"
-                type="checkbox"
-                checked={item.active}
-                onChange={(event) => {
-                  updatePages(
-                    pages.map((entry) => (
-                      entry.id === item.id
-                        ? {
-                            ...entry,
-                            active:
-                              event.target.checked,
-                          }
-                        : entry
-                    )),
-                  );
-                }}
-              />
-
-              <div>
-                <button
-                  type="button"
-                  disabled={index === 0}
-                  onClick={(event) => {
-                    event.stopPropagation();
-
-                    const next = [...pages];
-
-                    [
-                      next[index - 1],
-                      next[index],
-                    ] = [
-                      next[index],
-                      next[index - 1],
-                    ];
-
-                    updatePages(next);
-                  }}
-                >
-                  <ArrowUp />
-                </button>
-
-                <button
-                  type="button"
-                  disabled={
-                    index === pages.length - 1
-                  }
-                  onClick={(event) => {
-                    event.stopPropagation();
-
-                    const next = [...pages];
-
-                    [
-                      next[index + 1],
-                      next[index],
-                    ] = [
-                      next[index],
-                      next[index + 1],
-                    ];
-
-                    updatePages(next);
-                  }}
-                >
-                  <ArrowDown />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-
-                    const copy = {
-                      ...item,
-                      id: createId('page'),
-                      name: `${item.name} cópia`,
-                      elements: (
-                        item.elements || []
-                      ).map((element) => ({
-                        ...element,
-                        id: createId(element.type),
-                      })),
-                    };
-
-                    updatePages([
-                      ...pages.slice(0, index + 1),
-                      copy,
-                      ...pages.slice(index + 1),
-                    ]);
-                  }}
-                >
-                  <Copy />
-                </button>
-
-                <button
-                  type="button"
-                  disabled={pages.length === 1}
-                  onClick={(event) => {
-                    event.stopPropagation();
-
-                    const next = pages.filter(
-                      (entry) => entry.id !== item.id,
-                    );
-
-                    updatePages(next);
-
-                    if (item.id === pageId) {
-                      setPageId(next[0]?.id || null);
-                      setFieldId(null);
-                    }
-                  }}
-                >
-                  <Trash2 />
-                </button>
-              </div>
-            </article>
-          ))}
-        </aside>
+              setSelectedIds([]);
+            }
+          }}
+        />
 
         <main
           className={`contract-a4-stage ${

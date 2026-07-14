@@ -823,3 +823,20 @@
   padding: 7px 4px;
   font-size: .66rem;
 }
+
+/* Arquitetura modular */
+.contract-layer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 32px;
+  gap: 4px;
+}
+.contract-layer-row > button:first-child {
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.contract-editor-title {
+  min-width: 180px;
+  margin-right: auto;
+}
