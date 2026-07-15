@@ -331,6 +331,32 @@ export const mapClientFromDb = (client = {}) => ({
     || new Date().toISOString(),
 });
 
+
+export const mapEquipmentFromDb = (item = {}) => ({
+  ...item,
+  id: item.id,
+  nome: item.nome || item.name || '',
+  categoria: item.categoria || 'Outro',
+  marca: item.marca || '',
+  modelo: item.modelo || '',
+  numeroSerie: item.numero_serie || item.numeroSerie || '',
+  fornecedor: item.fornecedor || '',
+  status: item.status || 'Ativo',
+  valor: Number(item.valor ?? item.valor_compra ?? item.valorCompra ?? 0),
+  valorCompra: Number(item.valor_compra ?? item.valorCompra ?? item.valor ?? 0),
+  dataCompra: item.data_compra || item.dataCompra || '',
+  garantiaAte: item.garantia_ate || item.garantiaAte || '',
+  proximaRevisao: item.proxima_revisao || item.proximaRevisao || '',
+  vidaUtilAnos: Number(item.vida_util_anos ?? item.vidaUtilAnos ?? 5),
+  valorResidual: Number(item.valor_residual ?? item.valorResidual ?? 0),
+  metodoDepreciacao: item.metodo_depreciacao || item.metodoDepreciacao || 'linear',
+  observacoes: item.observacoes || '',
+  manutencoes: Array.isArray(item.manutencoes) ? item.manutencoes : [],
+  origem: item.origem || 'manual',
+  criadoEm: item.created_at || item.criadoEm,
+  atualizadoEm: item.updated_at || item.atualizadoEm,
+});
+
 export const mapTransactionFromDb = (transaction = {}) => ({
   ...transaction,
   id: transaction.id,
@@ -921,41 +947,75 @@ export const upsertRow = async ({
   return data;
 };
 
-const saveMirrors = ({
-  leads,
-  clients,
-  projects,
-  transactions,
-  equipment,
-}) => {
-  if (!unavailableTables.has('leads')) {
-    localStorage.setItem(
-      'cv_crm_leads',
-      JSON.stringify(leads),
-    );
+
+export const syncEquipmentList = async (items = []) => {
+  const list = Array.isArray(items) ? items : [];
+  localStorage.setItem('cv_studio_equipamentos', JSON.stringify(list));
+  if (!isSupabaseConfigured || unavailableTables.has('equipamentos')) return list;
+
+  const payload = list.map((item) => ({
+    id: String(item.id || `equipamento-${crypto.randomUUID()}`),
+    nome: item.nome || item.name || 'Equipamento',
+    categoria: item.categoria || 'Outro',
+    marca: item.marca || null,
+    modelo: item.modelo || null,
+    numero_serie: item.numeroSerie || item.numero_serie || null,
+    fornecedor: item.fornecedor || null,
+    status: item.status || 'Ativo',
+    valor: Number(item.valor ?? item.valorCompra ?? 0),
+    valor_compra: Number(item.valorCompra ?? item.valor ?? 0),
+    data_compra: item.dataCompra || null,
+    garantia_ate: item.garantiaAte || null,
+    proxima_revisao: item.proximaRevisao || null,
+    vida_util_anos: Number(item.vidaUtilAnos || 5),
+    valor_residual: Number(item.valorResidual || 0),
+    metodo_depreciacao: item.metodoDepreciacao || 'linear',
+    observacoes: item.observacoes || null,
+    manutencoes: Array.isArray(item.manutencoes) ? item.manutencoes : [],
+    origem: item.origem || 'manual',
+    updated_at: new Date().toISOString(),
+  }));
+
+  if (payload.length) {
+    const { error } = await supabase.from('equipamentos').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
   }
 
-  localStorage.setItem(
-    'cv_studio_clients',
-    JSON.stringify(clients),
-  );
+  const ids = payload.map((item) => item.id);
+  let deleteQuery = supabase.from('equipamentos').delete();
+  if (ids.length) deleteQuery = deleteQuery.not('id', 'in', `(${ids.map((id) => `"${id}"`).join(',')})`);
+  const { error: deleteError } = ids.length ? await deleteQuery : await supabase.from('equipamentos').delete().neq('id', '');
+  if (deleteError) console.warn('Não foi possível remover equipamentos excluídos do Supabase:', deleteError);
+  return list;
+};
 
-  localStorage.setItem(
-    'cv_studio_projects',
-    JSON.stringify(projects),
-  );
-
-  localStorage.setItem(
-    'cv_studio_financas',
-    JSON.stringify(transactions),
-  );
-
-  if (!unavailableTables.has('equipamentos')) {
-    localStorage.setItem(
-      'cv_studio_equipamentos',
-      JSON.stringify(equipment),
-    );
+const safeMirrorWrite = (key, value, { maxBytes = 700_000 } = {}) => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > maxBytes) {
+      localStorage.removeItem(key);
+      return false;
+    }
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    if (error?.name === 'QuotaExceededError') {
+      try { localStorage.removeItem(key); } catch { /* noop */ }
+      return false;
+    }
+    console.warn(`Não foi possível atualizar o espelho local: ${key}`, error);
+    return false;
   }
+};
+
+const saveMirrors = ({ leads, clients, projects, transactions, equipment }) => {
+  if (!unavailableTables.has('leads')) safeMirrorWrite('cv_crm_leads', leads);
+  safeMirrorWrite('cv_studio_clients', clients);
+  safeMirrorWrite('cv_studio_projects', projects);
+  // O Supabase é a fonte oficial do Financeiro. Evita estourar o limite de 5 MB do localStorage.
+  safeMirrorWrite('cv_studio_financas', transactions, { maxBytes: 350_000 });
+  if (!unavailableTables.has('equipamentos')) safeMirrorWrite('cv_studio_equipamentos', equipment);
 };
 
 export const getDbStudioData = async () => {
@@ -963,7 +1023,7 @@ export const getDbStudioData = async () => {
     rawLeads,
     rawClients,
     rawTransactions,
-    equipment,
+    rawEquipment,
   ] = await Promise.all([
     selectAll('leads'),
     selectAll('clientes'),
@@ -976,6 +1036,18 @@ export const getDbStudioData = async () => {
   const leads = rawLeads.map(mapLeadFromDb);
   const clients = rawClients.map(mapClientFromDb);
   const transactions = rawTransactions.map(mapTransactionFromDb);
+  const localEquipment = (() => {
+    try { return JSON.parse(localStorage.getItem('cv_studio_equipamentos') || '[]'); } catch { return []; }
+  })();
+  const equipment = rawEquipment.length
+    ? rawEquipment.map(mapEquipmentFromDb)
+    : (Array.isArray(localEquipment) ? localEquipment : []);
+
+  if (!rawEquipment.length && equipment.length && isSupabaseConfigured) {
+    void syncEquipmentList(equipment).catch((error) => {
+      console.warn('Não foi possível migrar o patrimônio local para o Supabase:', error);
+    });
+  }
 
   const projects = rawProjects.map((project) => (
     mapProjectFromDb(
@@ -1016,6 +1088,7 @@ export const subscribeDbUpdates = (callback) => {
     'projetos',
     'financas',
     PROFILE_TABLE,
+    'equipamentos',
   ];
 
   tables.forEach((table) => {

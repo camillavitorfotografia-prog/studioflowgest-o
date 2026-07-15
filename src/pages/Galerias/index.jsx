@@ -12,6 +12,7 @@ import {
   Eye,
   FileImage,
   Heart,
+  HardDrive,
   Image as ImageIcon,
   Images,
   Link2,
@@ -41,6 +42,9 @@ import {
   deleteGalleryPhoto,
   getGallery,
   getGalleryOperationalSummary,
+  getGalleryStorageSummary,
+  cleanupGalleryStorage,
+  optimizeGalleryPreviews,
   getStoredGalleryToken,
   listGalleries,
   moveGalleryToTrash,
@@ -88,7 +92,7 @@ const normalizeEditorGallery = (gallery) => ({
   includedPhotos: Number(gallery.includedPhotos || 0),
   additionalPrice: Number(gallery.additionalPrice || 0),
   settings: { ...DEFAULT_SETTINGS, ...(gallery.settings || {}), naming: { ...DEFAULT_SETTINGS.naming, ...(gallery.settings?.naming || {}) } },
-  watermarkSettings: { text: 'PROTEGIDO', opacity: 0.3, spacing: 170, angle: -28, grid: true, showClient: false, previewMaxWidth: 1800, ...(gallery.watermarkSettings || {}) },
+  watermarkSettings: { text: 'PROTEGIDO', opacity: 0.3, spacing: 170, angle: -28, grid: true, showClient: false, previewMaxWidth: 1280, previewQuality: 0.68, ...(gallery.watermarkSettings || {}) },
 });
 
 function useAdminPhotoUrl(photo, kind = 'preview') {
@@ -142,6 +146,8 @@ export default function Galerias() {
   const [photoMenuId, setPhotoMenuId] = useState('');
   const [selectedPhotoIds, setSelectedPhotoIds] = useState([]);
   const [operations, setOperations] = useState(null);
+  const [storageSummary, setStorageSummary] = useState(null);
+  const [optimizingStorage, setOptimizingStorage] = useState(false);
   const fileRef = useRef(null);
   const editorRef = useRef(null);
   const savingRef = useRef(false);
@@ -168,13 +174,15 @@ export default function Galerias() {
   const openEditor = useCallback(async (targetId, { navigateTo = true } = {}) => {
     setSaving(true);
     try {
-      const [data, operationalSummary] = await Promise.all([
+      const [data, operationalSummary, storage] = await Promise.all([
         getGallery(targetId),
         getGalleryOperationalSummary(targetId).catch(() => null),
+        getGalleryStorageSummary(targetId).catch(() => null),
       ]);
       const normalizedGallery = normalizeEditorGallery(data.gallery);
       setEditor({ ...data, gallery: normalizedGallery });
       setOperations(operationalSummary);
+      setStorageSummary(storage);
       editorRef.current = { ...data, gallery: normalizedGallery };
       persistedNamingRef.current = JSON.stringify(normalizedGallery.settings.naming || DEFAULT_SETTINGS.naming);
       changeVersionRef.current = 0;
@@ -316,7 +324,7 @@ export default function Galerias() {
     try {
       const result = await uploadGalleryPhotos({ galleryId: target.id, files: [...files], watermarkSettings: target.watermarkSettings, clientName: client?.nome || '',
         onProgress: ({ index, name, progress, status, error }) => setUploadProgress((current) => { const next = [...current]; next[index] = { name, progress, status, error }; return next; }) });
-      setMessage(result.failures.length ? `${result.uploaded.length} enviadas. ${result.failures.length} falharam.` : `${result.uploaded.length} fotografias enviadas com sucesso.`);
+      setMessage(result.failures.length ? `${result.uploaded.length} enviadas. ${result.failures.length} falharam.` : result.skipped?.length ? `${result.uploaded.length} enviadas. ${result.skipped.length} duplicada(s) ignorada(s).` : `${result.uploaded.length} fotografias enviadas com sucesso.`);
       await openEditor(target.id, { navigateTo: Boolean(editor) }); await load();
     } catch (error) { setMessage(error?.message || 'Não foi possível concluir o upload.'); }
     finally { setSaving(false); }
@@ -333,6 +341,27 @@ export default function Galerias() {
       await openEditor(editor.gallery.id, { navigateTo: false });
     } catch (error) { setMessage(error?.message || 'Não foi possível atualizar as provas.'); }
     finally { setReprocessing(false); }
+  };
+
+  const optimizeStorage = async () => {
+    if (!editor?.gallery?.id || optimizingStorage) return;
+    setOptimizingStorage(true); setProtectionProgress([]); setMessage('Otimizando provas e removendo resíduos…');
+    try {
+      const result = await optimizeGalleryPreviews({ galleryId: editor.gallery.id, watermarkSettings: editor.gallery.watermarkSettings, clientName,
+        onProgress: ({ index, name, progress, status, error }) => setProtectionProgress((current) => { const next = [...current]; next[index] = { name, progress, status, error }; return next; }) });
+      setStorageSummary(await getGalleryStorageSummary(editor.gallery.id));
+      setMessage(result.failures.length ? `Otimização concluída com ${result.failures.length} falha(s).` : `Otimização concluída. ${result.cleanup.removed} arquivo(s) órfão(s) removido(s).`);
+      await openEditor(editor.gallery.id, { navigateTo: false });
+    } catch (error) { setMessage(error?.message || 'Não foi possível otimizar o armazenamento.'); }
+    finally { setOptimizingStorage(false); }
+  };
+
+  const cleanStorage = async () => {
+    if (!editor?.gallery?.id || optimizingStorage) return;
+    setOptimizingStorage(true);
+    try { const result = await cleanupGalleryStorage(editor.gallery.id); setStorageSummary(await getGalleryStorageSummary(editor.gallery.id)); setMessage(`${result.removed} arquivo(s) órfão(s) removido(s).`); }
+    catch (error) { setMessage(error?.message || 'Não foi possível limpar o armazenamento.'); }
+    finally { setOptimizingStorage(false); }
   };
 
   const publicLink = (gallery) => {
@@ -447,7 +476,7 @@ export default function Galerias() {
         {editorTab==='protection' && <ProtectionTab editor={editor} clientName={clientName} updateGallery={updateEditorGallery} applying={reprocessing} onApply={applyProtection} progress={protectionProgress} />}
         {editorTab==='delivery' && <DeliveryTab gallery={editor.gallery} updateSettings={updateSettings} metrics={metrics} saving={saving} onRelease={releaseDelivery} />}
         {editorTab==='sharing' && <SharingTab gallery={editor.gallery} publicLink={publicLink(editor.gallery)} onCopy={copyLink} onRenew={async()=>{const r=await renewGalleryAccess(editor.gallery.id);setMessage(`Novo link criado: ${window.location.origin}/galeria/${r.token}`)}} />}
-        {editorTab==='settings' && <SettingsTab gallery={editor.gallery} updateGallery={updateEditorGallery} onTrash={async()=>{if(!window.confirm('Mover esta galeria para a lixeira? O link do cliente será desativado imediatamente.')) return; try { await moveGalleryToTrash(editor.gallery.id); setMessage('Galeria movida para a lixeira.'); setEditor(null); editorRef.current = null; navigate('/galerias'); await load(); } catch (error) { setMessage(error?.message || 'Não foi possível mover a galeria para a lixeira.'); }}} />}
+        {editorTab==='settings' && <SettingsTab gallery={editor.gallery} updateGallery={updateEditorGallery} storageSummary={storageSummary} optimizingStorage={optimizingStorage} onOptimizeStorage={optimizeStorage} onCleanStorage={cleanStorage} onTrash={async()=>{if(!window.confirm('Mover esta galeria para a lixeira? O link do cliente será desativado imediatamente.')) return; try { await moveGalleryToTrash(editor.gallery.id); setMessage('Galeria movida para a lixeira.'); setEditor(null); editorRef.current = null; navigate('/galerias'); await load(); } catch (error) { setMessage(error?.message || 'Não foi possível mover a galeria para a lixeira.'); }}} />}
       </main></div>
     </div>}
 
@@ -497,7 +526,9 @@ function DeliveryTab({gallery,updateSettings,metrics,saving,onRelease}){
   return <div className="workspace-tab"><div className="tab-heading"><div><span>ENTREGA</span><h2>Arquivos finais</h2><p>Libere todas as fotos ou somente as selecionadas, conforme o pacote contratado.</p></div><button disabled={saving||isReleased} onClick={onRelease}>{isReleased?<CheckCircle2/>:<PackageCheck/>}{isReleased?'Entrega liberada':'Liberar entrega'}</button></div><div className="delivery-summary"><article><strong>{metrics.selected}</strong><span>Selecionadas</span></article><article><strong>{metrics.edited}</strong><span>Com arquivo final</span></article><article><strong>{metrics.delivered}</strong><span>Liberadas</span></article></div><div className="gallery-form-grid"><label>Modo de download<select value={gallery.settings.downloadMode} onChange={e=>updateSettings({downloadMode:e.target.value})}><option value="selected">Somente selecionadas</option><option value="all">Galeria completa</option><option value="individual">Galeria completa, download individual</option></select><small>{purpose==='delivery'?'Para trabalhos sem seleção, use Galeria completa.':'Para pacotes com limite, use Somente selecionadas.'}</small></label><label>Validade do download (dias)<input type="number" min="1" value={gallery.settings.downloadExpiresDays} onChange={e=>updateSettings({downloadExpiresDays:Number(e.target.value||30)})}/></label><label>Limite de downloads<input type="number" min="0" value={gallery.settings.downloadLimit} onChange={e=>updateSettings({downloadLimit:Number(e.target.value||0)})}/><small>0 significa sem limite.</small></label></div>{purpose==='both'&&gallery.status==='selection'&&<div className="gallery-admin-message">A entrega deve ser liberada depois que o cliente concluir a seleção.</div>}{purpose==='delivery'&&<div className="gallery-admin-message">Esta galeria não exige seleção. Ao publicar, o cliente recebe a experiência de entrega e download.</div>}</div>
 }
 function SharingTab({gallery,publicLink,onCopy,onRenew}){return <div className="workspace-tab"><div className="tab-heading"><div><span>COMPARTILHAR</span><h2>Acesso do cliente</h2><p>Publique a galeria antes de enviar o link.</p></div></div><div className="sharing-card"><Link2/><div><small>LINK EXTERNO</small><strong>{publicLink||'Ainda não disponível neste navegador'}</strong><p>Status: {STATUS_LABELS[gallery.status]}</p></div><div><button onClick={onCopy}><Copy/>Copiar</button><button className="secondary" onClick={onRenew}><RefreshCw/>Renovar</button>{publicLink&&<a href={publicLink} target="_blank" rel="noreferrer"><ExternalLink/>Abrir</a>}</div></div></div>}
-function SettingsTab({gallery,updateGallery,onTrash}){return <div className="workspace-tab"><div className="tab-heading"><div><span>CONFIGURAÇÕES</span><h2>Dados da galeria</h2><p>Informações internas, validade e exclusão.</p></div></div><div className="gallery-form-grid"><label className="full">Nome<input value={gallery.name} onChange={e=>updateGallery({name:capitalizeName(e.target.value)})}/></label><label>Validade do link<input type="date" value={gallery.expiresAt?.slice(0,10)||''} onChange={e=>updateGallery({expiresAt:e.target.value})}/></label></div><div className="danger-zone"><div><h3>Zona de perigo</h3><p>A galeria poderá ser restaurada enquanto estiver na lixeira.</p></div><button className="danger" onClick={onTrash}><Trash2/>Mover para lixeira</button></div></div>}
+function formatBytes(value = 0) { const bytes=Number(value||0); if(bytes<1024)return `${bytes} B`; const units=['KB','MB','GB','TB']; let size=bytes,index=-1; do{size/=1024;index+=1}while(size>=1024&&index<units.length-1); return `${size.toLocaleString('pt-BR',{maximumFractionDigits:2})} ${units[index]}`; }
+function SettingsTab({gallery,updateGallery,storageSummary,optimizingStorage,onOptimizeStorage,onCleanStorage,onTrash}){return <div className="workspace-tab"><div className="tab-heading"><div><span>CONFIGURAÇÕES</span><h2>Dados da galeria</h2><p>Informações internas, validade, armazenamento e exclusão.</p></div></div><div className="gallery-form-grid"><label className="full">Nome<input value={gallery.name} onChange={e=>updateGallery({name:capitalizeName(e.target.value)})}/></label><label>Validade do link<input type="date" value={gallery.expiresAt?.slice(0,10)||''} onChange={e=>updateGallery({expiresAt:e.target.value})}/></label></div><div className="gallery-storage-card"><div className="gallery-storage-heading"><HardDrive/><div><h3>Armazenamento econômico</h3><p>Provas leves em WebP. Originais continuam privados e sem perda de qualidade.</p></div></div><div className="gallery-storage-metrics"><article><strong>{storageSummary?.photos||0}</strong><span>Fotografias</span></article><article><strong>{formatBytes(storageSummary?.originalsBytes)}</strong><span>Originais</span></article><article><strong>{formatBytes(storageSummary?.previewsBytes)}</strong><span>Provas</span></article><article><strong>{formatBytes(storageSummary?.estimatedBytes)}</strong><span>Total estimado</span></article></div><div className="gallery-storage-actions"><button disabled={optimizingStorage} onClick={onOptimizeStorage}>{optimizingStorage?<LoaderCircle className="spin"/>:<RefreshCw/>}Otimizar provas</button><button className="secondary" disabled={optimizingStorage} onClick={onCleanStorage}><Trash2/>Limpar resíduos</button></div><small>Uploads repetidos na mesma galeria são ignorados. Arquivos temporários e órfãos podem ser removidos sem apagar fotos válidas.</small></div><div className="danger-zone"><div><h3>Zona de perigo</h3><p>A galeria poderá ser restaurada enquanto estiver na lixeira.</p></div><button className="danger" onClick={onTrash}><Trash2/>Mover para lixeira</button></div></div>}
+
 
 function CreateModal({form,setForm,clients,projects,saving,onClose,onSubmit}){return <div className="gallery-modal-backdrop"><form className="gallery-modal" onSubmit={onSubmit}><header><div><span>NOVA GALERIA</span><h2>Criar coleção</h2><p>Comece com os dados essenciais e personalize depois.</p></div><button type="button" className="icon secondary" onClick={onClose}><X/></button></header><section className="gallery-form-section"><div className="gallery-form-grid"><label>Cliente<select required value={form.clientId} onChange={e=>{const id=e.target.value;const c=clients.find(x=>String(x.id)===String(id));setForm(v=>({...v,clientId:id,projectId:'',name:c?`Seleção ${capitalizeName(c.nome)}`:v.name}))}}><option value="">Selecione</option>{clients.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</select></label><label>Trabalho<select value={form.projectId} onChange={e=>setForm(v=>({...v,projectId:e.target.value}))}><option value="">Opcional</option>{projects.map(p=><option key={p.id} value={p.id}>{p.titulo||p.tipoServico}</option>)}</select></label><label className="full">Nome<input required value={form.name} onChange={e=>setForm(v=>({...v,name:capitalizeName(e.target.value)}))}/></label><label>Fotos incluídas<input type="number" min="0" value={form.includedPhotos} onChange={e=>setForm(v=>({...v,includedPhotos:Number(e.target.value||0)}))}/></label><MoneyField label="Valor por adicional" value={form.additionalPrice} onChange={value=>setForm(v=>({...v,additionalPrice:value}))}/><label>Prazo<input type="date" value={form.selectionDeadline} onChange={e=>setForm(v=>({...v,selectionDeadline:e.target.value}))}/></label><label>Finalidade<select value={form.settings.purpose} onChange={e=>{const purpose=e.target.value;setForm(v=>({...v,includedPhotos:purpose==='delivery'?0:v.includedPhotos,settings:{...v.settings,purpose,downloadMode:purpose==='delivery'?'all':'selected',allowAdditional:purpose==='delivery'?false:true}}))}}><option value="selection">Seleção</option><option value="delivery">Entrega</option><option value="both">Seleção e entrega</option></select></label></div></section><footer><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button disabled={saving} type="submit">{saving?<LoaderCircle className="spin"/>:<Plus/>}Criar galeria</button></footer></form></div>}
 function MoneyField({label,value,onChange}){return <label>{label}<input inputMode="numeric" value={value} onChange={e=>onChange(maskCurrency(e.target.value))}/></label>}

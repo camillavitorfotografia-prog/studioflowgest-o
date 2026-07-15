@@ -61,6 +61,7 @@ const normalizePhoto = (row = {}) => ({
   clientComment: row.client_comment || row.clientComment || '',
   status: row.status || 'active',
   metadata: row.metadata || {},
+  previewSizeBytes: Number(row.metadata?.previewSizeBytes || 0),
 });
 
 export async function listGalleries({ includeTrash = false } = {}) {
@@ -143,51 +144,61 @@ const loadImage = (file) => new Promise((resolve, reject) => {
 
 export async function createProtectedPreview(file, settings = {}, clientName = '') {
   const image = await loadImage(file);
-  const maxWidth = Number(settings.previewMaxWidth || 1800);
+  const maxWidth = Number(settings.previewMaxWidth || 1280);
   const scale = Math.min(1, maxWidth / image.naturalWidth);
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
   const height = Math.max(1, Math.round(image.naturalHeight * scale));
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(image, 0, 0, width, height);
 
-  const text = String(settings.text || 'PROTEGIDO').toUpperCase();
-  const opacity = Math.max(0.12, Math.min(0.65, Number(settings.opacity ?? 0.3)));
-  const spacing = Math.max(95, Number(settings.spacing || 170));
-  const angle = (Number(settings.angle ?? -28) * Math.PI) / 180;
-  const fontSize = Math.max(18, Math.round(width / 42));
-  ctx.save();
-  ctx.globalAlpha = opacity;
-  ctx.translate(width / 2, height / 2);
-  ctx.rotate(angle);
-  ctx.font = `700 ${fontSize}px Inter, Arial, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.strokeStyle = 'rgba(0,0,0,.72)';
-  ctx.fillStyle = 'rgba(255,255,255,.9)';
-  const diagonal = Math.sqrt(width * width + height * height);
-  for (let y = -diagonal; y <= diagonal; y += spacing) {
-    for (let x = -diagonal; x <= diagonal; x += spacing * 1.55) {
-      const label = settings.showClient && clientName ? `${text} · ${capitalizeName(clientName)}` : text;
-      ctx.strokeText(label, x, y);
-      ctx.fillText(label, x, y);
+  if (settings.protected !== false) {
+    const text = String(settings.text || 'PROTEGIDO').toUpperCase();
+    const opacity = Math.max(0.12, Math.min(0.65, Number(settings.opacity ?? 0.3)));
+    const spacing = Math.max(95, Number(settings.spacing || 170));
+    const angle = (Number(settings.angle ?? -28) * Math.PI) / 180;
+    const fontSize = Math.max(18, Math.round(width / 42));
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(angle);
+    ctx.font = `700 ${fontSize}px Inter, Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(0,0,0,.72)';
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    const diagonal = Math.sqrt(width * width + height * height);
+    for (let y = -diagonal; y <= diagonal; y += spacing) {
+      for (let x = -diagonal; x <= diagonal; x += spacing * 1.55) {
+        const label = settings.showClient && clientName ? `${text} · ${capitalizeName(clientName)}` : text;
+        ctx.strokeText(label, x, y);
+        ctx.fillText(label, x, y);
+      }
     }
-  }
-  if (settings.grid !== false) {
-    ctx.lineWidth = 1.4;
-    ctx.strokeStyle = 'rgba(255,255,255,.48)';
-    for (let n = -diagonal; n <= diagonal; n += spacing) {
-      ctx.beginPath(); ctx.moveTo(-diagonal, n); ctx.lineTo(diagonal, n); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(n, -diagonal); ctx.lineTo(n, diagonal); ctx.stroke();
+    if (settings.grid !== false) {
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = 'rgba(255,255,255,.48)';
+      for (let n = -diagonal; n <= diagonal; n += spacing) {
+        ctx.beginPath(); ctx.moveTo(-diagonal, n); ctx.lineTo(diagonal, n); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(n, -diagonal); ctx.lineTo(n, diagonal); ctx.stroke();
+      }
     }
+    ctx.restore();
   }
-  ctx.restore();
 
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
-  if (!blob) throw new Error('Não foi possível gerar a prova protegida.');
-  return { blob, width, height };
+  const quality = Math.max(0.52, Math.min(0.82, Number(settings.previewQuality ?? 0.68)));
+  let mimeType = 'image/webp';
+  let blob = await new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
+  if (!blob) {
+    mimeType = 'image/jpeg';
+    blob = await new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
+  }
+  if (!blob) throw new Error('Não foi possível gerar a prova otimizada.');
+  return { blob, width, height, mimeType, extension: mimeType === 'image/webp' ? 'webp' : 'jpg' };
 }
 
 async function uploadResumable({
@@ -257,6 +268,8 @@ async function removeUploadedPaths(paths = []) {
   }
 }
 
+const buildFileFingerprint = (file) => [String(file.name || '').toLowerCase(), Number(file.size || 0), Number(file.lastModified || 0)].join('|');
+
 export async function uploadGalleryPhotos({
   galleryId,
   files,
@@ -283,12 +296,20 @@ export async function uploadGalleryPhotos({
   }
 
   const current = await getGallery(galleryId);
+  const existingFingerprints = new Set(current.photos.map((photo) => photo.metadata?.fingerprint).filter(Boolean));
   let position = current.photos.length;
   const results = [];
   const failures = [];
+  const skipped = [];
 
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
+    const fingerprint = buildFileFingerprint(file);
+    if (existingFingerprints.has(fingerprint)) {
+      skipped.push({ index, name: file.name, reason: 'duplicate' });
+      onProgress?.({ index, name: file.name, progress: 100, status: 'duplicate' });
+      continue;
+    }
     const photoId = crypto.randomUUID();
     const safeName = file.name
       .normalize('NFD')
@@ -297,7 +318,7 @@ export async function uploadGalleryPhotos({
       .toLowerCase();
 
     const originalPath = `${userId}/${galleryId}/original/${photoId}-${safeName}`;
-    const previewPath = `${userId}/${galleryId}/preview/${photoId}.jpg`;
+    let previewPath = '';
 
     try {
       onProgress?.({
@@ -307,11 +328,8 @@ export async function uploadGalleryPhotos({
         status: 'processing',
       });
 
-      const preview = await createProtectedPreview(
-        file,
-        watermarkSettings,
-        clientName,
-      );
+      const preview = await createProtectedPreview(file, watermarkSettings, clientName);
+      previewPath = `${userId}/${galleryId}/preview/${photoId}.${preview.extension}`;
 
       onProgress?.({
         index,
@@ -345,7 +363,7 @@ export async function uploadGalleryPhotos({
       await uploadResumable({
         file: preview.blob,
         path: previewPath,
-        contentType: 'image/jpeg',
+        contentType: preview.mimeType,
         accessToken,
         onProgress: (value) => {
           onProgress?.({
@@ -375,15 +393,14 @@ export async function uploadGalleryPhotos({
           width: preview.width,
           height: preview.height,
           position: position++,
-          metadata: {
-            originalLastModified: file.lastModified || null,
-          },
+          metadata: { originalLastModified: file.lastModified || null, fingerprint, previewSizeBytes: preview.blob.size, previewMimeType: preview.mimeType, storageVersion: 2 },
         })
         .select('*')
         .single();
 
       if (error) throw error;
 
+      existingFingerprints.add(fingerprint);
       results.push(normalizePhoto(data));
       onProgress?.({
         index,
@@ -414,6 +431,7 @@ export async function uploadGalleryPhotos({
   return {
     uploaded: results,
     failures,
+    skipped,
   };
 }
 
@@ -452,10 +470,12 @@ export async function reprocessGalleryPreviews({
       const preview = await createProtectedPreview(originalFile, watermarkSettings, clientName);
 
       onProgress?.({ index, name: photo.displayName, progress: 55, status: 'uploading' });
+      const nextPreviewPath = photo.previewPath?.replace(/\.(jpe?g|png|webp)$/i, `.${preview.extension}`)
+        || `${photo.galleryId}/preview/${photo.id}.${preview.extension}`;
       await uploadResumable({
         file: preview.blob,
-        path: photo.previewPath,
-        contentType: 'image/jpeg',
+        path: nextPreviewPath,
+        contentType: preview.mimeType,
         accessToken,
         upsert: true,
         onProgress: (value) => onProgress?.({
@@ -469,16 +489,14 @@ export async function reprocessGalleryPreviews({
       await supabase
         .from(PHOTOS_TABLE)
         .update({
+          preview_path: nextPreviewPath,
           width: preview.width,
           height: preview.height,
-          metadata: {
-            ...(photo.metadata || {}),
-            previewReprocessedAt: new Date().toISOString(),
-            watermarkOpacity: Number(watermarkSettings?.opacity ?? 0.3),
-          },
+          metadata: { ...(photo.metadata || {}), previewReprocessedAt: new Date().toISOString(), watermarkOpacity: Number(watermarkSettings?.opacity ?? 0.3), previewSizeBytes: preview.blob.size, previewMimeType: preview.mimeType, storageVersion: 2 },
         })
         .eq('id', photo.id);
 
+      if (photo.previewPath && photo.previewPath !== nextPreviewPath) await removeUploadedPaths([photo.previewPath]);
       updated.push(photo.id);
       onProgress?.({ index, name: photo.displayName, progress: 100, status: 'completed' });
     } catch (error) {
@@ -800,6 +818,47 @@ export async function getGalleryOperationalSummary(galleryId) {
     additionalCharge: financeRows || null,
     recentEvents: rows.slice(0, 20),
   };
+}
+
+export async function getGalleryStorageSummary(galleryId) {
+  const detail = await getGallery(galleryId);
+  const originalsBytes = detail.photos.reduce((sum, photo) => sum + Number(photo.sizeBytes || 0), 0);
+  const previewsBytes = detail.photos.reduce((sum, photo) => sum + Number(photo.metadata?.previewSizeBytes || 0), 0);
+  return { photos: detail.photos.length, originalsBytes, previewsBytes, estimatedBytes: originalsBytes + previewsBytes, finalCount: detail.photos.filter((photo) => photo.finalPath).length };
+}
+
+async function listFolderPaths(prefix) {
+  const paths = [];
+  let offset = 0;
+  const limit = 1000;
+  while (true) {
+    const { data, error } = await supabase.storage.from(BUCKET).list(prefix, { limit, offset, sortBy: { column: 'name', order: 'asc' } });
+    if (error) throw error;
+    const rows = data || [];
+    rows.forEach((item) => { if (item?.name && item?.id) paths.push(`${prefix}/${item.name}`); });
+    if (rows.length < limit) break;
+    offset += limit;
+  }
+  return paths;
+}
+
+export async function cleanupGalleryStorage(galleryId) {
+  const [{ data: userData, error: userError }, detail] = await Promise.all([supabase.auth.getUser(), getGallery(galleryId)]);
+  if (userError) throw userError;
+  const userId = userData?.user?.id;
+  if (!userId) throw new Error('Sessão inválida. Entre novamente no StudioFlow.');
+  const referenced = new Set(detail.photos.flatMap((photo) => [photo.originalPath, photo.previewPath, photo.finalPath]).filter(Boolean));
+  const folders = ['original', 'preview', 'final', 'temp'];
+  const listed = (await Promise.all(folders.map((folder) => listFolderPaths(`${userId}/${galleryId}/${folder}`).catch(() => [])))).flat();
+  const orphanPaths = listed.filter((path) => !referenced.has(path));
+  if (orphanPaths.length) await removeUploadedPaths(orphanPaths);
+  return { removed: orphanPaths.length, paths: orphanPaths };
+}
+
+export async function optimizeGalleryPreviews({ galleryId, watermarkSettings, clientName = '', onProgress }) {
+  const result = await reprocessGalleryPreviews({ galleryId, watermarkSettings: { ...(watermarkSettings || {}), previewMaxWidth: 1280, previewQuality: 0.68 }, clientName, onProgress });
+  const cleanup = await cleanupGalleryStorage(galleryId);
+  return { ...result, cleanup };
 }
 
 export { BUCKET as GALLERY_BUCKET };

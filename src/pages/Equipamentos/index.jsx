@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -22,6 +22,7 @@ import Modal from '../../components/Modal';
 import {
   getDbStudioData,
   subscribeDbUpdates,
+  syncEquipmentList,
 } from '../../utils/dbData';
 import {
   formatDateBR,
@@ -246,6 +247,10 @@ export default function Equipamentos() {
       EQUIPMENT_STORAGE_KEY,
       JSON.stringify(list),
     );
+    void syncEquipmentList(list).catch((error) => {
+      console.error('Erro ao sincronizar equipamentos:', error);
+      alert('O equipamento foi salvo neste navegador, mas não foi possível sincronizá-lo com o Supabase.');
+    });
     emitEquipmentUpdate();
   };
 

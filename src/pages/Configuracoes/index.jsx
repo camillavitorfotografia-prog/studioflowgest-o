@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   Building2,
@@ -149,6 +150,7 @@ const createTeamMemberId = () => (
 );
 
 export default function Configuracoes() {
+  const navigate = useNavigate();
   const [active, setActive] = useState('general');
   const [settings, setSettings] = useState(loadSettings);
   const [message, setMessage] = useState('');
@@ -748,6 +750,15 @@ export default function Configuracoes() {
               />
 
               <div className="settings-actions">
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => navigate('/configuracoes/migracao-dados')}
+                >
+                  <Database size={16} />
+                  Migração de dados
+                </button>
+
                 <button
                   className="btn btn-primary"
                   type="button"

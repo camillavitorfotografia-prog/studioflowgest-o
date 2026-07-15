@@ -27,6 +27,7 @@ import BibliotecaArquivos from './pages/BibliotecaArquivos';
 import Galerias from './pages/Galerias';
 import GaleriaPublica from './pages/GaleriaPublica';
 import GaleriaPreview from './pages/GaleriaPreview';
+import MigracaoDados from './pages/MigracaoDados';
 
 function App() {
   return (
@@ -51,6 +52,7 @@ function App() {
             <Route path="precificacao" element={<Precificacao />} />
             <Route path="perfil" element={<Perfil />} />
             <Route path="configuracoes" element={<Configuracoes />} />
+            <Route path="configuracoes/migracao-dados" element={<MigracaoDados />} />
             <Route path="configuracoes/modelos-propostas" element={<ModelosPropostas />} />
             <Route path="configuracoes/modelos-propostas/:templateId" element={<ProposalTemplateEditor />} />
             <Route path="configuracoes/modelos-contratos" element={<ModelosContratos />} />
