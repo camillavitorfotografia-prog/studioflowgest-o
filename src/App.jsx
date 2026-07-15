@@ -21,6 +21,12 @@ import ProposalTemplateEditor from './features/documents/editor/ProposalTemplate
 import ModelosContratos from './pages/Configuracoes/ModelosContratos';
 import ContractTemplateEditor from './features/documents/editor/ContractTemplateEditor';
 import ProtectedRoute from './components/ProtectedRoute';
+import AreaCliente from './pages/AreaCliente';
+import PortalCliente from './pages/PortalCliente';
+import BibliotecaArquivos from './pages/BibliotecaArquivos';
+import Galerias from './pages/Galerias';
+import GaleriaPublica from './pages/GaleriaPublica';
+import GaleriaPreview from './pages/GaleriaPreview';
 
 function App() {
   return (
@@ -29,6 +35,8 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/recuperar-senha" element={<Login />} />
+          <Route path="/portal/:accessToken" element={<PortalCliente />} />
+          <Route path="/galeria/:accessToken" element={<GaleriaPublica />} />
 
           <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />
@@ -51,6 +59,11 @@ function App() {
             <Route path="propostas/editor" element={<ProposalEditor />} />
             <Route path="equipamentos" element={<Equipamentos />} />
             <Route path="relatorios" element={<Relatorios />} />
+            <Route path="area-cliente" element={<AreaCliente />} />
+            <Route path="biblioteca" element={<BibliotecaArquivos />} />
+            <Route path="galerias" element={<Galerias />} />
+            <Route path="galerias/:galleryId" element={<Galerias />} />
+            <Route path="galerias/:galleryId/preview" element={<GaleriaPreview />} />
           </Route>
         </Routes>
       </AuthProvider>

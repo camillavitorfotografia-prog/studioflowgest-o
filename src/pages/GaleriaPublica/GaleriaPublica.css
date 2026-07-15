@@ -1,0 +1,132 @@
+.public-gallery-page{--bg:#0e0e10;--panel:#17171b;--text:#f7f3ec;--muted:#929096;--accent:#c8a25d;min-height:100vh;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}.public-gallery-page.theme-light{--bg:#f5f2ec;--panel:#fff;--text:#1b1917;--muted:#756f68}.public-gallery-page.theme-warm{--bg:#211c18;--panel:#2b241f;--text:#fff8ef;--muted:#b5a89a}.public-gallery-page.type-editorial h1,.public-gallery-page.type-editorial h2{font-family:Georgia,'Times New Roman',serif;font-weight:400}.public-gallery-page.type-classic h1,.public-gallery-page.type-classic h2{font-family:Georgia,serif}.public-gallery-page.type-modern h1,.public-gallery-page.type-modern h2{font-family:Inter,sans-serif;font-weight:800;letter-spacing:-.04em}.public-gallery-page.type-romantic h1,.public-gallery-page.type-romantic h2{font-family:Georgia,serif;font-style:italic}.public-gallery-header{height:72px;display:flex;align-items:center;justify-content:space-between;padding:0 max(22px,calc((100vw - 1260px)/2));border-bottom:1px solid rgba(255,255,255,.08);background:rgba(12,12,14,.88);position:relative;z-index:6}.public-gallery-header img{width:132px}.public-gallery-header span{display:flex;align-items:center;gap:8px;color:#9b989e;font-size:12px}.public-gallery-header svg{width:15px;color:var(--accent)}.public-gallery-cover{position:relative;min-height:calc(100vh - 72px);overflow:hidden;display:grid;place-items:center}.public-gallery-cover.height-compact{min-height:520px}.public-gallery-cover.height-large{min-height:760px}.public-gallery-cover.height-fullscreen{min-height:calc(100vh - 72px)}.public-gallery-cover-image{position:absolute;inset:0;padding:0;border:0;background:#111}.public-gallery-cover-image img{width:100%;height:100%;object-fit:cover}.public-gallery-cover-image.position-top img{object-position:center top}.public-gallery-cover-image.position-bottom img{object-position:center bottom}.public-gallery-cover-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.18),rgba(0,0,0,.72))}.public-gallery-cover-copy{position:relative;z-index:2;max-width:920px;padding:40px;text-align:center}.public-gallery-cover-copy>span{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#e1c17f}.public-gallery-cover-copy h1{font-size:clamp(3.5rem,9vw,8rem);line-height:.92;margin:18px 0;text-wrap:balance}.public-gallery-cover-copy p{color:#d0ccd0}.public-gallery-cover-copy .description{max-width:620px;margin:12px auto 28px;line-height:1.7}.public-gallery-cover-copy button,.public-gallery-page button{border:1px solid rgba(255,255,255,.2);background:rgba(10,10,12,.62);color:#fff;padding:12px 18px;border-radius:99px;display:inline-flex;gap:8px;align-items:center;justify-content:center;cursor:pointer;font-weight:700}.public-gallery-cover.layout-split{place-items:stretch}.public-gallery-cover.layout-split .public-gallery-cover-image{right:50%}.public-gallery-cover.layout-split .public-gallery-cover-copy{margin-left:50%;display:flex;flex-direction:column;justify-content:center}.public-gallery-cover.layout-minimal .public-gallery-cover-image{inset:7%;border-radius:18px}.public-gallery-cover.layout-minimal .public-gallery-cover-copy{margin-top:38%}.public-gallery-main{width:min(1260px,calc(100% - 40px));margin:0 auto;padding:58px 0 90px}.public-gallery-intro{text-align:center;max-width:820px;margin:0 auto 42px}.public-gallery-intro>span{color:var(--accent);font-size:11px;letter-spacing:.15em;text-transform:uppercase}.public-gallery-intro h1{font-size:clamp(2.7rem,6vw,5.8rem);line-height:1;margin:14px 0}.public-gallery-intro p{color:var(--muted);line-height:1.7}.public-gallery-law{display:flex;gap:12px;align-items:flex-start;padding:16px 18px;margin-bottom:18px;border:1px solid rgba(200,162,93,.25);background:rgba(200,162,93,.07);border-radius:12px;color:var(--muted)}.public-gallery-law svg{width:19px;color:var(--accent);flex:0 0 auto}.public-gallery-law p{margin:0;font-size:13px;line-height:1.55}.public-gallery-sticky-toolbar{position:sticky;top:12px;z-index:5;display:flex;justify-content:space-between;gap:20px;align-items:center;padding:12px 14px;margin-bottom:28px;border:1px solid rgba(255,255,255,.1);border-radius:14px;background:rgba(19,19,22,.9);backdrop-filter:blur(18px)}.public-gallery-counts,.public-gallery-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.public-gallery-counts span{font-size:12px;color:#a7a4aa}.public-gallery-counts strong{color:#fff}.public-gallery-actions button.active,.public-gallery-actions button.primary{background:var(--accent);color:#111;border-color:var(--accent)}.public-gallery-grid{columns:3;column-gap:16px}.public-gallery-page.spacing-compact .public-gallery-grid{column-gap:6px}.public-gallery-page.spacing-wide .public-gallery-grid{column-gap:28px}.public-gallery-page.grid-uniform .public-gallery-grid{display:grid;grid-template-columns:repeat(3,1fr);columns:auto}.public-gallery-page.grid-large .public-gallery-grid{columns:2}.public-gallery-card{position:relative;break-inside:avoid;margin-bottom:16px;overflow:hidden}.spacing-compact .public-gallery-card{margin-bottom:6px}.spacing-wide .public-gallery-card{margin-bottom:28px}.grid-uniform .public-gallery-card{aspect-ratio:1}.public-gallery-card-image{display:block;width:100%;padding:0!important;border:0!important;border-radius:0!important;background:#17171b!important}.public-gallery-card-image img{display:block;width:100%;height:auto}.grid-uniform .public-gallery-card-image,.grid-uniform .public-gallery-card-image img{height:100%;object-fit:cover}.public-gallery-card.selected{outline:3px solid var(--accent);outline-offset:-3px}.public-gallery-favorite,.public-gallery-download{position:absolute;top:12px;right:12px;width:42px;height:42px;padding:0!important;border-radius:50%!important;background:rgba(10,10,12,.72)!important}.public-gallery-favorite svg,.public-gallery-download svg{width:18px}.public-gallery-card>small{display:block;padding:8px 2px;color:var(--muted)}.public-gallery-download{top:auto;bottom:12px}.gallery-image-loader{display:grid;place-items:center;min-height:220px}.public-gallery-overlay,.public-gallery-privacy{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.76);backdrop-filter:blur(18px)}.public-gallery-notice,.public-gallery-privacy>div{width:min(520px,100%);padding:34px;border-radius:22px;background:#f7f5f0;color:#1f1d1a;text-align:center;box-shadow:0 30px 100px rgba(0,0,0,.5)}.public-gallery-notice svg,.public-gallery-privacy svg{width:42px;color:#bd8c2f}.public-gallery-notice h2,.public-gallery-privacy h2{font-size:28px;margin:12px 0}.public-gallery-notice p,.public-gallery-privacy p{line-height:1.65;color:#655f58}.public-gallery-notice button,.public-gallery-privacy button{width:100%;background:#ad7d2d;color:#fff;border-color:#ad7d2d}.privacy-on .public-gallery-cover,.privacy-on .public-gallery-main{filter:blur(24px);pointer-events:none}.public-gallery-lightbox{position:fixed;inset:0;z-index:20;background:rgba(5,5,6,.97);display:grid;place-items:center}.public-gallery-lightbox-content{width:min(1180px,calc(100% - 130px));height:min(86vh,900px);display:grid;grid-template-columns:minmax(0,1fr) 300px;background:#101012}.public-gallery-lightbox-content>img{width:100%;height:100%;object-fit:contain;background:#050506}.public-gallery-lightbox aside{padding:30px;display:flex;flex-direction:column;gap:18px}.public-gallery-lightbox aside small{color:var(--accent);letter-spacing:.12em}.public-gallery-lightbox aside h2{margin:0;font-size:24px}.public-gallery-lightbox aside button.selected{background:var(--accent);color:#111}.public-gallery-lightbox label{display:flex;flex-direction:column;gap:8px;color:#aaa}.public-gallery-lightbox textarea{min-height:110px;border:1px solid #333;background:#17171b;color:#fff;border-radius:10px;padding:10px}.public-gallery-lightbox .close,.public-gallery-lightbox .nav{position:absolute;z-index:2;width:44px;height:44px;padding:0;border-radius:50%}.public-gallery-lightbox .close{top:20px;right:20px}.public-gallery-lightbox .prev{left:20px}.public-gallery-lightbox .next{right:20px}.public-gallery-state{min-height:100vh;display:grid;place-content:center;justify-items:center;background:#0d0d0f;color:#999}.spin{animation:publicSpin .8s linear infinite}@keyframes publicSpin{to{transform:rotate(360deg)}}@media(max-width:850px){.public-gallery-cover.layout-split .public-gallery-cover-image{right:0}.public-gallery-cover.layout-split .public-gallery-cover-copy{margin-left:0}.public-gallery-grid,.public-gallery-page.grid-large .public-gallery-grid{columns:2}.public-gallery-sticky-toolbar{position:static;align-items:stretch;flex-direction:column}.public-gallery-lightbox-content{width:calc(100% - 20px);height:calc(100vh - 90px);grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.public-gallery-lightbox aside{padding:18px}.public-gallery-lightbox .nav{display:none}}@media(max-width:560px){.public-gallery-header{height:62px;padding:0 16px}.public-gallery-header img{width:112px}.public-gallery-cover-copy{padding:24px}.public-gallery-cover-copy h1{font-size:3.2rem}.public-gallery-main{width:calc(100% - 20px);padding-top:34px}.public-gallery-grid,.public-gallery-page.grid-large .public-gallery-grid{columns:1}.public-gallery-page.grid-uniform .public-gallery-grid{grid-template-columns:repeat(2,1fr);gap:6px}.public-gallery-counts{display:grid;grid-template-columns:repeat(2,1fr)}.public-gallery-actions{display:grid;grid-template-columns:1fr 1fr}.public-gallery-actions button{border-radius:10px}}
+
+/* Camada adicional rastreável e proteção de impressão. */
+.public-gallery-card::after,
+.public-gallery-lightbox-content::after {
+  content: "PROTEGIDO";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.08);
+  font-size: clamp(18px, 3vw, 42px);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  transform: rotate(-28deg);
+  pointer-events: none;
+  user-select: none;
+}
+
+.public-gallery-lightbox-content {
+  position: relative;
+}
+
+.public-gallery-page,
+.public-gallery-page img {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+@media print {
+  .public-gallery-page * {
+    visibility: hidden !important;
+  }
+
+  .public-gallery-page::before {
+    content: "CONTEÚDO PROTEGIDO — impressão não autorizada";
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    visibility: visible !important;
+    color: #111;
+    background: #fff;
+    font: 700 22px/1.4 Inter, sans-serif;
+    text-align: center;
+  }
+}
+
+.gallery-image-error {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  min-height: 160px;
+  padding: 18px;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+}
+
+.gallery-image-error > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.gallery-image-error small {
+  max-width: 240px;
+  line-height: 1.45;
+}
+
+.gallery-image-error [role='button'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.gallery-image-error [role='button'] svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Ajustes finais dos modos de galeria. */
+.public-gallery-page.delivery-mode .public-gallery-card::after,
+.public-gallery-page.delivery-mode .public-gallery-lightbox-content::after {
+  display: none;
+}
+
+.public-gallery-page.delivery-mode .public-gallery-card.selected {
+  outline: 0;
+}
+
+.public-gallery-notice .notice-error {
+  display: block;
+  margin: 0 0 14px;
+  color: #a33b2c;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.public-gallery-law.error {
+  border-color: rgba(210, 76, 60, 0.4);
+  background: rgba(210, 76, 60, 0.08);
+}
+
+.public-gallery-page.selection-mode img {
+  pointer-events: none;
+}
+
+.public-gallery-page.delivery-mode .public-gallery-card-image img,
+.public-gallery-page.delivery-mode .public-gallery-cover-image img {
+  pointer-events: auto;
+}
+
+.public-gallery-page.privacy-on::after {
+  content: "CONTEÚDO PROTEGIDO";
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.12);
+  background: #09090a;
+  font-size: clamp(1.4rem, 6vw, 5rem);
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  pointer-events: none;
+}

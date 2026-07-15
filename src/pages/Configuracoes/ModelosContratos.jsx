@@ -5,24 +5,13 @@ import {
   useState,
 } from 'react';
 import {
-  Copy,
-  FilePlus2,
-  MoreVertical,
   Search,
-  Trash2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
-  deleteTemplate,
   listTemplates,
   saveTemplate,
 } from '../../features/documents/storage/documentStorageAdapter';
-import {
-  cloneTemplateVersion,
-} from '../../features/documents/services/templateVersionManager';
-import {
-  createId,
-} from '../../features/documents/utils/documentIds';
 import {
   CONTRACT_MODELS,
   validateContractModel,
@@ -33,48 +22,148 @@ import {
 } from '../../features/documents/editor/contractTemplateBlueprints';
 import './ModelosContratos.css';
 
-const createBlankPage = () => ({
-  id: createId('contract-page'),
-  name: 'Página 1',
-  order: 0,
-  active: true,
-  width: 595.28,
-  height: 841.89,
-  background: {
-    type: 'color',
-    color: '#fffdf9',
-    opacity: 1,
-  },
-  elements: [],
-  metadata: {
-    fixedLegalContent: false,
-    editableLegalContent: true,
-  },
-});
+const OFFICIAL_CATEGORIES = [
+  'casamento',
+  'ensaio',
+  'formatura',
+];
 
-const buildDefaultTemplate = (model) => ({
-  id: model.id,
-  baseTemplateId: model.id,
-  documentType: 'contract',
-  name: model.name,
-  slug: model.id,
-  category: model.type,
-  version: 1,
-  status: 'published',
-  isPublished: true,
-  isLatest: true,
-  pages: buildContractBlueprint(model.type),
-  metadata: {
-    originalPdf: model.sourceUrl,
-    originalPageCount: model.pages,
-    blueprintVersion:
-      CONTRACT_BLUEPRINT_VERSION,
-    generatedInsideEditor: true,
-    editableText: true,
-    supportsLogo: true,
-    createdAt: new Date().toISOString(),
-  },
-});
+const OFFICIAL_NAMES = {
+  casamento: 'Contrato de Casamento',
+  ensaio: 'Contrato de Ensaio',
+  formatura: 'Contrato de Formatura',
+};
+
+const getCanonicalBaseId = (category) => (
+  `contract-${category}`
+);
+
+const getTemplateTimestamp = (template = {}) => (
+  new Date(
+    template.updatedAt
+    || template.createdAt
+    || 0,
+  ).getTime()
+);
+
+const compareTemplates = (first, second) => {
+  const versionDifference = (
+    Number(second.version || 0)
+    - Number(first.version || 0)
+  );
+
+  if (versionDifference !== 0) {
+    return versionDifference;
+  }
+
+  if (
+    Boolean(second.isLatest)
+    !== Boolean(first.isLatest)
+  ) {
+    return Number(Boolean(second.isLatest))
+      - Number(Boolean(first.isLatest));
+  }
+
+  return (
+    getTemplateTimestamp(second)
+    - getTemplateTimestamp(first)
+  );
+};
+
+const buildDefaultTemplate = (model) => {
+  const canonicalId = getCanonicalBaseId(
+    model.type,
+  );
+
+  return {
+    id: canonicalId,
+    baseTemplateId: canonicalId,
+    documentType: 'contract',
+    name:
+      OFFICIAL_NAMES[model.type]
+      || model.name,
+    slug: canonicalId,
+    category: model.type,
+    version: 1,
+    status: 'published',
+    isPublished: true,
+    isLatest: true,
+    pages: buildContractBlueprint(model.type),
+    metadata: {
+      originalPdf: model.sourceUrl,
+      originalPageCount: model.pages,
+      blueprintVersion:
+        CONTRACT_BLUEPRINT_VERSION,
+      generatedInsideEditor: true,
+      editableText: true,
+      supportsLogo: true,
+      createdAt: new Date().toISOString(),
+    },
+  };
+};
+
+const consolidateOfficialTemplates = async (
+  items,
+) => {
+  const officialItems = items.filter(
+    (item) => OFFICIAL_CATEGORIES.includes(
+      item.category,
+    ),
+  );
+
+  const normalized = [];
+
+  for (const category of OFFICIAL_CATEGORIES) {
+    const group = officialItems
+      .filter((item) => item.category === category)
+      .sort(compareTemplates);
+
+    if (!group.length) continue;
+
+    const current = group[0];
+    const canonicalBaseId =
+      getCanonicalBaseId(category);
+
+    const savedCurrent = await saveTemplate({
+      ...current,
+      name: OFFICIAL_NAMES[category],
+      slug: canonicalBaseId,
+      baseTemplateId: canonicalBaseId,
+      isLatest: true,
+      updatedAt: new Date().toISOString(),
+    });
+
+    normalized.push(savedCurrent);
+
+    const outdated = group.slice(1).filter(
+      (item) => (
+        item.isLatest
+        || item.baseTemplateId
+          !== canonicalBaseId
+        || item.slug !== canonicalBaseId
+      ),
+    );
+
+    if (outdated.length) {
+      await Promise.all(
+        outdated.map((item) => (
+          saveTemplate({
+            ...item,
+            name: OFFICIAL_NAMES[category],
+            slug: canonicalBaseId,
+            baseTemplateId: canonicalBaseId,
+            isLatest: false,
+            updatedAt:
+              item.updatedAt
+              || new Date().toISOString(),
+          })
+        )),
+      );
+    }
+  }
+
+  return normalized;
+};
 
 export default function ModelosContratos() {
   const navigate = useNavigate();
@@ -82,7 +171,6 @@ export default function ModelosContratos() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('todos');
   const [error, setError] = useState('');
 
   const refresh = async () => {
@@ -95,110 +183,53 @@ export default function ModelosContratos() {
       });
 
       const validModels = CONTRACT_MODELS.filter(
-        (model) => validateContractModel(model).valid,
+        (model) => (
+          OFFICIAL_CATEGORIES.includes(model.type)
+          && validateContractModel(model).valid
+        ),
       );
 
-      if (!items.length) {
-        items = await Promise.all(
-          validModels.map((model) => (
+      const existingCategories = new Set(
+        items
+          .filter((item) => (
+            OFFICIAL_CATEGORIES.includes(
+              item.category,
+            )
+          ))
+          .map((item) => item.category),
+      );
+
+      const missingModels = validModels.filter(
+        (model) => (
+          !existingCategories.has(model.type)
+        ),
+      );
+
+      if (missingModels.length) {
+        const created = await Promise.all(
+          missingModels.map((model) => (
             saveTemplate(
               buildDefaultTemplate(model),
             )
           )),
         );
-      } else {
-        const latestByCategory = new Map(
-          items
-            .filter((item) => item.isLatest !== false)
-            .map((item) => [item.category, item]),
-        );
 
-        const missingModels = validModels.filter(
-          (model) => !latestByCategory.has(model.type),
-        );
-
-        if (missingModels.length) {
-          const created = await Promise.all(
-            missingModels.map((model) => (
-              saveTemplate(
-                buildDefaultTemplate(model),
-              )
-            )),
-          );
-
-          items = [...created, ...items];
-        }
+        items = [...created, ...items];
       }
 
-      const upgradedItems = [];
+      const consolidated =
+        await consolidateOfficialTemplates(items);
 
-      for (const item of items) {
-        const isOfficialCategory = [
-          'casamento',
-          'ensaio',
-          'formatura',
-        ].includes(item.category);
-
-        const currentBlueprintVersion = Number(
-          item.metadata?.blueprintVersion || 0,
-        );
-
-        if (
-          isOfficialCategory
-          && currentBlueprintVersion
-            < CONTRACT_BLUEPRINT_VERSION
-          && item.isLatest !== false
-        ) {
-          const upgraded = await saveTemplate({
-            ...item,
-            id: createId('contract-template'),
-            baseTemplateId:
-              item.baseTemplateId || item.id,
-            version:
-              Math.max(1, Number(item.version || 1)) + 1,
-            status: 'draft',
-            isPublished: false,
-            isLatest: true,
-            pages: buildContractBlueprint(
-              item.category,
-            ),
-            metadata: {
-              ...(item.metadata || {}),
-              blueprintVersion:
-                CONTRACT_BLUEPRINT_VERSION,
-              importedFromOfficialPdf: true,
-              containsClientPersonalData: false,
-              editableText: true,
-              supportsLogo: true,
-              upgradedAt:
-                new Date().toISOString(),
-            },
-          });
-
-          upgradedItems.push(upgraded);
-        }
-      }
-
-      if (upgradedItems.length) {
-        items = [
-          ...upgradedItems,
-          ...items.map((item) => (
-            upgradedItems.some(
-              (upgraded) => (
-                upgraded.category === item.category
-                && item.isLatest !== false
-              ),
-            )
-              ? {
-                  ...item,
-                  isLatest: false,
-                }
-              : item
-          )),
-        ];
-      }
-
-      setTemplates(items);
+      setTemplates(consolidated.sort(
+        (first, second) => (
+          OFFICIAL_CATEGORIES.indexOf(
+            first.category,
+          )
+          - OFFICIAL_CATEGORIES.indexOf(
+            second.category,
+          )
+        ),
+      ));
     } catch (caughtError) {
       console.error(
         'Erro ao carregar modelos de contrato:',
@@ -219,119 +250,20 @@ export default function ModelosContratos() {
     void refresh();
   }, []);
 
-  const createNew = async () => {
-    setError('');
-
-    try {
-      const saved = await saveTemplate({
-        documentType: 'contract',
-        name: 'Novo modelo de contrato',
-        slug: `contrato-${Date.now()}`,
-        category: 'outro',
-        version: 1,
-        status: 'draft',
-        isPublished: false,
-        isLatest: true,
-        pages: [createBlankPage()],
-        metadata: {
-          blueprintVersion:
-            CONTRACT_BLUEPRINT_VERSION,
-          editableText: true,
-          supportsLogo: true,
-          createdAt: new Date().toISOString(),
-        },
-      });
-
-      navigate(
-        `/configuracoes/modelos-contratos/${saved.id}`,
-      );
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Não foi possível criar o modelo.',
-      );
-    }
-  };
-
   const visibleTemplates = useMemo(
-    () => templates
-      .filter((template) => (
-        template.isLatest !== false
-      ))
-      .filter((template) => (
-        statusFilter === 'todos'
-        || (
-          statusFilter === 'publicado'
-          && template.isPublished
-        )
-        || (
-          statusFilter === 'rascunho'
-          && !template.isPublished
-        )
-      ))
-      .filter((template) => {
-        const haystack = [
-          template.name,
-          template.category,
-          template.version,
-        ].join(' ').toLowerCase();
+    () => templates.filter((template) => {
+      const haystack = [
+        template.name,
+        template.category,
+        template.version,
+      ].join(' ').toLowerCase();
 
-        return haystack.includes(
-          query.toLowerCase(),
-        );
-      }),
-    [
-      query,
-      statusFilter,
-      templates,
-    ],
+      return haystack.includes(
+        query.trim().toLowerCase(),
+      );
+    }),
+    [query, templates],
   );
-
-  const duplicateTemplate = async (template) => {
-    setError('');
-
-    try {
-      await cloneTemplateVersion(template);
-      await refresh();
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Não foi possível duplicar o modelo.',
-      );
-    }
-  };
-
-  const removeTemplate = async (template) => {
-    if (template.isPublished) {
-      alert(
-        'Modelos publicados não podem ser excluídos. Crie uma nova versão ou altere o status para rascunho.',
-      );
-      return;
-    }
-
-    if (
-      !window.confirm(
-        `Excluir o modelo "${template.name}"?`,
-      )
-    ) {
-      return;
-    }
-
-    setError('');
-
-    try {
-      await deleteTemplate(template.id);
-      await refresh();
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Não foi possível excluir o modelo.',
-      );
-    }
-  };
 
   return (
     <section className="contract-model-list">
@@ -340,18 +272,11 @@ export default function ModelosContratos() {
           <span>Configurações</span>
           <h1>Modelos de Contratos</h1>
           <p>
-            Gerencie páginas, textos, campos automáticos,
-            logomarca e versões publicadas.
+            Edite os três modelos oficiais do StudioFlow.
+            As versões anteriores permanecem preservadas
+            no histórico de cada contrato.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={createNew}
-        >
-          <FilePlus2 />
-          Novo modelo de contrato
-        </button>
       </header>
 
       <div className="contract-model-toolbar">
@@ -365,17 +290,6 @@ export default function ModelosContratos() {
             }}
           />
         </div>
-
-        <select
-          value={statusFilter}
-          onChange={(event) => {
-            setStatusFilter(event.target.value);
-          }}
-        >
-          <option value="todos">Todos</option>
-          <option value="publicado">Publicados</option>
-          <option value="rascunho">Rascunhos</option>
-        </select>
       </div>
 
       {error && (
@@ -389,20 +303,27 @@ export default function ModelosContratos() {
       ) : (
         <div className="contract-model-grid">
           {visibleTemplates.map((template) => (
-            <article key={template.id}>
+            <article key={template.category}>
               <div className="contract-model-cover">
                 <strong>
-                  {template.category || 'outro'}
+                  {template.category}
                 </strong>
+
                 <span>
-                  {template.pages?.length || 0} páginas
+                  {template.pages?.length || 0}
+                  {' '}
+                  páginas
                 </span>
               </div>
 
-              <h2>{template.name}</h2>
+              <h2>
+                {OFFICIAL_NAMES[template.category]
+                  || template.name}
+              </h2>
 
               <div className="contract-model-meta">
                 <span>v{template.version}</span>
+
                 <span
                   className={
                     template.isPublished
@@ -427,34 +348,6 @@ export default function ModelosContratos() {
                 >
                   Editar modelo
                 </button>
-
-                <details>
-                  <summary aria-label="Mais ações">
-                    <MoreVertical />
-                  </summary>
-
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void duplicateTemplate(template);
-                      }}
-                    >
-                      <Copy />
-                      Duplicar
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void removeTemplate(template);
-                      }}
-                    >
-                      <Trash2 />
-                      Excluir
-                    </button>
-                  </div>
-                </details>
               </footer>
             </article>
           ))}

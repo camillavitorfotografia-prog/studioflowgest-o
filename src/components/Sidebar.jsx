@@ -21,6 +21,32 @@ import './Sidebar.css';
 const PROFILE_PHOTO_KEY = 'cv_foto_perfil';
 const PROFILE_DATA_KEY = 'cv_perfil_data';
 
+const normalizeSidebarSettings = (loaded = {}) => {
+  const savedOrder = Array.isArray(loaded.sidebarOrder)
+    ? loaded.sidebarOrder
+    : [];
+
+  const validSavedOrder = savedOrder.filter((moduleId) => (
+    SIDEBAR_MODULES.some((module) => module.id === moduleId)
+  ));
+
+  const missingModuleIds = DEFAULT_SIDEBAR_SETTINGS.sidebarOrder.filter((moduleId) => (
+    !validSavedOrder.includes(moduleId)
+  ));
+
+  return {
+    order: [...validSavedOrder, ...missingModuleIds],
+    visibility: {
+      ...DEFAULT_SIDEBAR_SETTINGS.sidebarVisibility,
+      ...(loaded.sidebarVisibility || {}),
+    },
+    compact: loaded.sidebarCompact ?? DEFAULT_SIDEBAR_SETTINGS.sidebarCompact,
+    showLabels: loaded.sidebarShowLabels ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowLabels,
+    showAvatar: loaded.sidebarShowAvatar ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowAvatar,
+    showFavorites: loaded.sidebarShowFavorites ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowFavorites,
+  };
+};
+
 const readProfileCompanyName = () => {
   try {
     const profile = JSON.parse(localStorage.getItem(PROFILE_DATA_KEY) || '{}');
@@ -49,17 +75,11 @@ export default function Sidebar() {
   const [profileCompanyName, setProfileCompanyName] = useState(readProfileCompanyName);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
-  const [sidebarSettings, setSidebarSettings] = useState(() => {
-    const loaded = loadSettings()?.sidebar || DEFAULT_SIDEBAR_SETTINGS;
-    return {
-      order: loaded.sidebarOrder || DEFAULT_SIDEBAR_SETTINGS.sidebarOrder,
-      visibility: loaded.sidebarVisibility || DEFAULT_SIDEBAR_SETTINGS.sidebarVisibility,
-      compact: loaded.sidebarCompact ?? DEFAULT_SIDEBAR_SETTINGS.sidebarCompact,
-      showLabels: loaded.sidebarShowLabels ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowLabels,
-      showAvatar: loaded.sidebarShowAvatar ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowAvatar,
-      showFavorites: loaded.sidebarShowFavorites ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowFavorites,
-    };
-  });
+  const [sidebarSettings, setSidebarSettings] = useState(() => (
+    normalizeSidebarSettings(
+      loadSettings()?.sidebar || DEFAULT_SIDEBAR_SETTINGS,
+    )
+  ));
   const metadata = user?.user_metadata || {};
   const accountName = metadata.full_name || metadata.name || profileCompanyName || user?.email?.split('@')[0] || 'Usuário StudioFlow';
   const accountPhoto = metadata.avatar_url || metadata.picture || profilePhoto;
@@ -71,15 +91,11 @@ export default function Sidebar() {
     };
 
     const syncSidebarSettings = () => {
-      const loaded = loadSettings()?.sidebar || DEFAULT_SIDEBAR_SETTINGS;
-      setSidebarSettings({
-        order: loaded.sidebarOrder || DEFAULT_SIDEBAR_SETTINGS.sidebarOrder,
-        visibility: loaded.sidebarVisibility || DEFAULT_SIDEBAR_SETTINGS.sidebarVisibility,
-        compact: loaded.sidebarCompact ?? DEFAULT_SIDEBAR_SETTINGS.sidebarCompact,
-        showLabels: loaded.sidebarShowLabels ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowLabels,
-        showAvatar: loaded.sidebarShowAvatar ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowAvatar,
-        showFavorites: loaded.sidebarShowFavorites ?? DEFAULT_SIDEBAR_SETTINGS.sidebarShowFavorites,
-      });
+      setSidebarSettings(
+        normalizeSidebarSettings(
+          loadSettings()?.sidebar || DEFAULT_SIDEBAR_SETTINGS,
+        ),
+      );
     };
 
     window.addEventListener('sf_profile_photo_update', syncProfileIdentity);

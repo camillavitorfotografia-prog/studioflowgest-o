@@ -3,6 +3,7 @@ export default function RichTextEditor({
   editing,
   onMouseUp,
   onKeyUp,
+  onKeyDown,
   onInput,
   onBlur,
   editorRef,
@@ -26,6 +27,7 @@ export default function RichTextEditor({
         }}
         onMouseUp={onMouseUp}
         onKeyUp={onKeyUp}
+        onKeyDown={onKeyDown}
         onInput={onInput}
         onBlur={onBlur}
       />

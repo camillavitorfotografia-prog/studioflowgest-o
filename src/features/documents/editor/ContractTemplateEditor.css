@@ -824,19 +824,503 @@
   font-size: .66rem;
 }
 
-/* Arquitetura modular */
-.contract-layer-row {
+
+/* Correção de estabilidade do editor de texto interno */
+.contract-rich-text-content[contenteditable="true"] {
+  position: relative;
+  z-index: 5;
+  pointer-events: auto;
+  overflow: auto;
+}
+
+.contract-canvas-element:has(
+  .contract-rich-text-content[contenteditable="true"]
+) {
+  cursor: text;
+}
+
+
+/* Controles funcionais da logomarca */
+.contract-canvas-element.image-element {
+  background: transparent;
+}
+
+.contract-canvas-element.image-element img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.contract-field-properties button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+.contract-selection-box {
+  position: absolute;
+  z-index: 9998;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px solid #5b8def;
+  background: rgba(91, 141, 239, 0.12);
+}
+
+/* Transformação profissional de seleção e rotação */
+.contract-multi-selection-frame {
+  position: absolute;
+  z-index: 9997;
+  box-sizing: border-box;
+  border: 2px solid #8b5cf6;
+  pointer-events: none;
+}
+
+.contract-multi-selection-frame .contract-resize-handle,
+.contract-multi-selection-frame .contract-rotation-handle {
+  pointer-events: auto;
+}
+
+.contract-rotation-handle {
+  position: absolute;
+  z-index: 101;
+  top: -34px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%);
+  background: #fff;
+  border: 2px solid #8b5cf6;
+  border-radius: 50%;
+  box-sizing: border-box;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.contract-rotation-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  width: 1px;
+  height: 20px;
+  transform: translateX(-50%);
+  background: #8b5cf6;
+}
+
+.contract-rotation-handle:active {
+  cursor: grabbing;
+}
+
+
+/* Camadas profissionais */
+.contract-layers-panel {
+  margin-top: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.025);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 10px;
+}
+
+.contract-layers-header,
+.contract-layers-actions,
+.contract-layer-row,
+.contract-layer-main,
+.contract-layer-tools {
+  display: flex;
+  align-items: center;
+}
+
+.contract-layers-header {
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.contract-layers-header h3 {
+  margin: 0;
+}
+
+.contract-layers-header span {
+  color: #777;
+  font-size: .68rem;
+}
+
+.contract-layers-actions {
+  gap: 4px;
+  padding-bottom: 9px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.contract-layers-actions button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+}
+
+.contract-layers-list {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px 32px;
   gap: 4px;
 }
-.contract-layer-row > button:first-child {
-  justify-content: flex-start;
+
+.contract-layer-group {
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.contract-layer-group.selected {
+  border-color: rgba(201,160,108,.25);
+  background: rgba(201,160,108,.045);
+}
+
+.contract-layer-row {
+  min-height: 38px;
+  gap: 4px;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.contract-layer-row:hover {
+  background: rgba(255,255,255,.035);
+}
+
+.contract-layer-row.active {
+  color: #ead5b3;
+  background: rgba(201,160,108,.10);
+  border-color: rgba(201,160,108,.30);
+}
+
+.contract-layer-row.drag-over {
+  border-color: #c9a06c;
+  transform: translateY(1px);
+}
+
+.contract-layer-row.is-hidden {
+  opacity: .52;
+}
+
+.contract-layer-row.is-locked .contract-layer-name {
+  color: #8b8b8b;
+}
+
+.contract-layer-drag {
+  width: 24px;
+  padding: 4px !important;
+  color: #686868 !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  cursor: grab !important;
+}
+
+.contract-layer-main {
+  justify-content: flex-start !important;
+  min-width: 0;
+  flex: 1;
+  padding: 5px 6px !important;
+  color: inherit !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.contract-layer-main svg {
+  flex: 0 0 auto;
+  color: #8e765a;
+}
+
+.contract-layer-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
 }
-.contract-editor-title {
-  min-width: 180px;
-  margin-right: auto;
+
+.contract-layer-name-input {
+  min-width: 0;
+  width: 100%;
+  padding: 5px 7px;
+  color: #eee;
+  background: #171818;
+  border: 1px solid rgba(201,160,108,.45);
+  border-radius: 5px;
+  outline: none;
+}
+
+.contract-layer-tools {
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.contract-layer-tools button,
+.contract-layer-expand {
+  width: 27px;
+  height: 27px;
+  padding: 4px !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.contract-layer-tools button:hover,
+.contract-layer-expand:hover {
+  background: rgba(255,255,255,.06) !important;
+}
+
+.contract-layer-children {
+  display: grid;
+  gap: 2px;
+  padding: 0 4px 5px 25px;
+}
+
+.contract-layer-children .contract-layer-row {
+  min-height: 34px;
+  background: rgba(0,0,0,.10);
+}
+
+.contract-layer-empty {
+  padding: 18px 8px;
+  color: #707070;
+  font-size: .76rem;
+  text-align: center;
+}
+
+
+/* Editor de texto avançado */
+.contract-inline-text-toolbar {
+  flex-wrap: wrap;
+  max-width: 720px;
+}
+
+.contract-inline-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 2px;
+  background: rgba(255,255,255,.12);
+}
+
+.contract-inline-text-toolbar button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 6px;
+}
+
+.contract-inline-text-toolbar select {
+  min-width: 116px;
+}
+
+.contract-inline-text-toolbar input[type="number"] {
+  width: 58px;
+}
+
+.contract-inline-text-toolbar input[type="color"] {
+  width: 34px;
+  height: 32px;
+  padding: 3px;
+}
+
+.contract-text-formatting {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.contract-text-list-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr 42px 42px;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.contract-text-list-tools button {
+  min-height: 36px;
+  padding: 7px;
+  font-size: .68rem;
+}
+
+.contract-text-helper {
+  margin: 4px 0 10px;
+  color: #777;
+  font-size: .64rem;
+  line-height: 1.45;
+}
+
+.contract-rich-text-content ul,
+.contract-rich-text-content ol {
+  margin: .35em 0;
+  padding-left: 1.65em;
+}
+
+.contract-rich-text-content li {
+  margin: .12em 0;
+}
+
+/* StudioFlow Editor 1.0 — workspace, alignment and advanced objects */
+.contract-workspace-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contract-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.contract-toolbar-group button {
+  min-width: 34px;
+}
+
+.contract-toolbar-group button svg,
+.contract-workspace-toolbar > button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.contract-toolbar-group button.is-active {
+  background: rgba(120, 79, 55, 0.12);
+  border-color: rgba(120, 79, 55, 0.35);
+  color: #70482f;
+}
+
+.contract-zoom-label {
+  min-width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.contract-autosave-status {
+  margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #756b65;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(83, 68, 59, 0.1);
+}
+
+.contract-autosave-status.is-saving,
+.contract-autosave-status.is-pending {
+  color: #8b641e;
+}
+
+.contract-autosave-status.is-saved {
+  color: #356748;
+}
+
+.contract-autosave-status.is-error {
+  color: #a33d3d;
+}
+
+.contract-a4.show-grid {
+  background-size: 20px 20px;
+  background-image:
+    linear-gradient(to right, rgba(90, 76, 67, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(90, 76, 67, 0.08) 1px, transparent 1px) !important;
+}
+
+.contract-safe-margin {
+  position: absolute;
+  inset: 36px;
+  pointer-events: none;
+  z-index: 9990;
+  border: 1px dashed rgba(185, 116, 74, 0.5);
+  border-radius: 2px;
+}
+
+.contract-ruler-horizontal,
+.contract-ruler-vertical {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9991;
+  opacity: 0.72;
+}
+
+.contract-ruler-horizontal {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 18px;
+  border-bottom: 1px solid rgba(84, 72, 65, 0.2);
+  background: repeating-linear-gradient(to right, rgba(84, 72, 65, 0.45) 0 1px, transparent 1px 10px);
+  background-size: 50px 8px;
+  background-repeat: repeat-x;
+}
+
+.contract-ruler-vertical {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  border-right: 1px solid rgba(84, 72, 65, 0.2);
+  background: repeating-linear-gradient(to bottom, rgba(84, 72, 65, 0.45) 0 1px, transparent 1px 10px);
+  background-size: 8px 50px;
+  background-repeat: repeat-y;
+}
+
+.advanced-object {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.qrcode-element img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.polygon-element > span {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-style: solid;
+  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%);
+}
+
+.line-element > span,
+.arrow-element > span {
+  position: relative;
+  width: 100%;
+  height: 0;
+  border-top-width: 2px;
+}
+
+.arrow-element > span > i {
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-left: 2px solid;
+  border-bottom: 2px solid;
+  transform: translateY(-50%) rotate(225deg);
+  transform-origin: center;
+}
+
+.signature-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 12px 10px;
+  border-bottom: 1px solid;
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 20px;
+}
+
+@media (max-width: 1100px) {
+  .contract-autosave-status {
+    width: 100%;
+    margin-left: 0;
+  }
 }
