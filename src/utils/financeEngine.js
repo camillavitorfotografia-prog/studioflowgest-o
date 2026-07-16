@@ -175,8 +175,15 @@ export const appendFinancialAudit = ({
   return entry;
 };
 
-export const isConfirmedPayment = (payment = {}) =>
-  parseCurrency(payment.valor) > 0 && CONFIRMED_PAYMENT_STATUSES.has(normalizeStatus(payment.status));
+export const isConfirmedPayment = (payment = {}) => {
+  const value = parseCurrency(payment.valor ?? payment.amount ?? 0);
+  const status = normalizeStatus(payment.status);
+
+  // Backups legados (como o FotoGestion) registram apenas valor, data e forma
+  // de pagamento. A ausência de status nesses arquivos significa pagamento
+  // efetivamente recebido, não parcela pendente.
+  return value > 0 && (!status || CONFIRMED_PAYMENT_STATUSES.has(status));
+};
 
 export const isDistributionConfigValid = (config = {}) => {
   const values = FINANCIAL_DESTINATIONS.map((key) => Number(config[key]));

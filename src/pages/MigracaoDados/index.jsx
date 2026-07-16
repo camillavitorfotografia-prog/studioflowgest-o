@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, CircleHelp, Database,
-  FileSpreadsheet, Loader2, RefreshCw, Search, Upload, XCircle,
+  FileSpreadsheet, Loader2, RefreshCw, Search, Upload, XCircle, Download,
   Camera, ReceiptText, BriefcaseBusiness, Layers3, Link2, Check,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { analyzeCandidates, executeMigration, loadImportHistory, parseMigrationFile } from '../../features/dataMigration/migrationService';
+import { analyzeCandidates, executeMigration, exportMigrationPreview, loadImportHistory, parseMigrationFile } from '../../features/dataMigration/migrationService';
 import './MigracaoDados.css';
 
 const typeLabel = { equipment: 'Equipamento', expense: 'Despesa', project: 'Trabalho' };
@@ -75,6 +75,19 @@ export default function MigracaoDados() {
   const bindClient = (id, clientId) => setCandidates((items) => items.map((item) => item.id === id ? { ...item, clientId: clientId || null, needsClientLink: !clientId } : item));
   const clearAnalysis = () => { setCandidates([]); setFiles([]); setMessage(''); setSearch(''); setFilter('all'); };
 
+
+  const exportPreview = () => {
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      exportMigrationPreview(candidates, `studioflow-previa-importacao-${stamp}.xlsx`);
+      setMessageType('success');
+      setMessage('A prévia foi exportada em Excel com abas separadas para equipamentos, despesas, trabalhos e duplicidades.');
+    } catch (error) {
+      setMessageType('error');
+      setMessage(error?.message || 'Não foi possível exportar a prévia.');
+    }
+  };
+
   const importNow = async () => {
     if (!summary.selected) { setMessageType('warning'); setMessage('Nenhum registro novo está selecionado para importação.'); return; }
     if (!window.confirm(`Importar ${summary.selected} registros para o Supabase?`)) return;
@@ -108,7 +121,7 @@ export default function MigracaoDados() {
     <section className="migration-upload-card">
       <div className="migration-upload-icon"><Upload size={31}/></div>
       <div><div className="migration-step-title"><strong>1. Selecione os arquivos</strong><span><Database size={13}/> Não ocupa o Storage</span></div><p>Excel (.xlsx e .xlsm) e backup JSON do FotoGestion.</p></div>
-      <label className="migration-primary migration-file-button"><FileSpreadsheet size={19}/>{loading ? 'Analisando...' : 'Escolher arquivos'}<input type="file" multiple accept=".xlsx,.xlsm,.json" onChange={handleFiles} disabled={loading}/></label>
+      <label className="migration-primary migration-file-button"><FileSpreadsheet size={19}/><span>{loading ? 'Analisando...' : 'Escolher arquivos'}</span><input type="file" multiple accept=".xlsx,.xlsm,.json" onChange={handleFiles} disabled={loading}/></label>
     </section>
 
     {message && <div className={`migration-message ${messageType}`}>
@@ -131,7 +144,10 @@ export default function MigracaoDados() {
         <div className="migration-filters">{filters.map(([value, label, count]) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}><span>{label}</span><b>{count}</b></button>)}</div>
         <div className="migration-controls">
           <label className="migration-search"><Search size={17}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar registro..."/></label>
-          <button className="migration-secondary" onClick={selectAllNew}><CheckCircle2 size={17}/>Selecionar apenas novos</button>
+          <div className="migration-control-actions">
+            <button className="migration-action-button" onClick={selectAllNew}><CheckCircle2 size={17}/><span>Selecionar novos</span></button>
+            <button className="migration-action-button export" onClick={exportPreview}><Download size={17}/><span>Exportar prévia</span></button>
+          </div>
         </div>
         <div className="migration-table-wrap"><table><thead><tr><th></th><th>Tipo</th><th>Registro</th><th>Valor</th><th>Origem</th><th>Situação</th></tr></thead><tbody>{visible.map((item) => <tr key={item.id} className={item.status !== 'new' ? 'muted' : ''}>
           <td><input type="checkbox" checked={item.selected} disabled={item.status !== 'new'} onChange={() => toggle(item.id)}/></td>

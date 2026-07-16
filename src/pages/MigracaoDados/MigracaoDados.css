@@ -10,3 +10,18 @@
 .migration-review footer{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:19px 0 0;margin-top:15px;border-top:1px solid rgba(255,255,255,.08)}.migration-review footer>div{display:flex;flex-direction:column;gap:6px}.migration-review footer>div span{font-size:.83rem;color:var(--text-secondary);max-width:680px}.migration-primary.import{min-width:330px;padding:14px 18px;justify-content:space-between}.migration-primary.import>span{display:flex;flex-direction:column;align-items:flex-start}.migration-primary.import small{font-weight:650;opacity:.7;margin-top:2px}
 .migration-history{margin-top:24px;padding:22px}.history-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px}.migration-history h2{margin:0 0 5px;font-size:1.08rem}.migration-history article{display:flex;justify-content:space-between;align-items:center;padding:16px 13px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.016);border-radius:13px;margin-top:10px}.history-file{display:flex;align-items:center;gap:12px}.migration-history article strong,.migration-history article span{display:block}.migration-history article span,.migration-history article small{color:var(--text-secondary);font-size:.79rem}
 @media(max-width:1050px){.migration-stats{grid-template-columns:repeat(3,1fr)}.migration-header{grid-template-columns:1fr}.migration-help{display:none}}@media(max-width:760px){.migration-page{padding:20px 15px 48px}.migration-upload-card{grid-template-columns:1fr}.migration-stats{grid-template-columns:repeat(2,1fr)}.migration-controls,.migration-review footer{align-items:stretch;flex-direction:column}.migration-search,.migration-primary.import{min-width:0;width:100%}.migration-message{align-items:flex-start;flex-wrap:wrap}.migration-filters{overflow:auto;flex-wrap:nowrap;padding-bottom:12px}.migration-filters button{flex:0 0 auto}}
+
+/* Refinamento final dos controles de ação */
+.migration-control-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.migration-action-button{height:44px;padding:0 16px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.025);color:#e7e7e7;display:inline-flex;align-items:center;gap:9px;font-weight:780;cursor:pointer;transition:all .18s ease;box-shadow:none}
+.migration-action-button:hover{transform:translateY(-1px);border-color:rgba(217,184,111,.34);background:rgba(217,184,111,.07);color:#fff}
+.migration-action-button.export{border-color:rgba(217,184,111,.28);color:#e1bf76;background:linear-gradient(180deg,rgba(217,184,111,.09),rgba(217,184,111,.025))}
+.migration-action-button.export:hover{border-color:rgba(217,184,111,.55);background:rgba(217,184,111,.13)}
+.migration-file-button{border-radius:14px;min-height:54px;letter-spacing:-.01em}
+.migration-file-button span{display:inline-block}
+.migration-message button{border-radius:11px;font-weight:750;transition:all .18s ease}
+.migration-message button:hover{background:rgba(255,255,255,.045);transform:translateY(-1px)}
+.migration-filters button{min-height:39px;padding:7px 8px 7px 14px;background:rgba(255,255,255,.02);box-shadow:none}
+.migration-filters button.active{box-shadow:0 8px 22px rgba(213,180,111,.13)}
+.migration-primary.import{border-radius:14px;min-height:58px}
+@media(max-width:760px){.migration-control-actions{width:100%}.migration-action-button{flex:1;justify-content:center}}

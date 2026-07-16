@@ -813,6 +813,12 @@ export default function Trabalhos() {
   const [showArchived, setShowArchived] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [viewMode, setViewMode] = useState(() => (
+    globalThis.localStorage?.getItem('sf_projects_view_mode') || 'kanban'
+  ));
+  const [density, setDensity] = useState(() => (
+    globalThis.localStorage?.getItem('sf_projects_density') || 'compact'
+  ));
   const boardRef = useRef(null);
   const [checklistDraft, setChecklistDraft] = useState({
     id: null,
@@ -825,6 +831,14 @@ export default function Trabalhos() {
     observacoesOperacionais: '',
   });
   const [savingDashboard, setSavingDashboard] = useState(false);
+
+  useEffect(() => {
+    globalThis.localStorage?.setItem('sf_projects_view_mode', viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    globalThis.localStorage?.setItem('sf_projects_density', density);
+  }, [density]);
 
   const load = useCallback(async () => {
     try {
@@ -5537,41 +5551,60 @@ export default function Trabalhos() {
 
   return (
     <div
-      className="sf-projects-page"
+      className={`sf-projects-page density-${density}`}
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '32px',
+        gap: '18px',
         height: '100%',
       }}
     >
       <div>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: '12px',
-            alignItems: 'center',
-          }}
-        >
-          <h1
-            style={{
-              color: 'var(--text-main)',
-              fontSize: '2rem',
-              fontWeight: '600',
-            }}
-          >
-            Trabalhos
-          </h1>
+        <div className="sf-projects-header">
+          <div className="sf-projects-heading">
+            <h1>Trabalhos</h1>
+            <span>{projects.length} trabalho(s)</span>
+          </div>
 
-          <button
-            className="sf-primary-button"
-            type="button"
-            onClick={openNew}
-          >
-            <Plus size={16} />
-            Novo trabalho
-          </button>
+          <div className="sf-projects-header-actions">
+            <div className="sf-project-view-switch" aria-label="Modo de visualização">
+              <button
+                type="button"
+                className={viewMode === 'kanban' ? 'active' : ''}
+                onClick={() => setViewMode('kanban')}
+              >
+                <LayoutTemplate size={15} />
+                Kanban
+              </button>
+              <button
+                type="button"
+                className={viewMode === 'list' ? 'active' : ''}
+                onClick={() => setViewMode('list')}
+              >
+                <ListChecks size={15} />
+                Lista
+              </button>
+            </div>
+
+            <select
+              className="sf-project-density-select"
+              value={density}
+              aria-label="Densidade dos cartões"
+              onChange={(event) => setDensity(event.target.value)}
+            >
+              <option value="compact">Compacto</option>
+              <option value="comfortable">Confortável</option>
+            </select>
+
+            <button
+              className="sf-primary-button"
+              type="button"
+              onClick={openNew}
+            >
+              <Plus size={16} />
+              Novo trabalho
+            </button>
+          </div>
         </div>
 
         {actionError && (
@@ -5738,6 +5771,7 @@ export default function Trabalhos() {
         )}
       </div>
 
+      {viewMode === 'kanban' ? (
       <section className="sf-projects-board-shell">
         <div className="sf-projects-board-toolbar">
           <span>Arraste ou use as setas para navegar pelas etapas</span>
@@ -5886,10 +5920,6 @@ export default function Trabalhos() {
                         setDragOverColumn(null);
                       }}
                       style={{
-                        padding: '16px',
-                        borderRadius: '10px',
-                        borderLeft:
-                          '4px solid var(--color-highlight)',
                         position: 'relative',
                       }}
                     >
@@ -6141,6 +6171,70 @@ export default function Trabalhos() {
           ))}
         </div>
       </section>
+      ) : (
+        <section className="sf-projects-list-shell">
+          <div className="sf-projects-list-header">
+            <span>Cliente</span>
+            <span>Serviço</span>
+            <span>Data</span>
+            <span>Etapa</span>
+            <span>Contratado</span>
+            <span>Recebido</span>
+            <span>Restante</span>
+            <span aria-hidden="true" />
+          </div>
+
+          <div className="sf-projects-list-body">
+            {colunas.flatMap((column) => (projectsByColumn[column.id] || []).map((project) => ({
+              project,
+              column,
+            }))).map(({ project, column }) => {
+              const financials = calculateProjectFinancials(project, transactions);
+              const received = Number(
+                financials.valorRecebido
+                ?? financials.recebido
+                ?? project.valorRecebido
+                ?? project.valor_recebido
+                ?? 0,
+              );
+              const remaining = Number(
+                financials.saldoPendente
+                ?? financials.saldo
+                ?? financials.aReceber
+                ?? Math.max(0, Number(project.valorContratado || 0) - received),
+              );
+
+              return (
+                <button
+                  type="button"
+                  className="sf-project-list-row"
+                  key={project.id}
+                  onClick={() => openDetails(project)}
+                >
+                  <span className="sf-project-list-client">
+                    <span className="sf-project-avatar">
+                      {(project.clienteNome || 'CI')
+                        .split(/\s+/)
+                        .slice(0, 2)
+                        .map((part) => part[0])
+                        .join('')
+                        .toUpperCase()}
+                    </span>
+                    <strong>{project.clienteNome || 'Cliente não informado'}</strong>
+                  </span>
+                  <span>{project.titulo || project.tipoServico || 'Não informado'}</span>
+                  <span>{formatProjectDate(project.data)}</span>
+                  <span><small className="sf-project-stage-badge">{column.titulo}</small></span>
+                  <span>{formatMoney(project.valorContratado || 0)}</span>
+                  <span>{formatMoney(received)}</span>
+                  <span className={remaining > 0 ? 'pending' : 'paid'}>{formatMoney(remaining)}</span>
+                  <span className="sf-project-list-open"><Eye size={15} /></span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <Modal
         isOpen={Boolean(selectedProject)}

@@ -3,6 +3,7 @@ import {
   parseCurrency,
   parseDate,
 } from '../../../utils/formatters';
+import { calculateProjectAmounts } from '../../../utils/dbData';
 
 const ACTIVE_LEAD_STATUSES = new Set([
   'novo',
@@ -156,13 +157,8 @@ export function buildDashboardMetrics({
   }, 0);
 
   const receivable = projects.reduce((total, project) => {
-    const contracted = parseCurrency(project.valorContratado);
-    const received = parseCurrency(
-      project.valorRecebido
-      ?? project.financeiro?.valorRecebido
-      ?? 0,
-    );
-    return total + Math.max(0, contracted - received);
+    const { remaining } = calculateProjectAmounts(project);
+    return total + remaining;
   }, 0);
 
   const upcomingPayments = transactions.reduce((total, transaction) => {

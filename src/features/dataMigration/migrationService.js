@@ -290,75 +290,156 @@ const equipmentDbPayload = (item, batchId) => ({
   fingerprint: item.fingerprint, updated_at: new Date().toISOString(),
 });
 
+
+const exportRow = (item) => ({
+  Tipo: item.type === 'equipment' ? 'Equipamento' : item.type === 'expense' ? 'Despesa' : 'Trabalho',
+  Registro: item.nome || item.descricao || item.clientName || '',
+  Categoria: item.categoria || item.tipoServico || '',
+  Valor: Number(item.valorCompra || item.valor || item.valorContratado || 0),
+  Data: item.dataCompra || item.data || item.dataEvento || '',
+  Origem: item.source || '',
+  Situação: item.status === 'new' ? 'Novo' : item.status === 'existing' ? 'Já cadastrado' : 'Duplicado',
+  Selecionado: item.selected ? 'Sim' : 'Não',
+  ClienteVinculado: item.clientId || '',
+  ClienteOriginal: item.clientName || '',
+  Pagamentos: Array.isArray(item.payments) ? item.payments.length : 0,
+});
+
+export const exportMigrationPreview = (candidates, filename = 'studioflow-previa-importacao.xlsx') => {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error('Não há registros analisados para exportar.');
+  }
+
+  const wb = XLSX.utils.book_new();
+  const summary = [
+    { Indicador: 'Total encontrados', Quantidade: candidates.length },
+    { Indicador: 'Equipamentos', Quantidade: candidates.filter((x) => x.type === 'equipment').length },
+    { Indicador: 'Despesas', Quantidade: candidates.filter((x) => x.type === 'expense').length },
+    { Indicador: 'Trabalhos', Quantidade: candidates.filter((x) => x.type === 'project').length },
+    { Indicador: 'Novos', Quantidade: candidates.filter((x) => x.status === 'new').length },
+    { Indicador: 'Já cadastrados', Quantidade: candidates.filter((x) => x.status === 'existing').length },
+    { Indicador: 'Duplicados', Quantidade: candidates.filter((x) => x.status === 'duplicate').length },
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Resumo');
+
+  const append = (name, rows) => {
+    if (!rows.length) return;
+    const ws = XLSX.utils.json_to_sheet(rows.map(exportRow));
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 34 }, { wch: 24 }, { wch: 15 }, { wch: 14 },
+      { wch: 32 }, { wch: 18 }, { wch: 12 }, { wch: 22 }, { wch: 28 }, { wch: 12 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+
+  append('Equipamentos', candidates.filter((x) => x.type === 'equipment'));
+  append('Despesas', candidates.filter((x) => x.type === 'expense'));
+  append('Trabalhos', candidates.filter((x) => x.type === 'project'));
+  append('Duplicados', candidates.filter((x) => x.status !== 'new'));
+
+  XLSX.writeFile(wb, filename, { compression: true });
+};
+
 export const executeMigration = async (candidates, sourceNames) => {
   if (!isSupabaseConfigured) throw new Error('O Supabase precisa estar conectado para realizar a importação.');
   const selected = candidates.filter((x) => x.selected && x.status === 'new');
+  if (!selected.length) throw new Error('Nenhum registro novo foi selecionado.');
+
   const { data: batch, error: batchError } = await supabase.from('import_batches').insert({
     source_name: sourceNames.join(', '), source_type: 'migration_center', status: 'processing',
     summary: { total: selected.length },
   }).select('*').single();
   if (batchError) throw batchError;
+
   const summary = { equipment: 0, expenses: 0, projects: 0, payments: 0, skippedProjects: 0 };
-  const equipment = selected.filter((x) => x.type === 'equipment');
-  if (equipment.length) {
-    const payload = equipment.map((item) => equipmentDbPayload(item, batch.id));
-    const { error } = await supabase.from('equipamentos').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
-    summary.equipment = payload.length;
-  }
-  const expenses = selected.filter((x) => x.type === 'expense');
-  if (expenses.length) {
-    const payload = expenses.map((item) => ({
-      id: `import-${crypto.randomUUID()}`, descricao: item.descricao, nome: item.descricao,
-      categoria: item.categoria || 'Outras', valor: Number(item.valor || 0),
-      data: item.data || null, data_vencimento: item.data || null, tipo: item.tipo || 'variavel',
-      tipo_geral: 'Saida', status: item.financialStatus || 'Pendente', forma_pagamento: item.formaPagamento || 'Pix',
-      recorrente: item.recorrente === true, observacoes: `Importado de ${item.source}`,
-      detalhes: { importBatchId: batch.id, source: item.source, fingerprint: item.fingerprint, dayOfMonth: item.diaVencimento || null },
-    }));
-    const { error } = await supabase.from('financas').insert(payload);
-    if (error) throw error;
-    summary.expenses = payload.length;
-  }
-  const studio = await getDbStudioData();
-  const clients = studio.clients || [];
-  const projects = selected.filter((x) => x.type === 'project');
-  for (const item of projects) {
-    const client = item.clientId
-      ? clients.find((x) => x.id === item.clientId)
-      : clients.find((x) => normalizeText(x.nome) === normalizeText(item.clientName));
-    const paymentTotal = (item.payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
-    const { data: project, error } = await supabase.from('projetos').insert({
-      cliente_id: client?.id || null,
-      cliente_nome_importado: client ? null : item.clientName,
-      import_batch_id: batch.id,
-      external_id: item.externalId || null,
-      import_fingerprint: item.fingerprint,
-      tipo_servico: item.tipoServico || 'Fotografia', data: item.dataEvento || null,
-      valor_contratado: Number(item.valorContratado || 0), valor_recebido: paymentTotal,
-      financeiro: { receitas: (item.payments || []).map((p) => ({ id: p.id, valor: Number(p.amount || 0), data: toIsoDate(p.date), formaPagamento: p.method || 'Pix', status: 'recebida' })), clienteNomeImportado: client ? null : item.clientName },
-      timeline_completa: [{ id: crypto.randomUUID(), tipo: 'importacao', titulo: 'Trabalho importado', data: new Date().toISOString(), detalhes: { batchId: batch.id, source: item.source, clienteNomeImportado: client ? null : item.clientName } }],
-    }).select('*').single();
-    if (error) throw error;
-    summary.projects += 1;
-    const paymentRows = (item.payments || []).map((p) => ({
-      id: `payment-${p.id || crypto.randomUUID()}`, project_id: project.id, client_id: client?.id || null,
-      descricao: `Pagamento — ${item.clientName}`, nome: `Pagamento — ${item.clientName}`,
-      categoria: 'Receita de trabalho', valor: Number(p.amount || 0), data: toIsoDate(p.date),
-      data_vencimento: toIsoDate(p.date), data_pagamento: toIsoDate(p.date) ? `${toIsoDate(p.date)}T12:00:00Z` : null,
-      tipo: 'receita_projeto', tipo_geral: 'Entrada', status: 'recebida', forma_pagamento: p.method || 'Pix',
-      detalhes: { importBatchId: batch.id, source: item.source },
-    }));
-    if (paymentRows.length) {
-      const { error: paymentError } = await supabase.from('financas').upsert(paymentRows, { onConflict: 'id' });
-      if (paymentError) throw paymentError;
-      summary.payments += paymentRows.length;
+  try {
+    const equipment = selected.filter((x) => x.type === 'equipment');
+    if (equipment.length) {
+      const payload = equipment.map((item) => equipmentDbPayload(item, batch.id));
+      const { error } = await supabase.from('equipamentos').upsert(payload, { onConflict: 'id' });
+      if (error) throw error;
+      summary.equipment = payload.length;
     }
+
+    const expenses = selected.filter((x) => x.type === 'expense');
+    if (expenses.length) {
+      const payload = expenses.map((item) => ({
+        id: `import-${crypto.randomUUID()}`, descricao: item.descricao, nome: item.descricao,
+        categoria: item.categoria || 'Outras', valor: Number(item.valor || 0),
+        data: item.data || null, data_vencimento: item.data || null, tipo: item.tipo || 'variavel',
+        tipo_geral: 'Saida', status: item.financialStatus || item.status || 'Pendente', forma_pagamento: item.formaPagamento || null,
+        recorrente: item.recorrente === true, observacoes: `Importado de ${item.source}`,
+        detalhes: { importBatchId: batch.id, source: item.source, fingerprint: item.fingerprint, dayOfMonth: item.diaVencimento || null },
+      }));
+      const { error } = await supabase.from('financas').insert(payload);
+      if (error) throw error;
+      summary.expenses = payload.length;
+    }
+
+    const clientsResult = await supabase.from('clientes').select('id,nome');
+    if (clientsResult.error) throw clientsResult.error;
+    const clients = clientsResult.data || [];
+    const projects = selected.filter((x) => x.type === 'project');
+
+    for (const item of projects) {
+      const client = item.clientId
+        ? clients.find((x) => x.id === item.clientId)
+        : clients.find((x) => normalizeText(x.nome) === normalizeText(item.clientName));
+      const paymentTotal = (item.payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const { data: project, error } = await supabase.from('projetos').insert({
+        cliente_id: client?.id || null,
+        cliente_nome_importado: client ? null : item.clientName,
+        import_batch_id: batch.id,
+        external_id: item.externalId || null,
+        import_fingerprint: item.fingerprint,
+        tipo_servico: item.tipoServico || 'Fotografia',
+        data: item.dataEvento || null,
+        valor_contratado: Number(item.valorContratado || 0),
+        valor_recebido: paymentTotal,
+        financeiro: {
+          receitas: (item.payments || []).map((p) => ({
+            id: p.id, valor: Number(p.amount || 0), data: toIsoDate(p.date),
+            formaPagamento: p.method || 'Pix', status: 'recebida',
+          })),
+          clienteNomeImportado: client ? null : item.clientName,
+        },
+        timeline_completa: [{
+          id: crypto.randomUUID(), tipo: 'importacao', titulo: 'Trabalho importado',
+          data: new Date().toISOString(),
+          detalhes: { batchId: batch.id, source: item.source, clienteNomeImportado: client ? null : item.clientName },
+        }],
+      }).select('*').single();
+      if (error) throw error;
+      summary.projects += 1;
+
+      const paymentRows = (item.payments || []).map((p) => ({
+        id: `payment-${p.id || crypto.randomUUID()}`, project_id: project.id, client_id: client?.id || null,
+        descricao: `Pagamento — ${item.clientName}`, nome: `Pagamento — ${item.clientName}`,
+        categoria: 'Receita de trabalho', valor: Number(p.amount || 0), data: toIsoDate(p.date),
+        data_vencimento: toIsoDate(p.date),
+        data_pagamento: toIsoDate(p.date) ? `${toIsoDate(p.date)}T12:00:00Z` : null,
+        tipo: 'receita_projeto', tipo_geral: 'Entrada', status: 'recebida', forma_pagamento: p.method || 'Pix',
+        detalhes: { importBatchId: batch.id, source: item.source, clienteNomeImportado: client ? null : item.clientName },
+      }));
+      if (paymentRows.length) {
+        const { error: paymentError } = await supabase.from('financas').upsert(paymentRows, { onConflict: 'id' });
+        if (paymentError) throw paymentError;
+        summary.payments += paymentRows.length;
+      }
+    }
+
+    const { error: completeError } = await supabase.from('import_batches').update({ status: 'completed', summary }).eq('id', batch.id);
+    if (completeError) throw completeError;
+    await getDbStudioData();
+    emitDbUpdate();
+    return summary;
+  } catch (error) {
+    await supabase.from('import_batches').update({
+      status: 'failed',
+      summary: { ...summary, error: error?.message || 'Falha desconhecida' },
+    }).eq('id', batch.id);
+    throw error;
   }
-  await supabase.from('import_batches').update({ status: 'completed', summary }).eq('id', batch.id);
-  await getDbStudioData();
-  emitDbUpdate();
-  return summary;
 };
 
 export const loadImportHistory = async () => {

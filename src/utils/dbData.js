@@ -85,24 +85,14 @@ export const calculateProjectAmounts = (project = {}) => {
   const payments = readPayments(project);
   const paymentSummary = calculatePaymentsSummary(payments, total);
 
-  const paid = payments.length
-    ? paymentSummary.valorRecebido
-    : Number(
-      project.valor_recebido
-        ?? project.valorRecebido
-        ?? 0,
-    );
-
-  const remaining = payments.length
-    ? paymentSummary.valorRestante
-    : Math.max(
-      0,
-      Number(
-        project.saldo_restante
-          ?? project.saldoRestante
-          ?? total - paid,
-      ),
-    );
+  const explicitPaid = Number(
+    project.valor_recebido
+      ?? project.valorRecebido
+      ?? project.financeiro?.valorRecebido
+      ?? 0,
+  );
+  const paid = Math.max(paymentSummary.valorRecebido, explicitPaid);
+  const remaining = Math.max(0, total - paid);
 
   return {
     total,
@@ -470,23 +460,14 @@ export const mapTransactionFromDb = (transaction = {}) => ({
     total,
   );
 
-  const paid = payments.length
-    ? paymentSummary.valorRecebido
-    : Number(
-      project.valor_recebido
+  const explicitPaid = Number(
+    project.valor_recebido
       ?? project.valorRecebido
       ?? financeiroBase.valorRecebido
       ?? 0,
-    );
-
-  const remaining = payments.length
-    ? paymentSummary.valorRestante
-    : Number(
-      project.saldo_restante
-      ?? project.saldoRestante
-      ?? financeiroBase.saldoRestante
-      ?? Math.max(0, total - paid),
-    );
+  );
+  const paid = Math.max(paymentSummary.valorRecebido, explicitPaid);
+  const remaining = Math.max(0, total - paid);
 
   const costs = expenses.reduce(
     (sum, item) => (
@@ -539,7 +520,11 @@ export const mapTransactionFromDb = (transaction = {}) => ({
     clienteNome:
       project.cliente_nome
       || project.clienteNome
+      || project.cliente_nome_importado
+      || project.clienteNomeImportado
       || projectData.clienteNome
+      || projectData.clienteNomeImportado
+      || financeiroBase.clienteNomeImportado
       || client.nome
       || '',
     cliente: client,

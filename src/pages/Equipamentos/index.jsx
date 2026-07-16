@@ -59,6 +59,69 @@ const EQUIPMENT_STATUSES = [
   'Vendido',
 ];
 
+const EQUIPMENT_SORT_OPTIONS = [
+  { value: 'purchase_desc', label: 'Comprados mais recentemente' },
+  { value: 'purchase_asc', label: 'Comprados há mais tempo' },
+  { value: 'name_asc', label: 'Nome A–Z' },
+  { value: 'value_desc', label: 'Maior valor' },
+  { value: 'value_asc', label: 'Menor valor' },
+];
+
+const getEquipmentPurchaseTimestamp = (equipment) => {
+  const rawDate = equipment?.dataCompra
+    || equipment?.data_compra
+    || equipment?.purchaseDate
+    || '';
+
+  if (!rawDate) return null;
+
+  const text = String(rawDate).trim();
+  const brazilianDate = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const normalizedDate = brazilianDate
+    ? `${brazilianDate[3]}-${brazilianDate[2]}-${brazilianDate[1]}`
+    : text;
+  const timestamp = new Date(`${normalizedDate}T00:00:00`).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const sortEquipmentList = (list, sortOrder) => [...list].sort((a, b) => {
+  if (sortOrder === 'name_asc') {
+    return String(a.nome || '').localeCompare(
+      String(b.nome || ''),
+      'pt-BR',
+      { sensitivity: 'base' },
+    );
+  }
+
+  if (sortOrder === 'value_desc' || sortOrder === 'value_asc') {
+    const valueA = Number(a.valorCompra ?? a.valor ?? 0);
+    const valueB = Number(b.valorCompra ?? b.valor ?? 0);
+
+    return sortOrder === 'value_desc'
+      ? valueB - valueA
+      : valueA - valueB;
+  }
+
+  const dateA = getEquipmentPurchaseTimestamp(a);
+  const dateB = getEquipmentPurchaseTimestamp(b);
+
+  if (dateA === null && dateB === null) {
+    return String(a.nome || '').localeCompare(
+      String(b.nome || ''),
+      'pt-BR',
+      { sensitivity: 'base' },
+    );
+  }
+
+  if (dateA === null) return 1;
+  if (dateB === null) return -1;
+
+  return sortOrder === 'purchase_asc'
+    ? dateA - dateB
+    : dateB - dateA;
+});
+
 const emptyEquipment = {
   id: null,
   nome: '',
@@ -196,6 +259,7 @@ export default function Equipamentos() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState('purchase_desc');
 
   const syncEquipamentos = async () => {
     const data = await getDbStudioData();
@@ -330,7 +394,7 @@ export default function Equipamentos() {
   const filteredEquipment = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    return equipamentos.filter((equipment) => {
+    const filtered = equipamentos.filter((equipment) => {
       if (
         statusFilter
         && equipment.status !== statusFilter
@@ -363,10 +427,13 @@ export default function Equipamentos() {
 
       return true;
     });
+
+    return sortEquipmentList(filtered, sortOrder);
   }, [
     categoryFilter,
     equipamentos,
     search,
+    sortOrder,
     statusFilter,
   ]);
 
@@ -704,6 +771,20 @@ export default function Equipamentos() {
           {EQUIPMENT_CATEGORIES.map((category) => (
             <option key={category} value={category}>
               {category}
+            </option>
+          ))}
+        </select>
+
+
+        <select
+          style={inputStyle}
+          value={sortOrder}
+          onChange={(event) => setSortOrder(event.target.value)}
+          aria-label="Ordenar equipamentos"
+        >
+          {EQUIPMENT_SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>

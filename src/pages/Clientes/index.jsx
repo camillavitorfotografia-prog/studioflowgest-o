@@ -1,11 +1,11 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/PremiumUXKit';
 import { formatMoney, parseMoney } from '../../utils/integratedData';
 import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency, maskDate, maskInstagram, maskPhone } from '../../utils/masks';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { calculatePaymentsSummary, createFinanceSeed, emitDbUpdate, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
+import { calculatePaymentsSummary, createFinanceSeed, emitDbUpdate, getDbStudioData, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 import { clientMatchesSearch, findClientDuplicates, getClientRelations } from '../../utils/clientIdentity';
 import {
@@ -49,7 +49,7 @@ const emptyForm = {
 const emptyWithdrawal = { pessoa: 'camilla', valor: '', data: '', observacao: '' };
 const emptyContact = { id: null, data: '', tipo: 'WhatsApp', observacao: '' };
 
-const CLIENTS_LOCAL_MODE = true;
+const CLIENTS_LOCAL_MODE = false;
 
 const inputStyle = {
   width: '100%',
@@ -117,27 +117,163 @@ const maskCpfCnpj = (value = '') => {
     .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
 };
 
-const getClientProject = (client, projects) => {
-  return projects.find((project) =>
-    project.clientId === client.id ||
-    project.clienteId === client.id ||
-    project.cliente_id === client.id ||
-    project.client_id === client.id ||
-    project.legacyClientId === client.id
-  ) || null;
+const normalizeIdentity = (value = '') => String(value)
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-zA-Z0-9]+/g, ' ')
+  .trim()
+  .toLowerCase();
+
+const getClientProjects = (client, projects) => {
+  const clientId = client.virtualImportedClient ? '' : String(client.id || '');
+  const clientName = normalizeIdentity(client.nome || client.name || '');
+
+  return projects.filter((project) => {
+    const linkedId = String(
+      project.clientId
+      || project.clienteId
+      || project.cliente_id
+      || project.client_id
+      || project.legacyClientId
+      || '',
+    );
+
+    if (linkedId && linkedId === clientId) return true;
+    if (linkedId || !clientName) return false;
+
+    const importedName = normalizeIdentity(
+      project.clienteNome
+      || project.cliente_nome_importado
+      || project.clienteNomeImportado
+      || project.financeiro?.clienteNomeImportado
+      || '',
+    );
+
+    return importedName === clientName;
+  });
+};
+
+
+const getProjectYear = (project = {}) => {
+  const raw = String(project.data || project.dataEvento || project.dataTrabalho || project.data_trabalho || '').trim();
+  if (!raw) return null;
+  const isoMatch = raw.match(/^(\d{4})-/);
+  if (isoMatch) return Number(isoMatch[1]);
+  const brMatch = raw.match(/(?:^|\/)(\d{4})$/);
+  if (brMatch) return Number(brMatch[1]);
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getFullYear();
+};
+
+const getImportedClientName = (project = {}) => formatPersonName(
+  project.clienteNome
+  || project.cliente_nome
+  || project.cliente_nome_importado
+  || project.clienteNomeImportado
+  || project.financeiro?.clienteNomeImportado
+  || project.cliente?.nome
+  || '',
+);
+
+const getProjectContact = (project = {}, field) => {
+  const aliases = field === 'telefone'
+    ? ['telefone', 'whatsapp', 'phone', 'celular']
+    : ['email', 'e_mail'];
+  const sources = [
+    project.cliente,
+    project.client,
+    project.financeiro?.projectData,
+    project.financeiro,
+    project,
+  ].filter(Boolean);
+
+  for (const source of sources) {
+    for (const key of aliases) {
+      if (source?.[key]) return source[key];
+    }
+  }
+  return '';
+};
+
+const buildClientUniverse = (clients = [], projects = []) => {
+  const official = clients.map((client) => ({ ...client }));
+  const officialIds = new Set(official.map((client) => String(client.id || '')));
+  const officialNames = new Map(
+    official.map((client) => [normalizeIdentity(client.nome || client.name || ''), client]),
+  );
+  const virtualByName = new Map();
+
+  projects.forEach((project) => {
+    const linkedId = String(project.clientId || project.clienteId || project.cliente_id || project.client_id || '');
+    if (linkedId && officialIds.has(linkedId)) return;
+
+    const importedName = getImportedClientName(project);
+    const normalizedName = normalizeIdentity(importedName);
+    if (!normalizedName || officialNames.has(normalizedName)) return;
+
+    if (!virtualByName.has(normalizedName)) {
+      virtualByName.set(normalizedName, {
+        id: `imported-client:${normalizedName}`,
+        nome: importedName,
+        telefone: getProjectContact(project, 'telefone'),
+        email: getProjectContact(project, 'email'),
+        cidade: project.cidade || project.local || '',
+        status: 'Importado',
+        virtualImportedClient: true,
+      });
+    } else {
+      const current = virtualByName.get(normalizedName);
+      virtualByName.set(normalizedName, {
+        ...current,
+        telefone: current.telefone || getProjectContact(project, 'telefone'),
+        email: current.email || getProjectContact(project, 'email'),
+        cidade: current.cidade || project.cidade || project.local || '',
+      });
+    }
+  });
+
+  return [...official, ...virtualByName.values()];
 };
 
 const mapClientRow = (client, projects) => {
-  const project = getClientProject(client, projects);
-  const pagamentos = readProjectPayments({
-    ...(project || {}),
-    historico_pagamentos: [
-      ...(Array.isArray(project?.historico_pagamentos) ? project.historico_pagamentos : []),
-      ...(Array.isArray(client.historico_pagamentos) ? client.historico_pagamentos : []),
-    ],
+  const relatedProjects = getClientProjects(client, projects);
+  const project = [...relatedProjects].sort((left, right) => {
+    const leftDate = String(left.data || left.dataTrabalho || '');
+    const rightDate = String(right.data || right.dataTrabalho || '');
+    return rightDate.localeCompare(leftDate);
+  })[0] || null;
+
+  const projectSummaries = relatedProjects.map((item) => {
+    const pagamentos = readProjectPayments(item);
+    const total = Number(item.valorContratado ?? item.valor_contratado ?? 0);
+    const explicitReceived = Number(
+      item.valorRecebido
+      ?? item.valor_recebido
+      ?? item.financeiro?.valorRecebido
+      ?? 0,
+    );
+    const calculated = calculatePaymentsSummary(pagamentos, total);
+    const received = pagamentos.length
+      ? Math.max(calculated.valorRecebido, explicitReceived)
+      : explicitReceived;
+
+    return {
+      project: item,
+      pagamentos,
+      total,
+      received,
+      remaining: Math.max(0, total - received),
+    };
   });
-  const total = Number(project?.valorContratado ?? project?.valor_contratado ?? client.valorTotal ?? client.valor_total ?? 0);
-  const { valorRecebido: received, valorRestante: remaining } = calculatePaymentsSummary(pagamentos, total);
+
+  const pagamentos = projectSummaries.flatMap((item) => item.pagamentos);
+  const total = projectSummaries.length
+    ? projectSummaries.reduce((sum, item) => sum + item.total, 0)
+    : Number(client.valorTotal ?? client.valor_total ?? 0);
+  const received = projectSummaries.reduce((sum, item) => sum + item.received, 0);
+  const remaining = projectSummaries.length
+    ? projectSummaries.reduce((sum, item) => sum + item.remaining, 0)
+    : Math.max(0, total - received);
   const divisaoSalarios = normalizeSalarySplit(project?.financeiro?.divisaoSalarios || DEFAULT_SALARY_SPLIT);
   const retiradasSalariais = project?.financeiro?.retiradasSalariais || [];
   const resumoSalarios = calculateClientSalarySummary(pagamentos, retiradasSalariais);
@@ -145,15 +281,12 @@ const mapClientRow = (client, projects) => {
   return {
     ...client,
     project,
+    projects: relatedProjects,
     projectId: project?.id || null,
-    nome: formatPersonName(
-      client.nome || client.name || '',
-    ),
+    nome: formatPersonName(client.nome || client.name || ''),
     email: client.email || '',
     telefone: client.telefone || client.whatsapp || '',
-    cpfCnpj: maskCpfCnpj(
-      client.cpfCnpj || client.cpf_cnpj || '',
-    ),
+    cpfCnpj: maskCpfCnpj(client.cpfCnpj || client.cpf_cnpj || ''),
     endereco: client.endereco || '',
     cidade: client.cidade || '',
     dataNascimento: normalizeDate(client.dataNascimento || client.data_nascimento), origem: client.origem || '',
@@ -162,12 +295,16 @@ const mapClientRow = (client, projects) => {
     dataPrimeiroContato: normalizeDate(client.dataPrimeiroContato || client.data_primeiro_contato), dataUltimoContato: normalizeDate(client.dataUltimoContato || client.data_ultimo_contato),
     dataProximoRetorno: normalizeDate(client.dataProximoRetorno || client.data_proximo_retorno), statusComercial: client.statusComercial || client.status_comercial || 'novo',
     instagram: client.instagram || '',
-    tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
+    tipoTrabalho: relatedProjects.length > 1
+      ? `${relatedProjects.length} trabalhos`
+      : project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
     dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || client.data_evento || '',
     valorTotal: total,
     valorRestante: remaining,
     valorRecebido: received,
-    status: project?.financeiro?.statusFinanceiro || project?.financeiro?.status_financeiro || project?.status || client.status || 'Ativo',
+    status: remaining <= 0 && total > 0
+      ? 'Quitado'
+      : project?.financeiro?.statusFinanceiro || project?.financeiro?.status_financeiro || project?.status || client.status || 'Ativo',
     contrato: project?.contrato?.status || project?.contrato?.numero || (typeof project?.contrato === 'string' ? project.contrato : ''),
     pagamentos,
     divisaoSalarios,
@@ -571,6 +708,7 @@ export default function Clientes() {
   const [selectedContractModel, setSelectedContractModel] = useState('');
   const [contractWizardClient, setContractWizardClient] = useState(null);
   const [search, setSearch] = useState('');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [duplicate, setDuplicate] = useState(null);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [contactDraft, setContactDraft] = useState(emptyContact);
@@ -582,14 +720,23 @@ export default function Clientes() {
     try {
       const localStudio = loadLocalStudio();
 
-      setStudio({
-        clients: Array.isArray(localStudio.clients)
-          ? localStudio.clients
-          : [],
-        projects: Array.isArray(localStudio.projects)
-          ? localStudio.projects
-          : [],
-      });
+      if (isSupabaseConfigured) {
+        const remoteStudio = await getDbStudioData();
+        const mergedClients = mergeClientRecords(
+          Array.isArray(remoteStudio.clients) ? remoteStudio.clients : [],
+          Array.isArray(localStudio.clients) ? localStudio.clients : [],
+        );
+
+        setStudio({
+          clients: mergedClients,
+          projects: Array.isArray(remoteStudio.projects) ? remoteStudio.projects : [],
+        });
+      } else {
+        setStudio({
+          clients: Array.isArray(localStudio.clients) ? localStudio.clients : [],
+          projects: Array.isArray(localStudio.projects) ? localStudio.projects : [],
+        });
+      }
     } catch (error) {
       console.error(
         'Erro ao carregar clientes locais:',
@@ -638,8 +785,28 @@ export default function Clientes() {
     });
   }, []);
 
-  const clients = useMemo(() => studio.clients.map((client) => mapClientRow(client, studio.projects)), [studio.clients, studio.projects]);
-  const filteredClients = useMemo(() => clients.filter((client) => clientMatchesSearch(client, search)), [clients, search]);
+  const clientUniverse = useMemo(
+    () => buildClientUniverse(studio.clients, studio.projects),
+    [studio.clients, studio.projects],
+  );
+  const clients = useMemo(
+    () => clientUniverse.map((client) => mapClientRow(client, studio.projects)),
+    [clientUniverse, studio.projects],
+  );
+  const availableYears = useMemo(() => {
+    const years = new Set(studio.projects.map(getProjectYear).filter(Boolean));
+    years.add(new Date().getFullYear());
+    return [...years].sort((a, b) => b - a);
+  }, [studio.projects]);
+  const filteredClients = useMemo(() => clients.filter((client) => {
+    if (!clientMatchesSearch(client, search)) return false;
+    if (selectedYear === 'all') return true;
+    return client.projects.some((project) => getProjectYear(project) === Number(selectedYear));
+  }).map((client) => {
+    if (selectedYear === 'all') return client;
+    const yearProjects = client.projects.filter((project) => getProjectYear(project) === Number(selectedYear));
+    return mapClientRow(client, yearProjects);
+  }), [clients, search, selectedYear]);
 
   const paymentSummary = useMemo(() => calculatePayments(formData), [formData]);
   const formattedRemaining = maskCurrency(String(Math.round(paymentSummary.valorRestante * 100)));
@@ -1422,15 +1589,28 @@ export default function Clientes() {
       </div>
 
       <div className="sf-table-card">
-        <div className="sf-client-search">
-          <input
-            style={inputStyle}
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-            }}
-            placeholder="Buscar por nome, telefone, e-mail, CPF/CNPJ ou cidade"
-          />
+        <div className="sf-client-toolbar">
+          <div className="sf-client-search">
+            <input
+              style={inputStyle}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+              }}
+              placeholder="Buscar por nome, telefone, e-mail, CPF/CNPJ ou cidade"
+            />
+          </div>
+          <label className="sf-client-year-filter">
+            <span>Ano dos trabalhos</span>
+            <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value === 'all' ? 'all' : Number(event.target.value))}>
+              {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+              <option value="all">Todos os anos</option>
+            </select>
+          </label>
+          <div className="sf-client-year-summary">
+            <strong>{filteredClients.length}</strong>
+            <span>{filteredClients.length === 1 ? 'cliente' : 'clientes'}</span>
+          </div>
         </div>
 
         <div className="sf-client-table-scroll">
@@ -1438,13 +1618,14 @@ export default function Clientes() {
           <thead>
             <tr>
               <th>Nome do cliente</th>
-              <th>Telefone</th>
-              <th>Tipo de trabalho</th>
-              <th>Data do trabalho</th>
-              <th>Valor total</th>
-              <th>Valor restante</th>
+              <th>Contato</th>
+              <th>Trabalhos</th>
+              <th>Último trabalho</th>
+              <th>Contratado</th>
+              <th>Recebido</th>
+              <th>Restante</th>
               <th>Status</th>
-              <th>Editar</th>
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -1455,23 +1636,37 @@ export default function Clientes() {
                 style={{ cursor: 'pointer', backgroundColor: selectedClientId === client.id ? '#111111' : 'transparent' }}
               >
                 <td><strong>{client.nome || '-'}</strong></td>
-                <td>{client.telefone || '-'}</td>
-                <td>{client.tipoTrabalho || '-'}</td>
+                <td>
+                  <div className="sf-client-contact-cell">
+                    <span>{client.telefone || 'Sem telefone'}</span>
+                    <small>{client.email || 'Sem e-mail'}</small>
+                  </div>
+                </td>
+                <td>
+                  <strong>{client.projects.length}</strong>
+                  <small className="sf-client-work-type">{client.tipoTrabalho || '-'}</small>
+                </td>
                 <td>{displayDate(client.dataTrabalho)}</td>
                 <td className="positive"><strong>{formatMoney(client.valorTotal)}</strong></td>
-                <td>{formatMoney(client.valorRestante)}</td>
-                <td>{client.status || '-'}</td>
+                <td className="positive">{formatMoney(client.valorRecebido)}</td>
+                <td className={client.valorRestante > 0 ? 'sf-client-pending-value' : ''}>{formatMoney(client.valorRestante)}</td>
+                <td><span className={`sf-client-status ${client.valorRestante <= 0 && client.valorTotal > 0 ? 'is-paid' : ''}`}>{client.status || '-'}</span></td>
                 <td>
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
+                      if (client.virtualImportedClient) {
+                        openNewClient();
+                        setFormData((current) => ({ ...current, nome: client.nome, email: client.email || '', telefone: client.telefone || '', cidade: client.cidade || '' }));
+                        return;
+                      }
                       openEditClient(client);
                     }}
                     className="sf-secondary-button"
                     style={{ padding: '8px 10px' }}
                   >
-                    <Pencil size={14} /> Editar
+                    <Pencil size={14} /> {client.virtualImportedClient ? 'Cadastrar' : 'Editar'}
                   </button>
                   {(String(client.status || '').toLowerCase().includes('aprov') || client.projectId || client.tipoTrabalho) && (
                     <button

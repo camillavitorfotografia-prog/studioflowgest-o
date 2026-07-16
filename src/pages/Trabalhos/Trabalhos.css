@@ -4813,3 +4813,381 @@
     justify-content: center;
   }
 }
+
+/* =========================================================
+   TRABALHOS 2.0 — DENSIDADE E VISUALIZAÇÃO
+   Apenas apresentação: preserva drag and drop, menus e fluxos.
+   ========================================================= */
+
+.sf-projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.sf-projects-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.sf-projects-heading h1 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.sf-projects-heading > span {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.sf-projects-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sf-project-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+}
+
+.sf-project-view-switch button {
+  min-height: 31px;
+  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.sf-project-view-switch button:hover,
+.sf-project-view-switch button.active {
+  color: var(--text-main);
+  background: rgba(197, 160, 89, 0.11);
+}
+
+.sf-project-view-switch button.active {
+  color: var(--color-highlight);
+  box-shadow: inset 0 0 0 1px rgba(197, 160, 89, 0.2);
+}
+
+.sf-project-density-select {
+  min-height: 37px;
+  padding: 0 30px 0 10px;
+  color: var(--text-secondary);
+  background: #15171b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  font-size: 0.7rem;
+}
+
+.sf-projects-page .sf-primary-button {
+  min-height: 37px;
+  padding: 8px 12px;
+  font-size: 0.74rem;
+}
+
+.sf-projects-page .sf-project-filters {
+  margin-top: 12px;
+}
+
+.sf-projects-page.density-compact .sf-project-filters input:not([type="checkbox"]),
+.sf-projects-page.density-compact .sf-project-filters select,
+.sf-projects-page.density-compact .sf-project-filter-toggle {
+  min-height: 36px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 0.71rem;
+}
+
+.sf-projects-page.density-compact .sf-projects-board {
+  gap: 10px !important;
+  padding: 6px 2px 14px !important;
+}
+
+.sf-projects-page.density-compact .sf-projects-column {
+  flex: 0 0 272px;
+  width: 272px !important;
+  min-width: 272px !important;
+  max-width: 272px !important;
+  max-height: calc(100vh - 260px);
+  padding: 8px;
+  border-radius: 11px;
+}
+
+.sf-projects-page.density-compact .sf-projects-column > h3 {
+  min-height: 25px;
+  margin-bottom: 7px !important;
+  padding: 1px 2px 7px;
+  font-size: 0.67rem !important;
+  letter-spacing: 0.075em !important;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #101216;
+}
+
+.sf-projects-page.density-compact .sf-projects-card-list {
+  gap: 7px !important;
+  max-height: calc(100vh - 315px);
+  padding-right: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 160, 89, 0.3) transparent;
+}
+
+.sf-projects-page.density-compact .sf-project-card {
+  padding: 10px 10px 9px !important;
+  border-left: 3px solid var(--color-highlight) !important;
+  border-radius: 8px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-card > div:first-child {
+  margin-bottom: 4px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-card > div:first-child > span {
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+  font-size: 0.8rem !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-projects-page.density-compact .sf-project-service {
+  margin-bottom: 6px;
+  font-size: 0.68rem;
+}
+
+.sf-projects-page.density-compact .sf-project-card > div:nth-of-type(3) {
+  margin-bottom: 6px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-agenda-status {
+  margin-bottom: 7px;
+  padding: 3px 5px;
+  font-size: 0.58rem;
+}
+
+.sf-projects-page.density-compact .sf-project-card-meta {
+  gap: 6px;
+  font-size: 0.64rem;
+}
+
+.sf-projects-page.density-compact .sf-project-card-meta svg,
+.sf-projects-page.density-compact .sf-project-agenda-status svg {
+  width: 11px;
+  height: 11px;
+}
+
+.sf-projects-page.density-compact .sf-project-card > div:last-child {
+  margin-top: 6px !important;
+  font-size: 0.62rem !important;
+}
+
+.sf-projects-page.density-comfortable .sf-projects-column {
+  flex: 0 0 320px;
+  width: 320px !important;
+  min-width: 320px !important;
+  max-width: 320px !important;
+}
+
+/* Lista operacional */
+.sf-projects-list-shell {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 12px;
+}
+
+.sf-projects-list-header,
+.sf-project-list-row {
+  display: grid;
+  grid-template-columns:
+    minmax(190px, 1.5fr)
+    minmax(125px, 1fr)
+    96px
+    minmax(120px, 0.9fr)
+    108px
+    108px
+    108px
+    32px;
+  align-items: center;
+  gap: 10px;
+}
+
+.sf-projects-list-header {
+  min-height: 38px;
+  padding: 0 12px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.022);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  font-size: 0.61rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sf-projects-list-body {
+  max-height: calc(100vh - 260px);
+  overflow: auto;
+}
+
+.sf-project-list-row {
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  font: inherit;
+  font-size: 0.71rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sf-project-list-row:hover {
+  color: var(--text-main);
+  background: rgba(197, 160, 89, 0.055);
+}
+
+.sf-project-list-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-project-list-client {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sf-project-list-client strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-project-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--color-highlight);
+  background: rgba(197, 160, 89, 0.1);
+  border: 1px solid rgba(197, 160, 89, 0.2);
+  border-radius: 8px;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.sf-project-stage-badge {
+  max-width: 100%;
+  padding: 4px 6px;
+  display: inline-block;
+  overflow: hidden;
+  color: var(--color-highlight);
+  background: rgba(197, 160, 89, 0.08);
+  border: 1px solid rgba(197, 160, 89, 0.15);
+  border-radius: 999px;
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sf-project-list-row .pending {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
+.sf-project-list-row .paid {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.sf-project-list-open {
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1100px) {
+  .sf-projects-header {
+    align-items: flex-start;
+  }
+
+  .sf-projects-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .sf-projects-list-shell {
+    overflow-x: auto;
+  }
+
+  .sf-projects-list-header,
+  .sf-project-list-row {
+    min-width: 980px;
+  }
+}
+
+@media (max-width: 700px) {
+  .sf-projects-header {
+    flex-direction: column;
+  }
+
+  .sf-projects-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .sf-project-view-switch {
+    flex: 1;
+  }
+
+  .sf-project-view-switch button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .sf-project-density-select {
+    display: none;
+  }
+
+  .sf-projects-page.density-compact .sf-projects-column,
+  .sf-projects-page.density-comfortable .sf-projects-column {
+    flex-basis: min(88vw, 310px);
+    width: min(88vw, 310px) !important;
+    min-width: min(88vw, 310px) !important;
+    max-width: min(88vw, 310px) !important;
+  }
+}
