@@ -40,6 +40,7 @@ function App() {
           <Route path="/portal/:accessToken" element={<PortalCliente />} />
           <Route path="/galeria/:accessToken" element={<GaleriaPublica />} />
           <Route path="/oauth/google/callback" element={<GoogleOAuthCallback />} />
+          <Route path="/oauth/google/callback/*" element={<GoogleOAuthCallback />} />
 
           <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />
