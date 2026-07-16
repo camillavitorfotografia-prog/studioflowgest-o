@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { AlertTriangle, CalendarDays, Loader2, TrendingUp, WalletCards } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  WalletCards,
+} from 'lucide-react';
 import Logo from '../../assets/studioflow-logo.png';
 import { useAuth } from '../../contexts/useAuth';
 import {

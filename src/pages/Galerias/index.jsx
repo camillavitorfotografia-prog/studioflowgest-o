@@ -8,6 +8,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   FileImage,
