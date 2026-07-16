@@ -4,6 +4,7 @@ import {
   parseDate,
 } from '../../../utils/formatters';
 import { calculateProjectAmounts } from '../../../utils/dbData';
+import { buildFinancialLedger, parseLedgerDate } from '../../../utils/financialLedger';
 
 const ACTIVE_LEAD_STATUSES = new Set([
   'novo',
@@ -36,22 +37,6 @@ const serviceColors = [
 
 const normalizeStatus = (value) => String(value || '').trim().toLowerCase();
 
-const getPaymentDate = (payment = {}) => (
-  payment.dataPagamento
-  || payment.data_pagamento
-  || payment.data
-  || payment.createdAt
-  || payment.created_at
-  || ''
-);
-
-const getProjectPayments = (project = {}) => (
-  project.financeiro?.receitas
-  || project.pagamentos
-  || project.receitas
-  || []
-);
-
 const isExpense = (transaction = {}) => {
   const type = String(
     transaction.tipoGeral
@@ -61,17 +46,6 @@ const isExpense = (transaction = {}) => {
   ).toLowerCase();
 
   return type === 'saida' || type === 'fixa' || type === 'variavel';
-};
-
-const isIncome = (transaction = {}) => {
-  const type = String(
-    transaction.tipoGeral
-    || transaction.tipo_geral
-    || transaction.tipo
-    || '',
-  ).toLowerCase();
-
-  return type === 'entrada' || type === 'receita';
 };
 
 const startOfDay = (date) => new Date(
@@ -128,33 +102,15 @@ export function buildDashboardMetrics({
     return eventDate >= weekStart && eventDate <= weekEnd;
   });
 
-  const payments = projects.flatMap((project) => (
-    getProjectPayments(project).map((payment) => ({
-      ...payment,
-      projectId: project.id,
-      clientName: project.clienteNome || project.cliente?.nome || 'Cliente',
-    }))
-  ));
+  const ledger = buildFinancialLedger({ projects, transactions });
 
-  const monthlyPayments = payments.filter((payment) => (
-    isCurrentMonth(getPaymentDate(payment), now)
-  ));
+  const monthlyRevenue = ledger.receipts
+    .filter((receipt) => isCurrentMonth(receipt.date, now))
+    .reduce((sum, receipt) => sum + parseCurrency(receipt.amount), 0);
 
-  const transactionIncome = transactions.filter((transaction) => (
-    isIncome(transaction)
-    && isCurrentMonth(transaction.data || transaction.dataVencimento, now)
-  ));
-
-  const monthlyRevenue = [
-    ...monthlyPayments.map((payment) => parseCurrency(payment.valor)),
-    ...transactionIncome.map((transaction) => parseCurrency(transaction.valor)),
-  ].reduce((sum, value) => sum + value, 0);
-
-  const monthlyExpenses = transactions.reduce((total, transaction) => {
-    if (!isExpense(transaction)) return total;
-    if (!isCurrentMonth(transaction.data || transaction.dataVencimento, now)) return total;
-    return total + parseCurrency(transaction.valor);
-  }, 0);
+  const monthlyExpenses = ledger.expenses
+    .filter((expense) => isCurrentMonth(expense.date, now))
+    .reduce((sum, expense) => sum + parseCurrency(expense.amount), 0);
 
   const receivable = projects.reduce((total, project) => {
     const { remaining } = calculateProjectAmounts(project);
@@ -170,16 +126,13 @@ export function buildDashboardMetrics({
     return total + parseCurrency(transaction.valor);
   }, 0);
 
-  const historicalRevenue = payments.reduce(
-    (sum, payment) => sum + parseCurrency(payment.valor),
-    0,
-  ) + transactions.filter(isIncome).reduce(
-    (sum, transaction) => sum + parseCurrency(transaction.valor),
+  const historicalRevenue = ledger.receipts.reduce(
+    (sum, receipt) => sum + parseCurrency(receipt.amount),
     0,
   );
 
-  const historicalExpenses = transactions.filter(isExpense).reduce(
-    (sum, transaction) => sum + parseCurrency(transaction.valor),
+  const historicalExpenses = ledger.expenses.reduce(
+    (sum, expense) => sum + parseCurrency(expense.amount),
     0,
   );
 
@@ -208,20 +161,18 @@ export function buildDashboardMetrics({
     };
   });
 
-  payments.forEach((payment) => {
-    const date = parseDate(getPaymentDate(payment));
+  ledger.receipts.forEach((receipt) => {
+    const date = parseLedgerDate(receipt.date);
     if (!date) return;
     const item = monthlyChart.find((month) => month.month === date.getMonth() && month.year === date.getFullYear());
-    if (item) item.receitas += parseCurrency(payment.valor);
+    if (item) item.receitas += parseCurrency(receipt.amount);
   });
 
-  transactions.forEach((transaction) => {
-    const date = parseDate(transaction.data || transaction.dataVencimento);
+  ledger.expenses.forEach((expense) => {
+    const date = parseLedgerDate(expense.date);
     if (!date) return;
     const item = monthlyChart.find((month) => month.month === date.getMonth() && month.year === date.getFullYear());
-    if (!item) return;
-    if (isExpense(transaction)) item.despesas += parseCurrency(transaction.valor);
-    if (isIncome(transaction)) item.receitas += parseCurrency(transaction.valor);
+    if (item) item.despesas += parseCurrency(expense.amount);
   });
 
   projects.forEach((project) => {

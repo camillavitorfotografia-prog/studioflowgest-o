@@ -1,16 +1,26 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   Building2,
+  CalendarDays,
+  CheckCircle2,
+  CircleAlert,
+  Cloud,
   Database,
   Edit3,
+  ExternalLink,
+  HardDrive,
   Link2,
+  Mail,
   Plus,
+  RefreshCw,
   Save,
   Settings,
   ShieldCheck,
   Trash2,
+  Unplug,
+  Video,
   Users,
 } from 'lucide-react';
 
@@ -22,6 +32,14 @@ import {
   maskPhone,
 } from '../../utils/masks';
 import { parseCurrency } from '../../utils/formatters';
+import {
+  INTEGRATION_PROVIDERS,
+  disconnectIntegration,
+  loadIntegrationAccounts,
+  requestIntegrationAction,
+  upsertIntegrationAccount,
+  writeIntegrationLog,
+} from '../../services/integrationsService';
 
 import './Configuracoes.css';
 import './ConfiguracoesEnhancements.css';
@@ -36,19 +54,21 @@ const tabs = [
   ['studio', 'Marca e Estúdio', Building2],
 ];
 
-const integrationNames = {
-  googleCalendar: 'Google Calendar',
-  googleDrive: 'Google Drive',
-  email: 'Gmail / E-mail',
-  whatsapp: 'WhatsApp',
-  supabase: 'Supabase',
-  electronicSignature: 'Assinatura eletrônica',
-  stripe: 'Stripe',
-  googleMeet: 'Google Meet',
+const integrationIcons = {
+  googleCalendar: CalendarDays,
+  googleDrive: HardDrive,
+  email: Mail,
+  whatsapp: Link2,
+  supabase: Database,
+  electronicSignature: ShieldCheck,
+  stripe: Cloud,
+  googleMeet: Video,
 };
 
-const statusLabels = {
+const integrationStatusLabels = {
   connected: 'Conectado',
+  connecting: 'Conectando',
+  error: 'Atenção',
   not_connected: 'Não conectado',
   coming_soon: 'Em breve',
 };
@@ -156,6 +176,11 @@ export default function Configuracoes() {
   const [message, setMessage] = useState('');
   const [teamDraft, setTeamDraft] = useState(emptyTeamMember);
   const [teamFormOpen, setTeamFormOpen] = useState(false);
+  const [integrationAccounts, setIntegrationAccounts] = useState([]);
+  const [integrationLoading, setIntegrationLoading] = useState(false);
+  const [integrationBusy, setIntegrationBusy] = useState('');
+  const [selectedIntegration, setSelectedIntegration] = useState(null);
+
 
   const importRef = useRef(null);
 
@@ -328,6 +353,155 @@ export default function Configuracoes() {
     setMessage(
       'Membro removido e alterações salvas.',
     );
+  };
+
+
+  const integrationAccountMap = useMemo(() => (
+    Object.fromEntries(
+      integrationAccounts.map((account) => [account.provider, account]),
+    )
+  ), [integrationAccounts]);
+
+  const refreshIntegrations = async () => {
+    setIntegrationLoading(true);
+    try {
+      const accounts = await loadIntegrationAccounts();
+      setIntegrationAccounts(accounts);
+    } catch (error) {
+      setMessage(error?.message || 'Não foi possível carregar as integrações.');
+    } finally {
+      setIntegrationLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const oauthError = params.get('error');
+
+    if (!state || (!code && !oauthError)) return;
+
+    setIntegrationLoading(true);
+    requestIntegrationAction('google-oauth-callback', {
+      code,
+      state,
+      error: oauthError,
+    })
+      .then(async (response) => {
+        setMessage(response?.accountEmail
+          ? `Google Workspace conectado: ${response.accountEmail}.`
+          : 'Google Workspace conectado com sucesso.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        await refreshIntegrations();
+      })
+      .catch((error) => {
+        setMessage(error?.message || 'Não foi possível concluir a conexão Google.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      })
+      .finally(() => setIntegrationLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let activeRequest = true;
+
+    loadIntegrationAccounts()
+      .then((accounts) => {
+        if (activeRequest) setIntegrationAccounts(accounts);
+      })
+      .catch((error) => {
+        if (activeRequest) {
+          setMessage(error?.message || 'Não foi possível carregar as integrações.');
+        }
+      });
+
+    return () => {
+      activeRequest = false;
+    };
+  }, []);
+
+  const getIntegrationStatus = (key) => {
+    if (key === 'supabase') return 'connected';
+    const config = INTEGRATION_PROVIDERS[key];
+    const account = integrationAccountMap[config?.provider];
+    return account?.status || settings.integrations?.[key] || 'not_connected';
+  };
+
+  const connectIntegration = async (key) => {
+    const config = INTEGRATION_PROVIDERS[key];
+    if (!config) return;
+
+    if (config.category === 'future') {
+      setSelectedIntegration(key);
+      return;
+    }
+
+    if (key === 'supabase') {
+      setMessage('O Supabase já está conectado e é a base principal do StudioFlow.');
+      return;
+    }
+
+    setIntegrationBusy(key);
+    try {
+      await upsertIntegrationAccount(config.provider, {
+        status: 'connecting',
+        settings: {},
+      });
+      await writeIntegrationLog({
+        provider: config.provider,
+        action: 'oauth_requested',
+        message: 'Conexão solicitada pelo centro de integrações.',
+      });
+      const response = await requestIntegrationAction('google-oauth-start', {
+        provider: config.provider,
+        returnUrl: `${window.location.origin}/configuracoes`,
+      });
+      if (!response?.authorizationUrl) {
+        throw new Error('O conector não retornou a URL de autorização do Google.');
+      }
+      window.location.assign(response.authorizationUrl);
+    } catch (error) {
+      await upsertIntegrationAccount(config.provider, {
+        status: 'error',
+        last_error: error?.message || 'Falha ao iniciar conexão.',
+      }).catch(() => {});
+      setMessage(error?.message || 'Não foi possível iniciar a conexão.');
+      await refreshIntegrations();
+    } finally {
+      setIntegrationBusy('');
+    }
+  };
+
+  const syncIntegration = async (key) => {
+    const config = INTEGRATION_PROVIDERS[key];
+    if (!config) return;
+    setIntegrationBusy(key);
+    try {
+      await requestIntegrationAction('integration-sync', { provider: config.provider });
+      setMessage(`${config.name} sincronizado com sucesso.`);
+      await refreshIntegrations();
+    } catch (error) {
+      setMessage(error?.message || 'Não foi possível sincronizar agora.');
+    } finally {
+      setIntegrationBusy('');
+    }
+  };
+
+  const removeIntegration = async (key) => {
+    const config = INTEGRATION_PROVIDERS[key];
+    if (!config || key === 'supabase') return;
+    if (!window.confirm(`Desconectar ${config.name}?`)) return;
+    setIntegrationBusy(key);
+    try {
+      await requestIntegrationAction('integration-disconnect', { provider: config.provider }).catch(() => null);
+      await disconnectIntegration(config.provider);
+      setMessage(`${config.name} desconectado.`);
+      await refreshIntegrations();
+    } catch (error) {
+      setMessage(error?.message || 'Não foi possível desconectar.');
+    } finally {
+      setIntegrationBusy('');
+    }
   };
 
   return (
@@ -713,32 +887,139 @@ export default function Configuracoes() {
           {active === 'integrations' && (
             <>
               <Title
-                title="Integrações"
-                text="Conexões reais e recursos preparados para evolução."
+                title="Centro de Integrações"
+                text="Conecte serviços externos com transparência, permissões mínimas e histórico de sincronização."
               />
 
-              <div className="integration-grid">
-                {Object
-                  .entries(settings.integrations)
-                  .map(([key, status]) => (
-                    <article key={key}>
-                      <strong>
-                        {integrationNames[key] || key}
-                      </strong>
-
-                      <span className={`status ${status}`}>
-                        {statusLabels[status] || status}
-                      </span>
-
-                      <button
-                        type="button"
-                        disabled
-                      >
-                        Gerenciar
-                      </button>
-                    </article>
-                  ))}
+              <div className="integration-overview">
+                <div>
+                  <ShieldCheck size={20} />
+                  <span>
+                    <strong>Tokens protegidos no backend</strong>
+                    <small>Nenhuma credencial deve ficar no navegador ou no código publicado.</small>
+                  </span>
+                </div>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={refreshIntegrations}
+                  disabled={integrationLoading}
+                >
+                  <RefreshCw size={16} className={integrationLoading ? 'spin' : ''} />
+                  Atualizar status
+                </button>
               </div>
+
+              <div className="integration-section-heading">
+                <div>
+                  <h3>Google Workspace</h3>
+                  <p>Calendar, Meet, Gmail e Drive usam uma autorização Google central e segura.</p>
+                </div>
+                <span className="integration-environment">OAuth via Supabase</span>
+              </div>
+
+              <div className="integration-cards">
+                {Object.entries(INTEGRATION_PROVIDERS).map(([key, config]) => {
+                  const Icon = integrationIcons[key] || Link2;
+                  const status = getIntegrationStatus(key);
+                  const account = integrationAccountMap[config.provider];
+                  const connected = status === 'connected';
+                  const future = config.category === 'future';
+                  const busy = integrationBusy === key;
+
+                  return (
+                    <article className={`integration-card ${status}`} key={key}>
+                      <div className="integration-card-icon">
+                        <Icon size={21} />
+                      </div>
+
+                      <div className="integration-card-main">
+                        <div className="integration-card-heading">
+                          <div>
+                            <h3>{config.name}</h3>
+                            <p>{config.description}</p>
+                          </div>
+                          <span className={`status ${status}`}>
+                            {status === 'connected' && <CheckCircle2 size={13} />}
+                            {status === 'error' && <CircleAlert size={13} />}
+                            {integrationStatusLabels[status] || status}
+                          </span>
+                        </div>
+
+                        <div className="integration-capabilities">
+                          {config.capabilities.map((capability) => (
+                            <span key={capability}>{capability}</span>
+                          ))}
+                        </div>
+
+                        {(account?.account_email || account?.last_sync_at || account?.last_error) && (
+                          <div className="integration-meta">
+                            {account.account_email && <span>Conta: <strong>{account.account_email}</strong></span>}
+                            {account.last_sync_at && <span>Última sincronização: <strong>{new Date(account.last_sync_at).toLocaleString('pt-BR')}</strong></span>}
+                            {account.last_error && <span className="error">Último erro: {account.last_error}</span>}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="integration-card-actions">
+                        {connected && key !== 'supabase' && (
+                          <>
+                            <button type="button" onClick={() => syncIntegration(key)} disabled={busy}>
+                              <RefreshCw size={15} className={busy ? 'spin' : ''} />
+                              Sincronizar
+                            </button>
+                            <button className="danger" type="button" onClick={() => removeIntegration(key)} disabled={busy}>
+                              <Unplug size={15} />
+                              Desconectar
+                            </button>
+                          </>
+                        )}
+
+                        {!connected && (
+                          <button
+                            className="primary"
+                            type="button"
+                            onClick={() => connectIntegration(key)}
+                            disabled={busy || key === 'supabase'}
+                          >
+                            {busy ? <RefreshCw size={15} className="spin" /> : <ExternalLink size={15} />}
+                            {future ? 'Ver preparação' : status === 'error' ? 'Tentar novamente' : 'Conectar'}
+                          </button>
+                        )}
+
+                        {key === 'supabase' && (
+                          <span className="integration-core-note">Base principal ativa</span>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="integration-setup-note">
+                <CircleAlert size={18} />
+                <div>
+                  <strong>Ativação das integrações Google</strong>
+                  <p>O código e as tabelas estão preparados. Para concluir a conexão real, cadastre GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e GOOGLE_OAUTH_REDIRECT_URI como segredos do Supabase e publique as Edge Functions de OAuth e sincronização.</p>
+                </div>
+              </div>
+
+              {selectedIntegration && (
+                <div className="integration-detail-panel">
+                  <div>
+                    <h3>{INTEGRATION_PROVIDERS[selectedIntegration]?.name}</h3>
+                    <p>{INTEGRATION_PROVIDERS[selectedIntegration]?.description}</p>
+                  </div>
+                  <button type="button" onClick={() => setSelectedIntegration(null)}>Fechar</button>
+                  <div className="integration-detail-content">
+                    <strong>Infraestrutura já preparada</strong>
+                    <ul>
+                      {INTEGRATION_PROVIDERS[selectedIntegration]?.capabilities.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                    <p>Esta integração será ativada depois do núcleo Google, usando a mesma camada segura de contas, logs e webhooks.</p>
+                  </div>
+                </div>
+              )}
             </>
           )}
 

@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3,
+  AlertTriangle,
   BriefcaseBusiness,
+  Building2,
+  CalendarDays,
   CircleDollarSign,
   DollarSign,
+  Download,
   Package,
   TrendingDown,
   TrendingUp,
@@ -12,74 +15,44 @@ import {
 } from 'lucide-react';
 import { formatMoney } from '../../utils/integratedData';
 import {
-  calculateProjectAmounts,
   getDbStudioData,
+  loadProfileFromDb,
   subscribeDbUpdates,
 } from '../../utils/dbData';
+import { loadSettings } from '../../utils/settings';
+import {
+  buildAnnualReport,
+  getAvailableReportYears,
+} from './annualReportData';
 import './Relatorios.css';
 
-const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const normalizeText = (value = '') => String(value).trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-const numberValue = (value) => Number(value || 0) || 0;
-
-const parseDate = (value) => {
-  if (!value) return null;
-  const text = String(value).trim();
-  const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  const normalized = br ? `${br[3]}-${br[2]}-${br[1]}` : text.slice(0, 10);
-  const date = new Date(`${normalized}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const projectIdentity = (project) => {
-  const external = project.externalId || project.external_id || project.importFingerprint || project.import_fingerprint;
-  if (external) return `external:${external}`;
-  const amounts = calculateProjectAmounts(project);
-  return [
-    normalizeText(project.clienteNome || project.cliente?.nome || project.clienteNomeImportado),
-    String(project.data || '').slice(0, 10),
-    normalizeText(project.tipoServico || project.categoria),
-    amounts.total.toFixed(2),
-  ].join('|');
-};
-
-const dedupeProjects = (projects = []) => {
-  const map = new Map();
-  projects.forEach((project) => {
-    const key = projectIdentity(project);
-    const previous = map.get(key);
-    if (!previous) {
-      map.set(key, project);
-      return;
-    }
-    const previousAmounts = calculateProjectAmounts(previous);
-    const currentAmounts = calculateProjectAmounts(project);
-    const previousScore = Number(Boolean(previous.clienteId || previous.clienteId)) * 10 + previousAmounts.paid;
-    const currentScore = Number(Boolean(project.clienteId || project.clienteId)) * 10 + currentAmounts.paid;
-    if (currentScore > previousScore) map.set(key, project);
-  });
-  return [...map.values()];
-};
-
-const isExpense = (transaction = {}) => {
-  const type = normalizeText(transaction.tipo);
-  const general = normalizeText(transaction.tipoGeral || transaction.tipo_geral);
-  if (type === 'configuracao_recorrencia' || general === 'configuracao') return false;
-  return general === 'saida' || ['fixa', 'variavel', 'despesa'].includes(type);
-};
-
 export default function Relatorios() {
-  const [studio, setStudio] = useState({ projects: [], clients: [], transactions: [], equipment: [] });
+  const [studio, setStudio] = useState({
+    projects: [],
+    clients: [],
+    transactions: [],
+    equipment: [],
+  });
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [exporting, setExporting] = useState(false);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     let active = true;
+
     const load = async () => {
-      const data = await getDbStudioData();
-      if (active) setStudio(data);
+      try {
+        const data = await getDbStudioData();
+        if (active) setStudio(data);
+      } catch (error) {
+        if (active) setMessage(error?.message || 'Não foi possível carregar os dados dos relatórios.');
+      }
     };
+
     void load();
     window.addEventListener('focus', load);
     const unsubscribe = subscribeDbUpdates(load);
+
     return () => {
       active = false;
       window.removeEventListener('focus', load);
@@ -87,140 +60,236 @@ export default function Relatorios() {
     };
   }, []);
 
-  const reports = useMemo(() => {
-    const projects = dedupeProjects(studio?.projects || []);
-    const transactions = studio?.transactions || [];
-    const clientsById = new Map((studio?.clients || []).map((client) => [String(client.id), client]));
-    const revenueByMonth = Array.from({ length: 12 }, (_, index) => ({ mes: monthLabels[index], receita: 0, despesas: 0, lucro: 0 }));
-    const byService = {};
-    const byCity = {};
-    const byOrigin = {};
-    const byClient = {};
-    const byEquipment = {};
-    const profitByProject = [];
+  const availableYears = useMemo(
+    () => getAvailableReportYears(studio),
+    [studio],
+  );
 
-    let totalRevenue = 0;
-    let totalReceived = 0;
-    let totalRemaining = 0;
+  const effectiveYear = availableYears.includes(selectedYear)
+    ? selectedYear
+    : (availableYears[0] || new Date().getFullYear());
 
-    projects.forEach((project) => {
-      const amounts = calculateProjectAmounts(project);
-      const service = project.tipoServico || project.categoria || 'Não informado';
-      const client = project.cliente || clientsById.get(String(project.clientId || project.clienteId || '')) || {};
-      const clientName = project.clienteNome || project.clienteNomeImportado || client.nome || 'Cliente sem cadastro';
-      const projectExpenses = transactions
-        .filter((transaction) => isExpense(transaction) && String(transaction.projectId || '') === String(project.id))
-        .reduce((sum, transaction) => sum + numberValue(transaction.valor), 0);
-      const profit = amounts.paid - projectExpenses;
+  const report = useMemo(
+    () => buildAnnualReport(studio, effectiveYear),
+    [studio, effectiveYear],
+  );
 
-      totalRevenue += amounts.total;
-      totalReceived += amounts.paid;
-      totalRemaining += amounts.remaining;
+  const downloadAnnualPdf = async () => {
+    setExporting(true);
+    setMessage('');
 
-      const date = parseDate(project.data);
-      if (date) {
-        revenueByMonth[date.getMonth()].receita += amounts.paid;
-        revenueByMonth[date.getMonth()].despesas += projectExpenses;
-        revenueByMonth[date.getMonth()].lucro += profit;
-      }
-
-      byService[service] = (byService[service] || 0) + amounts.paid;
-      const city = client.cidade || project.local || 'Não informado';
-      byCity[city] = (byCity[city] || 0) + amounts.paid;
-      const origin = client.origem || 'Não informado';
-      byOrigin[origin] = (byOrigin[origin] || 0) + 1;
-      byClient[clientName] = (byClient[clientName] || 0) + amounts.paid;
-      profitByProject.push([clientName, profit]);
-
-      const equipmentList = project.equipamentosDetalhados || project.equipamentos || project.equipmentIds || [];
-      equipmentList.forEach((equipment) => {
-        const eqName = typeof equipment === 'string'
-          ? (studio.equipment || []).find((item) => String(item.id) === String(equipment))?.nome || equipment
-          : equipment?.nome;
-        if (!eqName) return;
-        byEquipment[eqName] = byEquipment[eqName] || { projetos: 0, retorno: 0 };
-        byEquipment[eqName].projetos += 1;
-        byEquipment[eqName].retorno += amounts.paid;
+    try {
+      const { generateAnnualReportPdf } = await import('./annualReportPdf.js');
+      const settings = loadSettings();
+      const profile = await loadProfileFromDb().catch(() => null);
+      const localStudio = settings.studio || {};
+      const remoteStudio = profile || {};
+      const result = await generateAnnualReportPdf({
+        report,
+        studio: {
+          name: localStudio.name || remoteStudio.empresaNome || remoteStudio.nomeEmpresa || remoteStudio.companyName || remoteStudio.nomeFantasia || '',
+          legalName: localStudio.legalName || remoteStudio.razaoSocial || remoteStudio.nomeFantasia || '',
+          document: localStudio.document || remoteStudio.cnpj || remoteStudio.cpf || remoteStudio.document || '',
+          email: localStudio.email || remoteStudio.email || '',
+          phone: localStudio.phone || remoteStudio.telefone || remoteStudio.phone || '',
+          whatsapp: localStudio.whatsapp || remoteStudio.whatsapp || '',
+          address: localStudio.address || remoteStudio.endereco || remoteStudio.address || remoteStudio.cidade || '',
+        },
       });
-    });
+      setMessage(`${result.fileName} gerado com sucesso.`);
+    } catch (error) {
+      console.error('Falha ao gerar relatório anual em PDF:', error);
+      setMessage(error?.message || 'Não foi possível gerar o relatório anual em PDF.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
-    const generalExpenses = transactions
-      .filter((transaction) => isExpense(transaction) && !transaction.projectId)
-      .reduce((sum, transaction) => sum + numberValue(transaction.valor), 0);
-    const projectExpenses = transactions
-      .filter((transaction) => isExpense(transaction) && transaction.projectId)
-      .reduce((sum, transaction) => sum + numberValue(transaction.valor), 0);
-    const totalExpenses = generalExpenses + projectExpenses;
-    const totalProfit = totalReceived - totalExpenses;
-
-    transactions.filter((transaction) => isExpense(transaction)).forEach((transaction) => {
-      const date = parseDate(transaction.data || transaction.dataVencimento);
-      if (!date) return;
-      const month = revenueByMonth[date.getMonth()];
-      if (!transaction.projectId) {
-        month.despesas += numberValue(transaction.valor);
-        month.lucro -= numberValue(transaction.valor);
-      }
-    });
-
-    const getTopEntry = (obj) => Object.entries(obj).sort((a, b) => Number(b[1]) - Number(a[1]))[0] || null;
-    const serviceEntries = Object.entries(byService).sort((a, b) => b[1] - a[1]);
-    const equipmentEntries = Object.entries(byEquipment).sort((a, b) => b[1].retorno - a[1].retorno);
-
-    return {
-      totalRevenue,
-      totalReceived,
-      totalRemaining,
-      totalExpenses,
-      totalProfit,
-      projectsCount: projects.length,
-      mostProfitableService: serviceEntries[0],
-      mostSoldEssay: serviceEntries.find(([name]) => /ensaio|gestante|familia|família/i.test(name)),
-      weddings: projects.filter((p) => normalizeText(p.tipoServico).includes('casamento')).length,
-      revenueByMonth: revenueByMonth.filter((item) => item.receita || item.despesas || item.lucro),
-      profitByProject: profitByProject.sort((a, b) => b[1] - a[1]),
-      topOrigin: getTopEntry(byOrigin),
-      topCity: getTopEntry(byCity),
-      topClient: getTopEntry(byClient),
-      equipmentMostUsed: Object.entries(byEquipment).sort((a, b) => b[1].projetos - a[1].projetos)[0],
-      equipmentBestReturn: equipmentEntries[0],
-      equipmentRows: equipmentEntries.map(([name, data]) => [name, `${data.projetos}x`, formatMoney(data.retorno)]),
-    };
-  }, [studio]);
+  const warningCount = (
+    report.warnings.receiptsWithoutDate
+    + report.warnings.expensesWithoutDate
+    + report.warnings.projectsWithoutDate
+    + report.warnings.pendingExpenses
+    + report.warnings.reconciliationItems
+  );
 
   return (
     <div className="sf-finance-section sf-reports-page">
-      <div className="sf-section-header">
+      <div className="sf-section-header sf-reports-header">
         <div>
-          <h1>Relatórios Consolidados</h1>
-          <p>Indicadores calculados com projetos únicos, recebimentos confirmados e despesas reais.</p>
+          <span className="sf-reports-eyebrow">Inteligência anual</span>
+          <h1>Relatório anual</h1>
+          <p>
+            Visão operacional e financeira do exercício, com PDF completo para conferência anual e apoio ao imposto de renda.
+          </p>
+        </div>
+
+        <div className="sf-reports-header-actions">
+          <label className="sf-reports-year-field">
+            <span><CalendarDays size={14} /> Exercício</span>
+            <select
+              value={effectiveYear}
+              onChange={(event) => setSelectedYear(Number(event.target.value))}
+              aria-label="Selecionar ano do relatório"
+            >
+              {availableYears.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            className="sf-primary-button sf-reports-download"
+            onClick={downloadAnnualPdf}
+            disabled={exporting}
+          >
+            <Download size={16} />
+            {exporting ? 'Gerando PDF...' : 'Baixar PDF para IR'}
+          </button>
         </div>
       </div>
 
+      {message && (
+        <div className="sf-reports-message" role="status">
+          {message}
+        </div>
+      )}
+
+      <div className="sf-reports-basis-note">
+        <div>
+          <strong>Trabalhos de {effectiveYear}</strong>
+          <span>Filtrados pela data do evento ou serviço.</span>
+        </div>
+        <div>
+          <strong>Financeiro de {effectiveYear}</strong>
+          <span>Recebimentos pela data de pagamento e despesas somente quando marcadas como pagas.</span>
+        </div>
+      </div>
+
+      {warningCount > 0 && (
+        <div className="sf-reports-warning">
+          <AlertTriangle size={18} />
+          <div>
+            <strong>Há dados que precisam de conferência antes do fechamento anual.</strong>
+            <span>
+              {report.warnings.receiptsWithoutDate} recebimento(s) sem data
+              {' · '}
+              {report.warnings.expensesWithoutDate} despesa(s) paga(s) sem data
+              {' · '}
+              {report.warnings.projectsWithoutDate} projeto(s) sem data do trabalho
+              {' · '}
+              {report.warnings.pendingExpenses} despesa(s) ainda não confirmada(s) como paga(s)
+              {' · '}
+              {report.warnings.reconciliationItems} contrato(s) com valor recebido sem pagamento individual detalhado.
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="sf-metric-grid sf-reports-metrics">
-        <Metric icon={BriefcaseBusiness} label="Projetos únicos" value={reports.projectsCount} raw />
-        <Metric icon={DollarSign} label="Receita contratada" value={reports.totalRevenue} />
-        <Metric icon={TrendingUp} label="Receita recebida" value={reports.totalReceived} />
-        <Metric icon={CircleDollarSign} label="Saldo a receber" value={reports.totalRemaining} />
-        <Metric icon={TrendingDown} label="Despesas reais" value={reports.totalExpenses} />
-        <Metric icon={WalletCards} label="Lucro líquido" value={reports.totalProfit} />
+        <Metric icon={BriefcaseBusiness} label={`Projetos de ${effectiveYear}`} value={report.totals.projects} raw />
+        <Metric icon={DollarSign} label="Receita contratada dos trabalhos" value={report.totals.contracted} />
+        <Metric icon={TrendingUp} label={`Recebimentos em ${effectiveYear}`} value={report.totals.annualReceived} />
+        <Metric icon={CircleDollarSign} label="Saldo dos trabalhos do ano" value={report.totals.remaining} />
+        <Metric icon={TrendingDown} label="Despesas pagas no ano" value={report.totals.annualExpenses} />
+        <Metric icon={WalletCards} label="Resultado financeiro do ano" value={report.totals.annualResult} />
       </div>
 
       <div className="sf-report-grid sf-reports-summary-grid">
-        <Report title="Serviço com maior receita" rows={reports.mostProfitableService ? [[reports.mostProfitableService[0], formatMoney(reports.mostProfitableService[1])]] : []} />
-        <Report title="Tipo de ensaio mais vendido" rows={reports.mostSoldEssay ? [[reports.mostSoldEssay[0], formatMoney(reports.mostSoldEssay[1])]] : []} />
-        <Report title="Casamentos registrados" rows={[[`${reports.weddings} trabalhos`, '']]} />
-        <Report title="Canal de captação" rows={reports.topOrigin ? [[reports.topOrigin[0], `${reports.topOrigin[1]} clientes`]] : []} />
-        <Report title="Cidade de maior faturamento" rows={reports.topCity ? [[reports.topCity[0], formatMoney(reports.topCity[1])]] : []} />
-        <Report title="Cliente de maior LTV" rows={reports.topClient ? [[reports.topClient[0], formatMoney(reports.topClient[1])]] : []} />
-        <Report title="Equipamento mais escalado" rows={reports.equipmentMostUsed ? [[reports.equipmentMostUsed[0], `${reports.equipmentMostUsed[1].projetos} projetos`]] : []} />
-        <Report title="Equipamento de maior retorno" rows={reports.equipmentBestReturn ? [[reports.equipmentBestReturn[0], formatMoney(reports.equipmentBestReturn[1].retorno)]] : []} />
+        <Report
+          title="Recebimentos por conta"
+          rows={[
+            ['Empresa / CNPJ', formatMoney(report.totals.companyReceived)],
+            ['Conta pessoal / CPF', formatMoney(report.totals.personalReceived)],
+            ['Conta não informada', formatMoney(report.totals.unclassifiedAccountReceived)],
+          ]}
+          icon={Building2}
+        />
+        <Report
+          title="Despesas ainda não confirmadas"
+          rows={report.warnings.pendingExpenses
+            ? [[`${report.warnings.pendingExpenses} registro(s)`, formatMoney(report.warnings.pendingExpensesAmount)]]
+            : []}
+          icon={AlertTriangle}
+        />
+        <Report
+          title="Serviço com maior contratação"
+          rows={report.mostContractedService
+            ? [[report.mostContractedService[0], formatMoney(report.mostContractedService[1])]]
+            : []}
+        />
+        <Report
+          title="Tipo de ensaio mais vendido"
+          rows={report.mostSoldEssay
+            ? [[
+              report.mostSoldEssay[0],
+              `${report.mostSoldEssay[1].count} trabalho(s) · ${formatMoney(report.mostSoldEssay[1].value)}`,
+            ]]
+            : []}
+        />
+        <Report title="Casamentos no ano" rows={[[`${report.totals.weddings} trabalhos`, '']]} />
+        <Report
+          title="Canal de captação"
+          rows={report.topOrigin ? [[report.topOrigin[0], `${report.topOrigin[1]} clientes`]] : []}
+        />
+        <Report
+          title="Cidade com maior contratação"
+          rows={report.topCity ? [[report.topCity[0], formatMoney(report.topCity[1])]] : []}
+        />
+        <Report
+          title="Cliente com maior contratação"
+          rows={report.topClient ? [[report.topClient[0], formatMoney(report.topClient[1])]] : []}
+        />
+        <Report
+          title="Equipamento mais escalado"
+          rows={report.equipmentMostUsed
+            ? [[report.equipmentMostUsed[0], `${report.equipmentMostUsed[1].projects} projetos`]]
+            : []}
+        />
+        <Report
+          title="Equipamento de maior retorno"
+          rows={report.equipmentBestReturn
+            ? [[report.equipmentBestReturn[0], formatMoney(report.equipmentBestReturn[1].revenue)]]
+            : []}
+        />
       </div>
 
       <div className="sf-panel-grid sf-reports-table-grid">
-        <TableCard title="Fluxo por mês" icon={DollarSign} rows={reports.revenueByMonth.map((item) => [item.mes, formatMoney(item.receita), formatMoney(item.despesas), formatMoney(item.lucro)])} columns={['Mês', 'Recebido', 'Despesas', 'Lucro']} />
-        <TableCard title="Rentabilidade por contrato" icon={Users} rows={reports.profitByProject.slice(0, 12).map(([name, value]) => [name, formatMoney(value)])} columns={['Projeto / Cliente', 'Lucro líquido']} />
-        <TableCard title="Equipamentos por retorno" icon={Package} rows={reports.equipmentRows} columns={['Ativo', 'Frequência', 'Receita associada']} />
+        <TableCard
+          title={`Fluxo por mês · ${effectiveYear}`}
+          icon={DollarSign}
+          rows={report.monthly.map((item) => [
+            item.label,
+            formatMoney(item.received),
+            formatMoney(item.companyReceived),
+            formatMoney(item.expenses),
+            formatMoney(item.result),
+          ])}
+          columns={['Mês', 'Recebido', 'Empresa/CNPJ', 'Despesas', 'Resultado']}
+        />
+        <TableCard
+          title="Rentabilidade por contrato no ano"
+          icon={Users}
+          rows={report.profitabilityRows.slice(0, 18).map((item) => [
+            item.clientName,
+            item.service,
+            formatMoney(item.received),
+            formatMoney(item.expenses),
+            formatMoney(item.profit),
+          ])}
+          columns={['Projeto / cliente', 'Serviço', 'Recebido', 'Despesas', 'Resultado']}
+        />
+        <TableCard
+          title="Equipamentos por retorno no ano"
+          icon={Package}
+          rows={report.equipmentRows.map((item) => [
+            item.name,
+            `${item.frequency}x`,
+            formatMoney(item.revenue),
+          ])}
+          columns={['Ativo', 'Frequência', 'Receita associada']}
+        />
       </div>
     </div>
   );
@@ -235,10 +304,10 @@ function Metric({ icon: Icon, label, value, raw = false }) {
   );
 }
 
-function Report({ title, rows }) {
+function Report({ title, rows, icon: Icon = null }) {
   return (
     <div className="sf-card report sf-report-summary-card">
-      <h3>{title}</h3>
+      <h3>{Icon && <Icon size={16} />} {title}</h3>
       {rows.length === 0 && <p className="sf-muted">Nenhum registro computado.</p>}
       {rows.map(([label, value]) => (
         <div className="report-row" key={`${title}-${label}`}>
@@ -256,15 +325,27 @@ function TableCard({ title, icon: Icon, columns, rows }) {
       <div className="sf-report-table-heading">
         <h3><Icon size={18} /> {title}</h3>
       </div>
-      <table className="sf-table">
-        <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={`${title}-${index}`}>{row.map((cell, cellIndex) => <td key={`${title}-${index}-${cellIndex}`}>{cell}</td>)}</tr>
-          ))}
-          {!rows.length && <tr><td colSpan={columns.length} className="empty">Sem dados consolidados para o período.</td></tr>}
-        </tbody>
-      </table>
+      <div className="sf-report-table-scroll">
+        <table className="sf-table">
+          <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${title}-${index}`}>
+                {row.map((cell, cellIndex) => (
+                  <td key={`${title}-${index}-${cellIndex}`}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr>
+                <td colSpan={columns.length} className="empty">
+                  Sem dados consolidados para o período.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
