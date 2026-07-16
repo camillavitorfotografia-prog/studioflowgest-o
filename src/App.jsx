@@ -28,6 +28,7 @@ import Galerias from './pages/Galerias';
 import GaleriaPublica from './pages/GaleriaPublica';
 import GaleriaPreview from './pages/GaleriaPreview';
 import MigracaoDados from './pages/MigracaoDados';
+import GoogleOAuthCallback from './pages/GoogleOAuthCallback';
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
           <Route path="/recuperar-senha" element={<Login />} />
           <Route path="/portal/:accessToken" element={<PortalCliente />} />
           <Route path="/galeria/:accessToken" element={<GaleriaPublica />} />
+          <Route path="/oauth/google/callback" element={<GoogleOAuthCallback />} />
 
           <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
             <Route index element={<Dashboard />} />

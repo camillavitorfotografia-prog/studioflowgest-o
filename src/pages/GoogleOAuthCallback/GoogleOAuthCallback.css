@@ -1,0 +1,89 @@
+.google-oauth-callback-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 32%, rgba(203, 151, 61, 0.11), transparent 34%),
+    #080909;
+  color: #f7f4ee;
+}
+
+.google-oauth-callback-card {
+  width: min(520px, 100%);
+  padding: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  background: rgba(16, 18, 18, 0.96);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+  text-align: center;
+}
+
+.google-oauth-callback-icon {
+  width: 58px;
+  height: 58px;
+  margin: 0 auto 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  color: #d7aa58;
+  background: rgba(215, 170, 88, 0.1);
+  border: 1px solid rgba(215, 170, 88, 0.22);
+}
+
+.google-oauth-callback-card.is-success .google-oauth-callback-icon {
+  color: #45d693;
+  background: rgba(69, 214, 147, 0.1);
+  border-color: rgba(69, 214, 147, 0.22);
+}
+
+.google-oauth-callback-card.is-error .google-oauth-callback-icon {
+  color: #f1b64d;
+  background: rgba(241, 182, 77, 0.1);
+  border-color: rgba(241, 182, 77, 0.22);
+}
+
+.google-oauth-callback-eyebrow {
+  margin: 0 0 8px;
+  color: #d7aa58;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.google-oauth-callback-card h1 {
+  margin: 0;
+  font-size: clamp(1.65rem, 4vw, 2.2rem);
+}
+
+.google-oauth-callback-card > p:last-of-type {
+  margin: 14px auto 0;
+  max-width: 400px;
+  color: #aaa9a4;
+  line-height: 1.65;
+}
+
+.google-oauth-callback-actions {
+  margin-top: 24px;
+}
+
+.google-oauth-callback-actions button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(215, 170, 88, 0.32);
+  border-radius: 11px;
+  background: #d7aa58;
+  color: #0b0b0a;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.is-spinning {
+  animation: google-oauth-spin 0.9s linear infinite;
+}
+
+@keyframes google-oauth-spin {
+  to { transform: rotate(360deg); }
+}

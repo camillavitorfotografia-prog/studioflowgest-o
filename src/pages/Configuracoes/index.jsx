@@ -454,7 +454,7 @@ export default function Configuracoes() {
       });
       const response = await requestIntegrationAction('google-oauth-start', {
         provider: config.provider,
-        returnUrl: `${window.location.origin}/configuracoes`,
+        returnUrl: `${window.location.origin}/oauth/google/callback`,
       });
       if (!response?.authorizationUrl) {
         throw new Error('O conector não retornou a URL de autorização do Google.');
