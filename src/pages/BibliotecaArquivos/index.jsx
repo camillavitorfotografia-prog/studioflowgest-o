@@ -62,6 +62,21 @@ const typeFromMime = (mime = '') => {
   return 'other';
 };
 
+
+const normalizeProjectType = (value = '') => {
+  const text = String(value || '').trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (!text) return 'Outros';
+  if (text.includes('casamento civil')) return 'Casamento civil';
+  if (text.includes('casamento')) return 'Casamento';
+  if (text.includes('gestante')) return 'Gestante';
+  if (text.includes('familia')) return 'Família';
+  if (text.includes('formatura')) return 'Formatura';
+  if (text.includes('casal') || text.includes('pre wedding') || text.includes('pre-wedding')) return 'Ensaio de casal';
+  if (text.includes('pessoal') || text.includes('individual')) return 'Ensaio pessoal';
+  if (text.includes('ensaio')) return 'Ensaio';
+  return String(value || 'Outros').trim();
+};
+
 const iconForFile = (file) => {
   const type = typeFromMime(file.mimeType);
   if (type === 'image') return FileImage;
@@ -123,6 +138,18 @@ export default function BibliotecaArquivos() {
       : projects
   ), [projects, clientFilter]);
 
+  const projectTypeOptions = useMemo(() => (
+    [...new Set(filteredProjects.map((project) => normalizeProjectType(
+      project.tipoServico || project.titulo || project.categoria || 'Outros',
+    )))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  ), [filteredProjects]);
+
+  const projectTypeById = useMemo(() => new Map(
+    projects.map((project) => [String(project.id), normalizeProjectType(
+      project.tipoServico || project.titulo || project.categoria || 'Outros',
+    )]),
+  ), [projects]);
+
   const filteredFiles = useMemo(() => files.filter((file) => {
     if (scope === 'trash' && file.status !== 'trash') return false;
     if (scope !== 'trash' && file.status === 'trash') return false;
@@ -130,12 +157,12 @@ export default function BibliotecaArquivos() {
     if (scope === 'portal' && !file.portalVisible) return false;
     if (typeFilter !== 'all' && typeFromMime(file.mimeType) !== typeFilter) return false;
     if (clientFilter && String(file.clientId || '') !== String(clientFilter)) return false;
-    if (projectFilter && String(file.projectId || '') !== String(projectFilter)) return false;
+    if (projectFilter && projectTypeById.get(String(file.projectId || '')) !== projectFilter) return false;
     if (folderFilter && String(file.folderId || '') !== String(folderFilter)) return false;
     const term = query.trim().toLowerCase();
     if (term && !`${file.name} ${file.originalName}`.toLowerCase().includes(term)) return false;
     return true;
-  }), [files, scope, typeFilter, clientFilter, projectFilter, folderFilter, query]);
+  }), [files, scope, typeFilter, clientFilter, projectFilter, folderFilter, query, projectTypeById]);
 
   const summary = useMemo(() => ({
     active: files.filter((file) => file.status !== 'trash').length,
@@ -248,7 +275,7 @@ export default function BibliotecaArquivos() {
           <option value="">Todos os clientes</option>{clients.map((client) => <option key={client.id} value={client.id}>{capitalizeName(client.nome)}</option>)}
         </select>
         <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
-          <option value="">Todos os trabalhos</option>{filteredProjects.map((project) => <option key={project.id} value={project.id}>{capitalizeName(project.titulo || project.tipoServico || 'Trabalho')}</option>)}
+          <option value="">Todos os trabalhos</option>{projectTypeOptions.map((type) => <option key={type} value={type}>{type}</option>)}
         </select>
         <select value={folderFilter} onChange={(event) => setFolderFilter(event.target.value)}>
           <option value="">Todas as pastas</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}

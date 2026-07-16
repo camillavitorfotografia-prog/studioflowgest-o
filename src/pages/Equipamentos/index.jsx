@@ -20,6 +20,7 @@ import {
 } from 'recharts';
 import Modal from '../../components/Modal';
 import {
+  deleteEquipmentRow,
   getDbStudioData,
   subscribeDbUpdates,
   syncEquipmentList,
@@ -600,7 +601,17 @@ export default function Equipamentos() {
       (item) => String(item.id) !== String(equipment.id),
     );
 
-    saveList(nextEquipment);
+    setEquipamentos(nextEquipment);
+    localStorage.setItem(
+      EQUIPMENT_STORAGE_KEY,
+      JSON.stringify(nextEquipment),
+    );
+    void deleteEquipmentRow(equipment.id).catch((error) => {
+      console.error('Erro ao excluir equipamento:', error);
+      alert('Não foi possível excluir o equipamento do Supabase.');
+      void syncEquipamentos();
+    });
+    emitEquipmentUpdate();
 
     if (
       String(selectedEquipmentId) === String(equipment.id)

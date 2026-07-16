@@ -2410,3 +2410,80 @@ tbody tr {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
+
+/* Login 2.0 — refinamento visual sem alterar autenticação */
+.sf-login-screen {
+  grid-template-columns: minmax(520px, 56%) minmax(420px, 44%);
+  background: #070808;
+}
+
+.sf-login-institutional {
+  padding: clamp(38px, 5vw, 76px);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 18%, rgba(205, 157, 88, 0.18), transparent 26%),
+    radial-gradient(circle at 88% 78%, rgba(205, 157, 88, 0.08), transparent 30%),
+    linear-gradient(145deg, #0d0f0f 0%, #080909 62%, #0b0c0c 100%);
+}
+
+.sf-login-institutional::before {
+  width: 520px;
+  height: 520px;
+  left: -270px;
+  top: 22%;
+  border-color: rgba(205, 157, 88, 0.19);
+  box-shadow: 0 0 90px rgba(205, 157, 88, 0.035) inset;
+}
+
+.sf-login-institutional::after {
+  content: '';
+  position: absolute;
+  width: 330px;
+  height: 330px;
+  right: -170px;
+  bottom: -120px;
+  border: 1px solid rgba(205, 157, 88, 0.13);
+  border-radius: 50%;
+}
+
+.sf-login-hero-copy { position: relative; z-index: 2; max-width: 620px; }
+.sf-login-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.sf-login-brandmark { width: min(250px, 55%); }
+.sf-login-premium-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px;
+  border: 1px solid rgba(205, 157, 88, 0.25); border-radius: 999px;
+  color: #d8b274; background: rgba(205, 157, 88, 0.07); font-size: .68rem; font-weight: 750;
+}
+.sf-login-eyebrow { margin: clamp(48px, 8vh, 88px) 0 15px; color: #cda15f; font-size: .67rem; font-weight: 800; letter-spacing: .17em; }
+.sf-login-hero-copy h2 { margin: 0; max-width: 560px; color: #f4f1ea; font-size: clamp(2.45rem, 4.7vw, 4.65rem); line-height: .98; letter-spacing: -.045em; font-weight: 720; }
+.sf-login-hero-copy h2 em { color: #d0a35e; font-family: Georgia, serif; font-weight: 500; }
+.sf-login-tagline { max-width: 540px; margin: 24px 0 0; color: rgba(244,241,234,.62); font-size: .96rem; line-height: 1.72; letter-spacing: 0; }
+.sf-login-trust-row { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 22px; color: rgba(244,241,234,.63); font-size: .72rem; }
+.sf-login-trust-row span { display: inline-flex; align-items: center; gap: 6px; }
+.sf-login-trust-row svg { color: #d0a35e; }
+.sf-login-benefit-list { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-top: auto; }
+.sf-login-benefit-card { min-height: 116px; padding: 17px; align-items: flex-start; flex-direction: column; background: rgba(255,255,255,.025); border-color: rgba(255,255,255,.075); }
+.sf-login-benefit-card svg { color: #d0a35e; }
+.sf-login-benefit-card h2 { font-size: .78rem; }
+.sf-login-benefit-card p { font-size: .68rem; line-height: 1.55; }
+.sf-login-version { flex-direction: row; justify-content: space-between; width: 100%; margin-top: 18px; }
+.sf-login-form-side { position: relative; background: linear-gradient(180deg, #090a0a, #070808); }
+.sf-login-form-side::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 38%, rgba(205,157,88,.045), transparent 30%); pointer-events: none; }
+.sf-login-form { position: relative; z-index: 1; width: min(100%, 430px); padding: 34px; border: 1px solid rgba(255,255,255,.075); border-radius: 18px; background: rgba(15,17,17,.7); box-shadow: 0 26px 80px rgba(0,0,0,.36); backdrop-filter: blur(16px); }
+.sf-login-form-heading { text-align: left; }
+.sf-login-form-heading h1 { font-size: 1.75rem; letter-spacing: -.035em; }
+.sf-login-field input { height: 49px; border-radius: 10px; background: rgba(4,5,5,.5); }
+.sf-login-submit, .sf-login-google { height: 48px; border-radius: 10px !important; font-size: .82rem; }
+.sf-login-submit { justify-content: space-between; padding: 0 18px; background: linear-gradient(135deg, #d8aa62, #bd8436); border-color: #d0a05a; box-shadow: 0 14px 34px rgba(194,132,54,.18); }
+.sf-login-google { background: rgba(255,255,255,.025); }
+
+@media (max-width: 1100px) {
+  .sf-login-screen { grid-template-columns: minmax(430px, 50%) minmax(410px, 50%); }
+  .sf-login-benefit-list { grid-template-columns: 1fr; }
+  .sf-login-benefit-card { min-height: 0; flex-direction: row; }
+  .sf-login-hero-copy h2 { font-size: clamp(2.2rem, 5vw, 3.5rem); }
+}
+
+@media (max-width: 860px) {
+  .sf-login-form { padding: 26px; }
+}

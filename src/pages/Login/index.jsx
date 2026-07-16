@@ -128,9 +128,18 @@ export default function Login() {
   return (
     <main className="sf-login-screen">
       <aside className="sf-login-institutional" aria-label="StudioFlow">
-        <div>
-          <img src={Logo} alt="StudioFlow" className="sf-login-brandmark" />
-          <p className="sf-login-tagline">Gestao inteligente para fotografos e filmmakers.</p>
+        <div className="sf-login-hero-copy">
+          <div className="sf-login-brand-row">
+            <img src={Logo} alt="StudioFlow" className="sf-login-brandmark" />
+            <span className="sf-login-premium-badge"><Sparkles size={13} /> Gestão criativa</span>
+          </div>
+          <p className="sf-login-eyebrow">OPERAÇÃO, FINANÇAS E EXPERIÊNCIA DO CLIENTE</p>
+          <h2>Seu estúdio inteiro,<br /><em>em um só fluxo.</em></h2>
+          <p className="sf-login-tagline">Uma plataforma elegante para organizar trabalhos, clientes, finanças, arquivos e entregas sem perder o controle da rotina.</p>
+          <div className="sf-login-trust-row">
+            <span><CheckCircle2 size={14} /> Dados sincronizados</span>
+            <span><ShieldCheck size={14} /> Acesso protegido</span>
+          </div>
         </div>
         <div className="sf-login-benefit-list">
           {benefits.map(({ icon: Icon, title: benefitTitle, description }) => (
@@ -173,7 +182,8 @@ export default function Login() {
           )}
 
           <button type="submit" className="sf-login-submit" disabled={isSubmitting || !isSupabaseConfigured}>
-            {isSubmitting ? 'Aguarde...' : mode === 'register' ? 'Criar conta' : mode === 'recovery' ? 'Enviar link' : mode === 'update-password' ? 'Salvar nova senha' : 'Entrar'}
+            <span>{isSubmitting ? 'Aguarde...' : mode === 'register' ? 'Criar conta' : mode === 'recovery' ? 'Enviar link' : mode === 'update-password' ? 'Salvar nova senha' : 'Entrar'}</span>
+            {!isSubmitting && <ArrowRight size={17} />}
           </button>
 
           {mode === 'register' && pendingConfirmationEmail && (

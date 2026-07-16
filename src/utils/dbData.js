@@ -677,7 +677,6 @@ const unavailableTables = new Set();
  */
 const LOCAL_ONLY_TABLES = new Set([
   'leads',
-  'equipamentos',
 ]);
 
 const readLocalArray = (key) => {
@@ -966,12 +965,33 @@ export const syncEquipmentList = async (items = []) => {
     if (error) throw error;
   }
 
-  const ids = payload.map((item) => item.id);
-  let deleteQuery = supabase.from('equipamentos').delete();
-  if (ids.length) deleteQuery = deleteQuery.not('id', 'in', `(${ids.map((id) => `"${id}"`).join(',')})`);
-  const { error: deleteError } = ids.length ? await deleteQuery : await supabase.from('equipamentos').delete().neq('id', '');
-  if (deleteError) console.warn('Não foi possível remover equipamentos excluídos do Supabase:', deleteError);
+  // Sincroniza apenas os registros informados. Não remove os demais equipamentos
+  // do Supabase, pois a lista local pode ser parcial (por exemplo, após filtros,
+  // migrações ou acesso em outro dispositivo). A exclusão é sempre explícita.
   return list;
+};
+
+export const deleteEquipmentRow = async (equipmentId) => {
+  const id = String(equipmentId || '').trim();
+  if (!id) return;
+
+  if (isSupabaseConfigured && !unavailableTables.has('equipamentos')) {
+    const { error } = await supabase
+      .from('equipamentos')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  const local = (() => {
+    try { return JSON.parse(localStorage.getItem('cv_studio_equipamentos') || '[]'); } catch { return []; }
+  })();
+  const next = Array.isArray(local)
+    ? local.filter((item) => String(item?.id) !== id)
+    : [];
+  safeMirrorWrite('cv_studio_equipamentos', next);
+  emitDbUpdate();
 };
 
 const safeMirrorWrite = (key, value, { maxBytes = 700_000 } = {}) => {
