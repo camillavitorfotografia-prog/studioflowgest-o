@@ -69,16 +69,24 @@ const sourcePaymentId = (item = {}) => normalizePaymentId(
   || item.id,
 );
 
-const receiptKey = (row) => {
-  if (row.sourceId) return `payment:${row.sourceId}`;
+const receiptSemanticKey = (row = {}) => {
+  const projectId = String(row.projectId || '').trim();
+  const identity = projectId
+    ? `project:${projectId}`
+    : `client:${normalize(row.clientName)}|${normalize(row.description)}`;
+
+  // A mesma entrada costuma existir no Financeiro e também dentro do trabalho.
+  // Forma de pagamento e grafia do cliente não podem impedir a conciliação.
   return [
-    String(row.projectId || ''),
+    identity,
     String(row.date || '').slice(0, 10),
     Number(row.amount || 0).toFixed(2),
-    normalize(row.method),
-    normalize(row.clientName),
   ].join('|');
 };
+
+const receiptSourceKey = (row = {}) => (
+  row.sourceId ? `${row.source}:${row.sourceId}` : ''
+);
 
 const resolveAccount = (item = {}) => {
   const raw = item.contaDestino
@@ -128,44 +136,40 @@ const isExpense = (transaction = {}) => {
 export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) => {
   const projectById = new Map(projects.map((project) => [String(project.id), project]));
   const receipts = new Map();
+  const receiptSources = new Map();
   const undatedReceipts = [];
   const reconciliation = [];
+  const ignoredFinanceContractReceipts = [];
 
   const addReceipt = (row, priority) => {
-    const key = receiptKey(row);
-    const current = receipts.get(key);
-    if (!current || priority > current.priority) receipts.set(key, { ...row, priority, key });
+    const semanticKey = receiptSemanticKey(row);
+    const sourceKey = receiptSourceKey(row);
+
+    if (sourceKey && receiptSources.has(sourceKey)) {
+      const existingKey = receiptSources.get(sourceKey);
+      const current = receipts.get(existingKey);
+      if (!current || priority > current.priority) {
+        receipts.set(existingKey, { ...row, priority, key: existingKey });
+      }
+      return;
+    }
+
+    const current = receipts.get(semanticKey);
+    if (!current || priority > current.priority) {
+      receipts.set(semanticKey, { ...row, priority, key: semanticKey });
+    }
+    if (sourceKey) receiptSources.set(sourceKey, semanticKey);
   };
 
-  transactions.filter(isIncome).forEach((transaction) => {
-    const projectId = transaction.projectId || transaction.project_id || '';
-    const project = projectById.get(String(projectId));
-    const account = resolveAccount(transaction);
-    const row = {
-      sourceId: sourcePaymentId(transaction),
-      id: transaction.id,
-      projectId,
-      project,
-      clientName: project ? projectName(project) : (transaction.detalhes?.clienteNome || transaction.nome || transaction.descricao || 'Receita sem cliente'),
-      service: project ? projectService(project) : (transaction.categoria || 'Receita'),
-      date: transactionDate(transaction),
-      amount: normalizePaymentValue(transaction.valor),
-      method: transaction.formaPagamento || transaction.forma_pagamento || 'Não informado',
-      account,
-      accountType: classifyAccount(account),
-      description: transaction.descricao || transaction.nome || 'Recebimento',
-      source: 'financeiro',
-    };
-    if (parseLedgerDate(row.date)) addReceipt(row, 30);
-    else undatedReceipts.push(row);
-  });
-
+  // FONTE OFICIAL DOS CONTRATOS: parcelas cadastradas no cliente/trabalho.
+  // O Financeiro não pode criar uma segunda receita para o mesmo pagamento.
   projects.forEach((project) => {
     const payments = readPayments(project);
     let detailedTotal = 0;
+
     payments.forEach((payment) => {
       const amount = normalizePaymentValue(payment.valor ?? payment.amount);
-      if (!isConfirmedPayment({ ...payment, valor: amount })) return;
+      if (!isConfirmedPayment({ ...payment, valor: amount }) || amount <= 0) return;
       detailedTotal += amount;
       const account = resolveAccount(payment);
       const row = {
@@ -181,22 +185,68 @@ export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) 
         account,
         accountType: classifyAccount(account),
         description: `Pagamento — ${projectName(project)}`,
-        source: 'projeto',
+        source: 'cliente',
       };
-      if (parseLedgerDate(row.date)) addReceipt(row, 20);
+      if (parseLedgerDate(row.date)) addReceipt(row, 100);
       else undatedReceipts.push(row);
     });
 
-    const explicitPaid = normalizePaymentValue(project.valorRecebido ?? project.valor_recebido ?? project.financeiro?.valorRecebido ?? 0);
+    const explicitPaid = normalizePaymentValue(
+      project.valorRecebido
+      ?? project.valor_recebido
+      ?? project.financeiro?.valorRecebido
+      ?? 0,
+    );
     const difference = Math.max(0, explicitPaid - detailedTotal);
     if (difference > 0.009) {
       reconciliation.push({
         projectId: project.id,
         clientName: projectName(project),
         amount: difference,
-        reason: 'Valor recebido consolidado sem pagamento individual correspondente',
+        reason: 'Valor recebido acumulado sem parcela individual com data. Não entrou no faturamento anual.',
       });
     }
+  });
+
+  // O Financeiro complementa somente receitas avulsas sem vínculo contratual.
+  // Qualquer lançamento ligado a projeto/cliente/parcela é espelho operacional e
+  // fica fora do faturamento para não duplicar o que já foi lançado em Clientes.
+  transactions.filter(isIncome).forEach((transaction) => {
+    const projectId = transaction.projectId || transaction.project_id || '';
+    const clientId = transaction.clientId || transaction.client_id || transaction.cliente_id || '';
+    const externalPaymentId = transaction.detalhes?.externalPaymentId
+      || transaction.details?.externalPaymentId
+      || transaction.detalhes?.paymentId
+      || transaction.details?.paymentId
+      || transaction.paymentId
+      || transaction.pagamentoId
+      || '';
+    const linkedToContract = Boolean(String(projectId).trim() || String(clientId).trim() || String(externalPaymentId).trim());
+
+    if (linkedToContract) {
+      ignoredFinanceContractReceipts.push(transaction);
+      return;
+    }
+
+    const project = projectById.get(String(projectId));
+    const account = resolveAccount(transaction);
+    const row = {
+      sourceId: sourcePaymentId(transaction),
+      id: transaction.id,
+      projectId: '',
+      project: null,
+      clientName: transaction.detalhes?.clienteNome || transaction.nome || transaction.descricao || 'Receita avulsa',
+      service: transaction.categoria || 'Receita avulsa',
+      date: transactionDate(transaction),
+      amount: normalizePaymentValue(transaction.valor),
+      method: transaction.formaPagamento || transaction.forma_pagamento || 'Não informado',
+      account,
+      accountType: classifyAccount(account),
+      description: transaction.descricao || transaction.nome || 'Receita avulsa',
+      source: 'financeiro_avulso',
+    };
+    if (parseLedgerDate(row.date)) addReceipt(row, 50);
+    else undatedReceipts.push(row);
   });
 
   const expenses = [];
@@ -215,16 +265,21 @@ export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) 
       method: transaction.formaPagamento || transaction.forma_pagamento || 'Não informado',
       account: resolveAccount(transaction),
     };
-    const key = transaction.id || [row.projectId, row.date, row.amount.toFixed(2), normalize(row.description)].join('|');
-    if (expenseKeys.has(key)) return;
-    expenseKeys.add(key);
-    if (deriveFinancialStatus(transaction) !== 'paga') {
-      pendingExpenses.push(row);
-    } else if (parseLedgerDate(row.date)) {
-      expenses.push(row);
-    } else {
-      undatedExpenses.push(row);
-    }
+    const semanticKey = [
+      row.projectId,
+      String(row.date || '').slice(0, 10),
+      row.amount.toFixed(2),
+      normalize(row.description),
+      normalize(row.category),
+      normalize(row.supplier),
+    ].join('|');
+    const idKey = transaction.id ? `id:${transaction.id}` : '';
+    if ((idKey && expenseKeys.has(idKey)) || expenseKeys.has(semanticKey)) return;
+    if (idKey) expenseKeys.add(idKey);
+    expenseKeys.add(semanticKey);
+    if (deriveFinancialStatus(transaction) !== 'paga') pendingExpenses.push(row);
+    else if (parseLedgerDate(row.date)) expenses.push(row);
+    else undatedExpenses.push(row);
   });
 
   return {
@@ -238,5 +293,6 @@ export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) 
     undatedReceipts,
     undatedExpenses,
     reconciliation,
+    ignoredFinanceContractReceipts,
   };
 };

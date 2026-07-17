@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import './Precificacao.css';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertTriangle, BriefcaseBusiness, Calculator, Check, CheckCircle2, ChevronDown, Clock3, DollarSign, Package, Percent, Plus, Save, Search, Settings, Sparkles, Video, Wallet, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -295,6 +296,150 @@ const deepMerge = (base, saved) => {
 };
 
 const isVideoService = (service) => service === 'Filmagem' || service === 'Fotografia + Filmagem';
+const scenarioStorageKey = 'cv_studio_pricing_scenario_name';
+const capacityStorageKey = 'cv_studio_pricing_capacity';
+const scenarioOptions = ['Cenário atual', 'Alta temporada', 'Pacotes premium', 'Porto Seguro', 'Goiânia'];
+const defaultCapacity = {
+  diasDisponiveis: 22,
+  casamentos: 4,
+  ensaios: 6,
+  gestantes: 4,
+  filmagensAvulsas: 3,
+};
+
+const buildWorkState = (overrides = {}) => deepMerge(defaultState, overrides);
+
+function calculatePricingResult({ data, pricingConfig, state }) {
+  const snapshot = buildFinanceSnapshot(data);
+  const projectsPerMonth = Math.max(1, Number(pricingConfig.projetosMes || 1));
+  const fixedPerProject = snapshot.fixedMonthly / projectsPerMonth;
+  const currentMonth = monthKey(new Date());
+  const variablePerProject = data.transactions
+    .filter((item) => isExpense(item) && item.tipo === 'variavel' && monthKey(getTransactionDate(item)) === currentMonth)
+    .reduce((sum, item) => sum + getTransactionValue(item), 0) / projectsPerMonth;
+  const selectedEquipment = (data.equipment || []).filter((item) => (state.selectedEquipment || []).includes(item.id));
+  const equipmentCost = selectedEquipment.reduce((sum, item) => sum + calculateDepreciation(item).monthlyDepreciation, 0) / projectsPerMonth;
+  const totalHours = Object.values(state.time || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+  const laborCost = totalHours * moneyToNumber(pricingConfig.valorHora);
+  const commercialBase = calculateCommercialBase(state, pricingConfig);
+  const extrasTotal = (state.extras || []).reduce((sum, key) => sum + moneyToNumber(pricingConfig.extras[key]), 0);
+  const filmDeliveriesTotal = calculateFilmDeliveriesTotal(state, pricingConfig);
+  const operationalCost = fixedPerProject + variablePerProject + equipmentCost + laborCost;
+  const subtotal = commercialBase + extrasTotal + filmDeliveriesTotal;
+  const taxes = subtotal * (Number(pricingConfig.impostoPercentual || 0) / 100);
+  const netCost = operationalCost + taxes;
+  const minimumPrice = Math.max(subtotal, netCost * 1.08);
+  const recommendedPrice = Math.max(minimumPrice, netCost / Math.max(0.01, 1 - Number(pricingConfig.margem || 0) / 100));
+  const premiumPrice = recommendedPrice * 1.25;
+  const grossProfit = recommendedPrice - subtotal;
+  const netProfit = recommendedPrice - netCost;
+  const margin = recommendedPrice > 0 ? (netProfit / recommendedPrice) * 100 : 0;
+  const displacementShare = recommendedPrice > 0 ? (moneyToNumber(pricingConfig.extras.deslocamento) / recommendedPrice) * 100 : 0;
+  const depreciationShare = recommendedPrice > 0 ? (equipmentCost / recommendedPrice) * 100 : 0;
+
+  return {
+    fixedPerProject,
+    variablePerProject,
+    equipmentCost,
+    totalHours,
+    laborCost,
+    operationalCost,
+    commercialBase,
+    extrasTotal,
+    filmDeliveriesTotal,
+    subtotal,
+    taxes,
+    netCost,
+    minimumPrice,
+    recommendedPrice,
+    premiumPrice,
+    grossProfit,
+    netProfit,
+    margin,
+    hourValue: totalHours ? recommendedPrice / totalHours : 0,
+    displacementShare,
+    depreciationShare,
+    valuePerStudent: state.categoria === 'Formatura' && Number(state.alunos) > 0 ? recommendedPrice / Number(state.alunos) : 0,
+  };
+}
+
+function buildOverviewRows(pricingConfig, data) {
+  const presets = [
+    {
+      id: 'casamento-6h',
+      title: 'Casamento 6h',
+      subtitle: 'Fotografia',
+      state: buildWorkState({
+        categoria: 'Casamento',
+        service: 'Fotografia',
+        cobertura: 'Cerimonia + Festa',
+        horasCobertura: '6',
+        time: { atendimento: 1, reunioes: 2, deslocamento: 2, captacao: 6, backup: 1, selecao: 3, edicao: 5, exportacao: 1, entrega: 1, suporte: 1 },
+      }),
+    },
+    {
+      id: 'casamento-9h',
+      title: 'Casamento 9h',
+      subtitle: 'Fotografia + Filmagem',
+      state: buildWorkState({
+        categoria: 'Casamento',
+        service: 'Fotografia + Filmagem',
+        cobertura: 'Casamento Completo',
+        horasCobertura: '9',
+        extras: ['makingOf'],
+        filmDeliveries: { ...defaultFilmDeliveries, cerimoniaIntegra: true },
+        time: { atendimento: 1, reunioes: 2, deslocamento: 2, captacao: 9, backup: 1, selecao: 4, edicao: 10, exportacao: 2, entrega: 1, suporte: 2 },
+      }),
+    },
+    {
+      id: 'ensaio-casal',
+      title: 'Ensaio casal',
+      subtitle: 'Fotografia',
+      state: buildWorkState({
+        categoria: 'Ensaio',
+        service: 'Fotografia',
+        ensaioTipo: 'Casal',
+        ensaioDuracao: '2 horas',
+        time: { atendimento: 1, reunioes: 0.5, deslocamento: 1, captacao: 2, backup: 0.5, selecao: 1, edicao: 3, exportacao: 0.5, entrega: 0.5, suporte: 0.5 },
+      }),
+    },
+    {
+      id: 'gestante',
+      title: 'Gestante',
+      subtitle: 'Fotografia',
+      state: buildWorkState({
+        categoria: 'Ensaio',
+        service: 'Fotografia',
+        ensaioTipo: 'Gestante',
+        ensaioDuracao: '2 horas',
+        time: { atendimento: 1, reunioes: 0.5, deslocamento: 1, captacao: 2, backup: 0.5, selecao: 1, edicao: 2.5, exportacao: 0.5, entrega: 0.5, suporte: 0.5 },
+      }),
+    },
+    {
+      id: 'filmagem-4h',
+      title: 'Filmagem 4h',
+      subtitle: 'Vídeo',
+      state: buildWorkState({
+        categoria: 'Eventos',
+        service: 'Filmagem',
+        horas: 4,
+        profissionais: 1,
+        time: { atendimento: 1, reunioes: 0.5, deslocamento: 1, captacao: 4, backup: 1, selecao: 0.5, edicao: 5, exportacao: 1, entrega: 0.5, suporte: 0.5 },
+      }),
+    },
+  ];
+
+  return presets.map((item) => {
+    const result = calculatePricingResult({ data, pricingConfig, state: item.state });
+    return {
+      ...item,
+      result,
+      currentPrice: result.recommendedPrice,
+      operationalCost: result.fixedPerProject + result.variablePerProject + result.equipmentCost,
+      directCost: result.taxes + result.extrasTotal + result.filmDeliveriesTotal,
+    };
+  });
+}
 
 export default function Precificacao() {
   const location = useLocation();
@@ -307,6 +452,10 @@ export default function Precificacao() {
   const [proposalFlowOpen, setProposalFlowOpen] = useState(false);
   const [leadSearch, setLeadSearch] = useState('');
   const [selectedLeadId, setSelectedLeadId] = useState(() => String(leadContext?.id || ''));
+  const [activeTab, setActiveTab] = useState('overview');
+  const [selectedScenario, setSelectedScenario] = useState(() => localStorage.getItem(scenarioStorageKey) || scenarioOptions[0]);
+  const [capacity, setCapacity] = useState(() => JSON.parse(localStorage.getItem(capacityStorageKey) || 'null') || defaultCapacity);
+  const [selectedRowId, setSelectedRowId] = useState('casamento-6h');
 
   useEffect(() => {
     let active = true;
@@ -338,70 +487,51 @@ export default function Precificacao() {
     };
   }, []);
 
-  const result = useMemo(() => {
-    const snapshot = buildFinanceSnapshot(data);
-    const projectsPerMonth = Math.max(1, Number(pricingConfig.projetosMes || 1));
-    const fixedPerProject = snapshot.fixedMonthly / projectsPerMonth;
-    const currentMonth = monthKey(new Date());
-    const variablePerProject = data.transactions
-      .filter((item) => isExpense(item) && item.tipo === 'variavel' && monthKey(getTransactionDate(item)) === currentMonth)
-      .reduce((sum, item) => sum + getTransactionValue(item), 0) / projectsPerMonth;
-    const selectedEquipment = data.equipment.filter((item) => state.selectedEquipment.includes(item.id));
-    const equipmentCost = selectedEquipment.reduce((sum, item) => sum + calculateDepreciation(item).monthlyDepreciation, 0) / projectsPerMonth;
-    const totalHours = Object.values(state.time).reduce((sum, value) => sum + Number(value || 0), 0);
-    const laborCost = totalHours * moneyToNumber(pricingConfig.valorHora);
-    const commercialBase = calculateCommercialBase(state, pricingConfig);
-    const extrasTotal = state.extras.reduce((sum, key) => sum + moneyToNumber(pricingConfig.extras[key]), 0);
-    const filmDeliveriesTotal = calculateFilmDeliveriesTotal(state, pricingConfig);
-    const operationalCost = fixedPerProject + variablePerProject + equipmentCost + laborCost;
-    const subtotal = commercialBase + extrasTotal + filmDeliveriesTotal;
-    const taxes = subtotal * (Number(pricingConfig.impostoPercentual || 0) / 100);
-    const netCost = operationalCost + taxes;
-    const minimumPrice = Math.max(subtotal, netCost * 1.08);
-    const recommendedPrice = Math.max(minimumPrice, netCost / Math.max(0.01, 1 - Number(pricingConfig.margem || 0) / 100));
-    const premiumPrice = recommendedPrice * 1.25;
-    const grossProfit = recommendedPrice - subtotal;
-    const netProfit = recommendedPrice - netCost;
-    const margin = recommendedPrice > 0 ? (netProfit / recommendedPrice) * 100 : 0;
-    const displacementShare = recommendedPrice > 0 ? (moneyToNumber(pricingConfig.extras.deslocamento) / recommendedPrice) * 100 : 0;
-    const depreciationShare = recommendedPrice > 0 ? (equipmentCost / recommendedPrice) * 100 : 0;
+  useEffect(() => {
+    localStorage.setItem(scenarioStorageKey, selectedScenario);
+  }, [selectedScenario]);
 
-    return {
-      fixedPerProject,
-      variablePerProject,
-      equipmentCost,
-      totalHours,
-      laborCost,
-      operationalCost,
-      commercialBase,
-      extrasTotal,
-      filmDeliveriesTotal,
-      subtotal,
-      taxes,
-      netCost,
-      minimumPrice,
-      recommendedPrice,
-      premiumPrice,
-      grossProfit,
-      netProfit,
-      margin,
-      hourValue: totalHours ? recommendedPrice / totalHours : 0,
-      displacementShare,
-      depreciationShare,
-      valuePerStudent: state.categoria === 'Formatura' && Number(state.alunos) > 0 ? recommendedPrice / Number(state.alunos) : 0,
-    };
-  }, [data, pricingConfig, state]);
+  useEffect(() => {
+    localStorage.setItem(capacityStorageKey, JSON.stringify(capacity));
+  }, [capacity]);
 
+  const snapshot = useMemo(() => buildFinanceSnapshot(data), [data]);
+  const result = useMemo(() => calculatePricingResult({ data, pricingConfig, state }), [data, pricingConfig, state]);
   const insights = useMemo(() => buildInsights(result), [result]);
+  const overviewRows = useMemo(() => buildOverviewRows(pricingConfig, data), [pricingConfig, data]);
+
+  useEffect(() => {
+    if (!overviewRows.length) return;
+    if (!overviewRows.some((item) => item.id === selectedRowId)) {
+      setSelectedRowId(overviewRows[0].id);
+    }
+  }, [overviewRows, selectedRowId]);
+
+  const selectedOverviewRow = overviewRows.find((item) => item.id === selectedRowId) || overviewRows[0] || null;
+  const selectedLead = data.leads.find((lead) => String(lead.id) === selectedLeadId) || leadContext;
+  const filteredLeads = data.leads.filter((lead) => String(lead.nome || lead.name || '').toLowerCase().includes(leadSearch.toLowerCase()));
+  const suggestedModel = String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('cas')
+    ? 'proposta-casamento-2026'
+    : String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('form')
+      ? 'proposta-formatura-individual-2026'
+      : 'proposta-casal-2026';
+
+  const companyMonthlyCost = snapshot.fixedMonthly + snapshot.variableAverage + snapshot.equipmentDepreciation;
+  const projectsPerMonth = Math.max(1, Number(pricingConfig.projetosMes || 1));
+  const targetRevenue = companyMonthlyCost / Math.max(0.05, 1 - Number(pricingConfig.margem || 0) / 100);
+  const targetTicket = targetRevenue / projectsPerMonth;
+  const capacityTotal = Number(capacity.casamentos || 0) + Number(capacity.ensaios || 0) + Number(capacity.gestantes || 0) + Number(capacity.filmagensAvulsas || 0);
+  const capacityGap = capacityTotal - projectsPerMonth;
+
   const costChart = [
     { name: 'Fixos', value: result.fixedPerProject, color: '#c5a059' },
-    { name: 'Variaveis', value: result.variablePerProject, color: '#ef4444' },
+    { name: 'Variáveis', value: result.variablePerProject, color: '#ef4444' },
     { name: 'Equipamentos', value: result.equipmentCost, color: '#2563eb' },
     { name: 'Tempo', value: result.laborCost, color: '#10b981' },
     { name: 'Impostos', value: result.taxes, color: '#f59e0b' },
   ].filter((item) => item.value > 0);
   const priceChart = [
-    { name: 'Minimo', valor: result.minimumPrice },
+    { name: 'Mínimo', valor: result.minimumPrice },
     { name: 'Recomendado', valor: result.recommendedPrice },
     { name: 'Premium', valor: result.premiumPrice },
   ];
@@ -421,20 +551,46 @@ export default function Precificacao() {
   };
   const createAnotherOption = () => {
     saveCurrentOption();
-    setState((current) => ({ ...current, step: 0, extras: [], filmDeliveries: { ...defaultFilmDeliveries } }));
+    setState((current) => ({
+      ...deepMerge(defaultState, current),
+      extras: [],
+      filmDeliveries: { ...defaultFilmDeliveries },
+      step: 0,
+    }));
+    setActiveTab('services');
   };
   const continueToProposal = () => {
     if (!savedOptions.length) saveCurrentOption();
     setSelectedLeadId((current) => current || String(leadContext?.id || ''));
     setProposalFlowOpen(true);
   };
-  const selectedLead = data.leads.find((lead) => String(lead.id) === selectedLeadId) || leadContext;
-  const filteredLeads = data.leads.filter((lead) => String(lead.nome || lead.name || '').toLowerCase().includes(leadSearch.toLowerCase()));
-  const suggestedModel = String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('cas') ? 'proposta-casamento-2026' : String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('form') ? 'proposta-formatura-individual-2026' : 'proposta-casal-2026';
   const openProposal = () => {
     if (!selectedLead) return;
     saveAll();
     navigate('/propostas/editor', { state: { lead: selectedLead, modelId: suggestedModel, pricingOptions: savedOptions.length ? savedOptions : [buildOption()] } });
+  };
+
+  const loadOption = (option) => {
+    if (!option?.state) return;
+    setState((current) => ({
+      ...deepMerge(defaultState, option.state),
+      selectedEquipment: option.state.selectedEquipment?.length ? option.state.selectedEquipment : current.selectedEquipment,
+    }));
+    setActiveTab('services');
+  };
+
+  const removeOption = (optionId) => {
+    const next = savedOptions.filter((option) => option.id !== optionId);
+    setSavedOptions(next);
+    localStorage.setItem('cv_studio_pricing_options', JSON.stringify(next));
+  };
+
+  const startNewSimulation = () => {
+    setState((current) => ({
+      ...deepMerge(defaultState, null),
+      selectedEquipment: current.selectedEquipment.length ? current.selectedEquipment : data.equipment.map((item) => item.id),
+    }));
+    setActiveTab('services');
   };
 
   const updateConfig = (path, value) => {
@@ -455,72 +611,312 @@ export default function Precificacao() {
     }));
   };
 
+  const applyOverviewPreset = (row) => {
+    setState((current) => ({
+      ...deepMerge(defaultState, row.state),
+      selectedEquipment: current.selectedEquipment.length ? current.selectedEquipment : data.equipment.map((item) => item.id),
+      step: 1,
+    }));
+    setActiveTab('services');
+  };
+
+  const detailContext = activeTab === 'overview' && selectedOverviewRow
+    ? {
+      title: selectedOverviewRow.title,
+      subtitle: selectedOverviewRow.subtitle,
+      result: selectedOverviewRow.result,
+      time: selectedOverviewRow.state.time,
+      currentPrice: selectedOverviewRow.currentPrice,
+    }
+    : {
+      title: `${state.categoria}`,
+      subtitle: state.service,
+      result,
+      time: state.time,
+      currentPrice: result.recommendedPrice,
+    };
+
+  const activeStepContent = state.step === 0
+    ? <WorkStep state={state} setState={setState} />
+    : state.step === 1
+      ? <SpecificStep state={state} setState={setState} config={pricingConfig} />
+      : state.step === 2
+        ? (
+          <CostStep
+            state={state}
+            setState={setState}
+            config={pricingConfig}
+            setConfig={setPricingConfig}
+            toggleExtra={toggleExtra}
+            toggleEquipment={toggleEquipment}
+            equipment={data.equipment}
+            result={result}
+          />
+        )
+        : <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />;
+
   return (
-    <div className="sf-finance-section">
-      <div className="sf-section-header">
+    <div className="sf-finance-section sf-pricing-screen">
+      <div className="sf-section-header sf-pricing-topbar">
         <div>
-          <h1>Precificacao</h1>
-          <p>Motor inteligente para montar orcamentos por tipo de trabalho, custos reais e margem.</p>
+          <h1>Precificação</h1>
+          <p>Descubra quanto cada serviço precisa custar para pagar sua operação, remunerar seu trabalho e gerar lucro.</p>
         </div>
-        <button className="sf-primary-button" onClick={saveAll}>
-          <Save size={18} /> Salvar regras
-        </button>
+        <div className="sf-pricing-toolbar-actions">
+          <select className="sf-scenario-select" value={selectedScenario} onChange={(event) => setSelectedScenario(event.target.value)}>
+            {scenarioOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+          <button type="button" className="sf-secondary-button" onClick={startNewSimulation}><Plus size={17} /> Nova simulação</button>
+          <button type="button" className="sf-secondary-button" onClick={saveAll}><Save size={17} /> Salvar cenário</button>
+          <button type="button" className="sf-primary-button" onClick={() => setActiveTab('services')}><Package size={17} /> Criar pacote</button>
+        </div>
       </div>
-      {leadContext && <div className="sf-alert" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}><span>Orçamento para <strong>{leadContext.nome}</strong> · {leadContext.tipoServico || 'Serviço não informado'}</span><button type="button" className="sf-secondary-button" onClick={() => navigate('/crm')}>Voltar ao CRM</button></div>}
 
-      <div className="sf-pricing-shell">
-        <main className="sf-pricing-main">
-          <Stepper active={state.step} setActive={(step) => setState({ ...state, step })} />
-          {state.step === 0 && <WorkStep state={state} setState={setState} />}
-          {state.step === 1 && <SpecificStep state={state} setState={setState} config={pricingConfig} />}
-          {state.step === 2 && (
-            <CostStep
-              state={state}
-              setState={setState}
-              config={pricingConfig}
-              setConfig={setPricingConfig}
-              toggleExtra={toggleExtra}
-              toggleEquipment={toggleEquipment}
-              equipment={data.equipment}
-              result={result}
-            />
-          )}
-          {state.step === 3 && <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />}
-          <div className="sf-step-actions">
-            <button className="sf-secondary-button" disabled={state.step === 0} onClick={() => setState({ ...state, step: Math.max(0, state.step - 1) })}>Voltar</button>
-            {state.step < 3 && <button className="sf-primary-button" onClick={() => setState({ ...state, step: state.step + 1 })}>Continuar</button>}
-          </div>
-        </main>
+      {leadContext && (
+        <div className="sf-alert" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+          <span>Orçamento para <strong>{leadContext.nome}</strong> · {leadContext.tipoServico || 'Serviço não informado'}</span>
+          <button type="button" className="sf-secondary-button" onClick={() => navigate('/crm')}>Voltar ao CRM</button>
+        </div>
+      )}
 
-        <aside className="sf-pricing-summary">
-          <div className="sf-card">
-            <div className="metric-label"><Sparkles size={18} /> Resumo em tempo real</div>
-            <strong>{formatCurrency(result.recommendedPrice)}</strong>
-            <p className="sf-muted">{state.categoria} - {state.service}</p>
-            <div className="formula-row"><span>Custo do projeto</span><strong>{formatCurrency(result.netCost)}</strong></div>
-            <div className="formula-row"><span>Base comercial</span><strong>{formatCurrency(result.commercialBase)}</strong></div>
-            <div className="formula-row"><span>Adicionais</span><strong>{formatCurrency(result.extrasTotal + result.filmDeliveriesTotal)}</strong></div>
-            <div className="formula-row"><span>Preco minimo</span><strong>{formatCurrency(result.minimumPrice)}</strong></div>
-            <div className="formula-row"><span>Preco premium</span><strong>{formatCurrency(result.premiumPrice)}</strong></div>
-            <div className="formula-row"><span>Lucro liquido</span><strong>{formatCurrency(result.netProfit)}</strong></div>
-            <div className="formula-row"><span>Margem</span><strong>{result.margin.toFixed(1)}%</strong></div>
-            <div className="formula-row"><span>Valor por hora</span><strong>{formatCurrency(result.hourValue)}</strong></div>
-            {state.categoria === 'Formatura' && <div className="formula-row"><span>Valor por aluno</span><strong>{formatCurrency(result.valuePerStudent)}</strong></div>}
+      <div className="sf-pricing-kpi-grid">
+        <Metric icon={Calculator} label="Custo mensal da empresa" value={companyMonthlyCost} />
+        <Metric icon={Wallet} label="Pró-labore projetado" value={snapshot.projectedDistribution?.salario || 0} />
+        <Metric icon={Sparkles} label="Lucro projetado" value={snapshot.monthlyProfit || 0} tone={(snapshot.monthlyProfit || 0) >= 0 ? 'positive' : 'warning'} />
+        <Metric icon={DollarSign} label="Faturamento mínimo mensal" value={targetRevenue} />
+        <Metric icon={Percent} label="Ticket médio necessário" value={targetTicket} />
+      </div>
+
+      <div className="sf-pricing-layout">
+        <div className="sf-pricing-content">
+          <div className="sf-pricing-tabbar">
+            <button type="button" className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>Visão geral</button>
+            <button type="button" className={activeTab === 'costs' ? 'active' : ''} onClick={() => setActiveTab('costs')}>Custos</button>
+            <button type="button" className={activeTab === 'services' ? 'active' : ''} onClick={() => setActiveTab('services')}>Serviços e pacotes</button>
+            <button type="button" className={activeTab === 'simulations' ? 'active' : ''} onClick={() => setActiveTab('simulations')}>Simulações</button>
           </div>
 
-          <div className="sf-card">
-            <h3>Consultor</h3>
-            {insights.map((item) => (
-              <div className={`sf-insight ${item.tone}`} key={item.text}>
-                {item.tone === 'good' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                <span>{item.text}</span>
+          {activeTab === 'overview' && (
+            <>
+              <div className="sf-card sf-capacity-card">
+                <div className="sf-pricing-section-head">
+                  <div>
+                    <h3>Capacidade produtiva mensal</h3>
+                    <p>Use esta visão para comparar a meta do mês com sua capacidade real de execução.</p>
+                  </div>
+                </div>
+                <div className="sf-capacity-grid">
+                  <Field label="Dias disponíveis"><input type="number" min="1" style={inputStyle} value={capacity.diasDisponiveis} onChange={(event) => setCapacity((current) => ({ ...current, diasDisponiveis: event.target.value }))} /></Field>
+                  <Field label="Casamentos"><input type="number" min="0" style={inputStyle} value={capacity.casamentos} onChange={(event) => setCapacity((current) => ({ ...current, casamentos: event.target.value }))} /></Field>
+                  <Field label="Ensaios de casal"><input type="number" min="0" style={inputStyle} value={capacity.ensaios} onChange={(event) => setCapacity((current) => ({ ...current, ensaios: event.target.value }))} /></Field>
+                  <Field label="Gestantes"><input type="number" min="0" style={inputStyle} value={capacity.gestantes} onChange={(event) => setCapacity((current) => ({ ...current, gestantes: event.target.value }))} /></Field>
+                  <Field label="Filmagens avulsas"><input type="number" min="0" style={inputStyle} value={capacity.filmagensAvulsas} onChange={(event) => setCapacity((current) => ({ ...current, filmagensAvulsas: event.target.value }))} /></Field>
+                  <div className="sf-capacity-total">
+                    <span>Capacidade total estimada</span>
+                    <strong>{capacityTotal}</strong>
+                    <small>trabalhos/mês</small>
+                  </div>
+                </div>
+                <div className={`sf-capacity-alert ${capacityGap >= 0 ? 'good' : 'bad'}`}>
+                  {capacityGap >= 0
+                    ? `Sua capacidade atual comporta a meta de ${projectsPerMonth} projeto(s) por mês.`
+                    : `Sua meta atual exige ${Math.abs(capacityGap)} projeto(s) a mais por mês. Revise a capacidade ou o ticket médio.`}
+                </div>
               </div>
-            ))}
+
+              <div className="sf-card sf-pricing-table-card">
+                <div className="sf-pricing-section-head">
+                  <div>
+                    <h3>Preço sustentável por serviço</h3>
+                    <p>Selecione uma linha para ver o detalhamento completo e use a opção como base para a simulação.</p>
+                  </div>
+                </div>
+                <div className="sf-pricing-table-wrapper">
+                  <table className="sf-pricing-table">
+                    <thead>
+                      <tr>
+                        <th>Serviço</th>
+                        <th>Horas totais</th>
+                        <th>Custo direto</th>
+                        <th>Custo operacional</th>
+                        <th>Preço mínimo</th>
+                        <th>Preço recomendado</th>
+                        <th>Preço atual</th>
+                        <th>Margem atual</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overviewRows.map((row) => (
+                        <tr key={row.id} className={selectedRowId === row.id ? 'is-selected' : ''} onClick={() => setSelectedRowId(row.id)}>
+                          <td>
+                            <strong>{row.title}</strong>
+                            <small>{row.subtitle}</small>
+                          </td>
+                          <td>{row.result.totalHours.toFixed(0)}h</td>
+                          <td>{formatCurrency(row.directCost)}</td>
+                          <td>{formatCurrency(row.operationalCost)}</td>
+                          <td>{formatCurrency(row.result.minimumPrice)}</td>
+                          <td>{formatCurrency(row.result.recommendedPrice)}</td>
+                          <td>{formatCurrency(row.currentPrice)}</td>
+                          <td>
+                            <span className={`sf-margin-badge ${row.result.margin >= 20 ? 'good' : row.result.margin >= 10 ? 'warning' : 'bad'}`}>{row.result.margin.toFixed(1)}%</span>
+                          </td>
+                          <td><button type="button" className="sf-table-link" onClick={(event) => { event.stopPropagation(); applyOverviewPreset(row); }}>Usar</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="sf-table-legend">
+                  <span><i className="dot good" /> Margem saudável (&gt;20%)</span>
+                  <span><i className="dot warning" /> Margem apertada (10% a 20%)</span>
+                  <span><i className="dot bad" /> Abaixo do mínimo (&lt;10%)</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'costs' && (
+            <div className="sf-pricing-two-column">
+              <div className="sf-pricing-stack">
+                <div className="sf-card">
+                  <div className="sf-pricing-section-head">
+                    <div>
+                      <h3>Custos do serviço atual</h3>
+                      <p>Ajuste tempo, adicionais e equipamentos sem sair da tela de precificação.</p>
+                    </div>
+                  </div>
+                  <CostStep
+                    state={state}
+                    setState={setState}
+                    config={pricingConfig}
+                    setConfig={setPricingConfig}
+                    toggleExtra={toggleExtra}
+                    toggleEquipment={toggleEquipment}
+                    equipment={data.equipment}
+                    result={result}
+                  />
+                </div>
+              </div>
+              <div className="sf-pricing-stack">
+                <ConfigPanel config={pricingConfig} updateConfig={updateConfig} />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'services' && (
+            <div className="sf-pricing-two-column">
+              <div className="sf-pricing-stack">
+                <div className="sf-card sf-builder-card">
+                  <div className="sf-pricing-section-head">
+                    <div>
+                      <h3>Monte o serviço</h3>
+                      <p>Configure o trabalho, os adicionais e avance até a proposta em PDF.</p>
+                    </div>
+                    <button type="button" className="sf-secondary-button" onClick={saveAll}><Save size={16} /> Salvar regras</button>
+                  </div>
+                  <Stepper active={state.step} setActive={(step) => setState({ ...state, step })} />
+                  <div className="sf-builder-body">{activeStepContent}</div>
+                  <div className="sf-step-actions">
+                    <button className="sf-secondary-button" disabled={state.step === 0} onClick={() => setState({ ...state, step: Math.max(0, state.step - 1) })}>Voltar</button>
+                    {state.step < 3 && <button className="sf-primary-button" onClick={() => setState({ ...state, step: state.step + 1 })}>Continuar</button>}
+                  </div>
+                </div>
+              </div>
+              <div className="sf-pricing-stack">
+                <div className="sf-card">
+                  <div className="sf-pricing-section-head">
+                    <div>
+                      <h3>Pacotes salvos</h3>
+                      <p>Salve variações antes de gerar o orçamento final.</p>
+                    </div>
+                    <button type="button" className="sf-secondary-button" onClick={saveCurrentOption}><Save size={16} /> Salvar opção</button>
+                  </div>
+                  <div className="sf-saved-options-list">
+                    {!savedOptions.length && <p className="sf-muted">Nenhuma opção salva até agora.</p>}
+                    {savedOptions.map((option) => (
+                      <div key={option.id} className="sf-saved-option-item">
+                        <div>
+                          <strong>{option.name}</strong>
+                          <small>{new Date(option.createdAt).toLocaleDateString('pt-BR')} · {formatCurrency(option.result?.recommendedPrice || 0)}</small>
+                        </div>
+                        <div className="sf-saved-option-actions">
+                          <button type="button" className="sf-table-link" onClick={() => loadOption(option)}>Carregar</button>
+                          <button type="button" className="sf-table-link danger" onClick={() => removeOption(option.id)}>Remover</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="sf-card sf-action-card">
+                  <h3>Gerar orçamento</h3>
+                  <p className="sf-muted">Continue para o fluxo de orçamento e abra o editor com o modelo sugerido.</p>
+                  <button type="button" className="sf-primary-button" onClick={continueToProposal}><Sparkles size={16} /> Gerar orçamento</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'simulations' && (
+            <div className="sf-pricing-stack">
+              <div className="sf-card">
+                <div className="sf-pricing-section-head">
+                  <div>
+                    <h3>Resultado da simulação</h3>
+                    <p>Analise a escada de preço, a composição de custos e a margem antes de seguir para a proposta.</p>
+                  </div>
+                </div>
+                <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <aside className="sf-pricing-inspector">
+          <div className="sf-card sf-inspector-card">
+            <div className="sf-inspector-head">
+              <div>
+                <h3>{detailContext.title}</h3>
+                <p>{detailContext.subtitle}</p>
+              </div>
+              {activeTab === 'overview' && selectedOverviewRow && <button type="button" className="sf-secondary-button" onClick={() => applyOverviewPreset(selectedOverviewRow)}>Usar na simulação</button>}
+            </div>
+            <div className="sf-inspector-section">
+              <div className="sf-inspector-tabs">
+                <span className="active">Composição</span>
+                <span>Simular preço</span>
+              </div>
+              <div className="sf-inspector-list">
+                <div className="sf-inspector-block-title">1. Tempo dedicado <strong>Total: {detailContext.result.totalHours.toFixed(0)}h</strong></div>
+                {timeFields.map(([key, label]) => (
+                  <div className="formula-row" key={key}><span>{label}</span><strong>{Number(detailContext.time?.[key] || 0).toFixed(1)}h</strong></div>
+                ))}
+              </div>
+            </div>
+            <div className="sf-inspector-section">
+              <div className="sf-inspector-block-title">2. Custos diretos <strong>Total: {formatCurrency(detailContext.result.taxes + detailContext.result.extrasTotal + detailContext.result.filmDeliveriesTotal)}</strong></div>
+              <div className="formula-row"><span>Adicionais</span><strong>{formatCurrency(detailContext.result.extrasTotal)}</strong></div>
+              <div className="formula-row"><span>Entregas</span><strong>{formatCurrency(detailContext.result.filmDeliveriesTotal)}</strong></div>
+              <div className="formula-row"><span>Impostos</span><strong>{formatCurrency(detailContext.result.taxes)}</strong></div>
+            </div>
+            <div className="sf-inspector-section">
+              <div className="sf-inspector-block-title">3. Distribuição do valor <strong>Preço atual: {formatCurrency(detailContext.currentPrice)}</strong></div>
+              <div className="formula-row"><span>Custos diretos</span><strong>{formatCurrency(detailContext.result.taxes + detailContext.result.extrasTotal + detailContext.result.filmDeliveriesTotal)}</strong></div>
+              <div className="formula-row"><span>Custos operacionais</span><strong>{formatCurrency(detailContext.result.operationalCost)}</strong></div>
+              <div className="formula-row"><span>Lucro líquido</span><strong>{formatCurrency(detailContext.result.netProfit)}</strong></div>
+              <div className="formula-row"><span>Reserva / margem</span><strong>{detailContext.result.margin.toFixed(1)}%</strong></div>
+            </div>
+            <div className="sf-inspector-metrics">
+              <div><small>Valor por hora real</small><strong>{formatCurrency(detailContext.result.hourValue)}</strong></div>
+              <div><small>Margem líquida</small><strong>{detailContext.result.margin.toFixed(1)}%</strong></div>
+              <div><small>Lucro por trabalho</small><strong>{formatCurrency(detailContext.result.netProfit)}</strong></div>
+            </div>
+            <button type="button" className="sf-secondary-button sf-full-width" onClick={() => setActiveTab('services')}>Editar serviço</button>
           </div>
         </aside>
       </div>
 
-      <ConfigPanel config={pricingConfig} updateConfig={updateConfig} />
       {proposalFlowOpen && <div className="sf-proposal-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setProposalFlowOpen(false); }}>
         <section className="sf-proposal-flow" role="dialog" aria-modal="true" aria-labelledby="proposal-flow-title">
           <header><div><span>Próxima etapa</span><h2 id="proposal-flow-title">Selecionar lead</h2></div><button type="button" aria-label="Fechar" onClick={() => setProposalFlowOpen(false)}><X /></button></header>

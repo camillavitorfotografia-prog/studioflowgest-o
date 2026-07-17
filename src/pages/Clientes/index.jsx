@@ -5,9 +5,10 @@ import { AutoSaveIndicator, useKeyboardShortcuts } from '../../components/Premiu
 import { formatMoney, parseMoney } from '../../utils/integratedData';
 import { capitalizeFirst, capitalizeName, dateToInput, inputToDate, maskCurrency, maskDate, maskInstagram, maskPhone } from '../../utils/masks';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
-import { calculatePaymentsSummary, createFinanceSeed, emitDbUpdate, getDbStudioData, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
+import { calculatePaymentsSummary, createFinanceSeed, emitDbUpdate, getDbStudioData, mapClientFromDb, readPayments as readProjectPayments, saveRow, upsertAgendaEvent } from '../../utils/dbData';
 import { createId, readStorage, STORAGE_KEYS, writeStorage } from '../../utils/storage';
 import { clientMatchesSearch, findClientDuplicates, getClientRelations } from '../../utils/clientIdentity';
+import { consolidateClients, attachProjectsToCanonicalClients, getProjectImportedClientName, normalizeIntegrityName, resolveClientForImportedName } from '../../utils/dataIntegrity';
 import {
   calculateClientSalarySummary,
   calculateProjectFinancialState,
@@ -28,6 +29,7 @@ import { saveDocument } from '../../features/documents/storage/documentStorageAd
 const emptyForm = {
   id: null,
   projectId: null,
+  sourceImportedName: '',
   nome: '',
   email: '',
   telefone: '',
@@ -204,12 +206,15 @@ const buildClientUniverse = (clients = [], projects = []) => {
   const virtualByName = new Map();
 
   projects.forEach((project) => {
+    if (project?.financeiro?.hideFromClients === true || project?.financeiro?.ocultarDaListaClientes === true) return;
+
     const linkedId = String(project.clientId || project.clienteId || project.cliente_id || project.client_id || '');
     if (linkedId && officialIds.has(linkedId)) return;
 
     const importedName = getImportedClientName(project);
     const normalizedName = normalizeIdentity(importedName);
-    if (!normalizedName || officialNames.has(normalizedName)) return;
+    const existingOfficial = resolveClientForImportedName(importedName, official);
+    if (!normalizedName || officialNames.has(normalizedName) || existingOfficial) return;
 
     if (!virtualByName.has(normalizedName)) {
       virtualByName.set(normalizedName, {
@@ -274,6 +279,10 @@ const mapClientRow = (client, projects) => {
   const remaining = projectSummaries.length
     ? projectSummaries.reduce((sum, item) => sum + item.remaining, 0)
     : Math.max(0, total - received);
+  const latestSummary = projectSummaries.find((item) => String(item.project?.id) === String(project?.id)) || null;
+  const latestTotal = latestSummary?.total ?? total;
+  const latestReceived = latestSummary?.received ?? received;
+  const latestRemaining = latestSummary?.remaining ?? remaining;
   const divisaoSalarios = normalizeSalarySplit(project?.financeiro?.divisaoSalarios || DEFAULT_SALARY_SPLIT);
   const retiradasSalariais = project?.financeiro?.retiradasSalariais || [];
   const resumoSalarios = calculateClientSalarySummary(pagamentos, retiradasSalariais);
@@ -295,14 +304,16 @@ const mapClientRow = (client, projects) => {
     dataPrimeiroContato: normalizeDate(client.dataPrimeiroContato || client.data_primeiro_contato), dataUltimoContato: normalizeDate(client.dataUltimoContato || client.data_ultimo_contato),
     dataProximoRetorno: normalizeDate(client.dataProximoRetorno || client.data_proximo_retorno), statusComercial: client.statusComercial || client.status_comercial || 'novo',
     instagram: client.instagram || '',
-    tipoTrabalho: relatedProjects.length > 1
-      ? `${relatedProjects.length} trabalhos`
-      : project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
+    tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || client.tipoTrabalho || client.tipo_trabalho || '-',
     dataTrabalho: project?.data || project?.data_trabalho || client.dataTrabalho || client.data_trabalho || client.data_evento || '',
-    valorTotal: total,
-    valorRestante: remaining,
-    valorRecebido: received,
-    status: remaining <= 0 && total > 0
+    quantidadeTrabalhos: relatedProjects.length,
+    valorTotalContratado: total,
+    valorTotalRecebido: received,
+    valorTotalRestante: remaining,
+    valorTotal: latestTotal,
+    valorRestante: latestRemaining,
+    valorRecebido: latestReceived,
+    status: latestRemaining <= 0 && latestTotal > 0
       ? 'Quitado'
       : project?.financeiro?.statusFinanceiro || project?.financeiro?.status_financeiro || project?.status || client.status || 'Ativo',
     contrato: project?.contrato?.status || project?.contrato?.numero || (typeof project?.contrato === 'string' ? project.contrato : ''),
@@ -313,10 +324,27 @@ const mapClientRow = (client, projects) => {
   };
 };
 
-const formFromClient = (client) => ({
+const formFromClient = (client) => {
+  const project = client.project || null;
+  const projectPayments = project ? readProjectPayments(project) : [];
+  const projectTotal = Number(project?.valorContratado ?? project?.valor_contratado ?? 0);
+  const projectExplicitReceived = Number(
+    project?.valorRecebido
+    ?? project?.valor_recebido
+    ?? project?.financeiro?.valorRecebido
+    ?? 0,
+  );
+  const projectPaymentSummary = calculatePaymentsSummary(projectPayments, projectTotal);
+  const projectReceived = projectPayments.length
+    ? Math.max(projectPaymentSummary.valorRecebido, projectExplicitReceived)
+    : projectExplicitReceived;
+  const projectRemaining = Math.max(0, projectTotal - projectReceived);
+
+  return ({
   ...emptyForm,
-  id: client.id,
-  projectId: client.projectId,
+  id: client.virtualImportedClient ? null : client.id,
+  sourceImportedName: client.virtualImportedClient ? (client.nome || '') : '',
+  projectId: project?.id || client.projectId || null,
   nome: client.nome || '',
   email: client.email || '',
   telefone: client.telefone || client.whatsapp || '',
@@ -339,23 +367,19 @@ const formFromClient = (client) => ({
   dataProximoRetorno: normalizeDate(client.dataProximoRetorno || client.data_proximo_retorno),
   statusComercial: client.statusComercial || client.status_comercial || 'novo',
   instagram: client.instagram || '',
-  tipoTrabalho: client.tipoTrabalho === '-'
-    ? ''
-    : client.tipoTrabalho || '',
-  dataTrabalho: normalizeDate(client.dataTrabalho),
-  valorTotal: client.valorTotal
-    ? maskCurrency(
-        String(Math.round(Number(client.valorTotal) * 100)),
-      )
+  tipoTrabalho: project?.tipoServico || project?.tipo_servico || project?.servico || '',
+  dataTrabalho: normalizeDate(project?.data || project?.data_trabalho || ''),
+  valorTotal: projectTotal
+    ? maskCurrency(String(Math.round(projectTotal * 100)))
     : '',
-  valorRestante: client.valorRestante
-    ? maskCurrency(
-        String(Math.round(Number(client.valorRestante) * 100)),
-      )
+  valorRestante: projectRemaining
+    ? maskCurrency(String(Math.round(projectRemaining * 100)))
     : '',
-  status: client.status || 'Ativo',
-  contrato: client.contrato || '',
-  pagamentos: (client.pagamentos || []).map((payment) => ({
+  status: projectRemaining <= 0 && projectTotal > 0
+    ? 'Quitado'
+    : project?.financeiro?.statusFinanceiro || project?.status || client.status || 'Ativo',
+  contrato: project?.contrato?.status || project?.contrato?.numero || (typeof project?.contrato === 'string' ? project.contrato : ''),
+  pagamentos: projectPayments.map((payment) => ({
     ...payment,
     id: payment.id || createId('payment'),
     valor: payment.valor
@@ -375,10 +399,14 @@ const formFromClient = (client) => ({
       || '',
   })),
   divisaoSalarios: normalizeSalarySplit(
-    client.divisaoSalarios || DEFAULT_SALARY_SPLIT,
+    project?.financeiro?.divisaoSalarios
+    || project?.financeiro?.divisao_salarios
+    || DEFAULT_SALARY_SPLIT,
   ),
   retiradasSalariais: (
-    client.retiradasSalariais || []
+    project?.financeiro?.retiradasSalariais
+    || client.retiradasSalariais
+    || []
   ).map((withdrawal) => ({
     ...withdrawal,
     id:
@@ -395,7 +423,8 @@ const formFromClient = (client) => ({
       : '',
     data: normalizeDate(withdrawal.data),
   })),
-});
+  });
+};
 
 const saveLocalMirrors = (clients, projects) => {
   const normalizedClients = clients.map((client) => ({
@@ -462,8 +491,25 @@ const saveLocalMirrors = (clients, projects) => {
     };
   });
 
-  localStorage.setItem('cv_studio_clients', JSON.stringify(normalizedClients));
-  localStorage.setItem('cv_studio_projects', JSON.stringify(normalizedProjects));
+  // O Supabase é a fonte oficial. O espelho local é apenas uma otimização e
+  // nunca pode fazer uma operação confirmada no banco parecer ter falhado.
+  try {
+    const serializedClients = JSON.stringify(normalizedClients);
+    if (serializedClients.length <= 700_000) {
+      localStorage.setItem('cv_studio_clients', serializedClients);
+    } else {
+      localStorage.removeItem('cv_studio_clients');
+    }
+  } catch (error) {
+    console.warn('Não foi possível atualizar o espelho local de clientes.', error);
+    try { localStorage.removeItem('cv_studio_clients'); } catch { /* noop */ }
+  }
+
+  // Não duplica a base completa de trabalhos no localStorage ao salvar um
+  // cliente. Essa coleção pode ultrapassar o limite do navegador e já é
+  // carregada da fonte oficial pelo fluxo de dados do StudioFlow.
+  try { localStorage.removeItem('cv_studio_projects'); } catch { /* noop */ }
+
   window.dispatchEvent(new Event('storage'));
   window.dispatchEvent(new Event('sf_storage_update'));
 };
@@ -652,30 +698,28 @@ const isMissingClientColumnError = (error) => {
 const saveClientRowSafely = async ({
   id,
   fullPayload,
-  basicPayload,
 }) => {
-  try {
-    return await saveRow({
-      table: 'clientes',
-      id,
-      payload: fullPayload,
-    });
-  } catch (error) {
-    if (!isMissingClientColumnError(error)) {
-      throw error;
+  const query = id
+    ? supabase.from('clientes').update(fullPayload).eq('id', id)
+    : supabase.from('clientes').insert([fullPayload]);
+
+  const { data, error } = await query.select('*').single();
+
+  if (error) {
+    if (isMissingClientColumnError(error)) {
+      throw new Error(
+        'A tabela clientes do Supabase ainda não possui todos os campos necessários. '
+        + 'Execute a migration 20260716170000_extend_clientes_for_editing.sql no SQL Editor do Supabase e tente novamente.',
+      );
     }
-
-    console.warn(
-      'A tabela clientes não possui todos os campos opcionais. '
-      + 'Salvando colunas básicas no Supabase e mantendo os demais dados localmente.',
-    );
-
-    return saveRow({
-      table: 'clientes',
-      id,
-      payload: basicPayload,
-    });
+    throw error;
   }
+
+  if (!data?.id) {
+    throw new Error('O Supabase não confirmou o registro salvo.');
+  }
+
+  return data;
 };
 
 
@@ -702,12 +746,16 @@ export default function Clientes() {
   const [formData, setFormData] = useState(emptyForm);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState('saved');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [financeConfig, setFinanceConfig] = useState({ salario: 35, empresa: 45, reserva: 20 });
   const [withdrawalDraft, setWithdrawalDraft] = useState(emptyWithdrawal);
   const [contractClient, setContractClient] = useState(null);
   const [selectedContractModel, setSelectedContractModel] = useState('');
   const [contractWizardClient, setContractWizardClient] = useState(null);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
+  const [operationError, setOperationError] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [duplicate, setDuplicate] = useState(null);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
@@ -722,13 +770,11 @@ export default function Clientes() {
 
       if (isSupabaseConfigured) {
         const remoteStudio = await getDbStudioData();
-        const mergedClients = mergeClientRecords(
-          Array.isArray(remoteStudio.clients) ? remoteStudio.clients : [],
-          Array.isArray(localStudio.clients) ? localStudio.clients : [],
-        );
-
+        const remoteClients = Array.isArray(remoteStudio.clients) ? remoteStudio.clients : [];
         setStudio({
-          clients: mergedClients,
+          // Com Supabase configurado, o banco é a única fonte oficial. Registros
+          // antigos do cache não podem reaparecer nem gerar duplicações visuais.
+          clients: remoteClients,
           projects: Array.isArray(remoteStudio.projects) ? remoteStudio.projects : [],
         });
       } else {
@@ -785,19 +831,29 @@ export default function Clientes() {
     });
   }, []);
 
+  const integrityStudio = useMemo(() => {
+    const consolidated = consolidateClients(studio.clients || []);
+    const projects = attachProjectsToCanonicalClients(
+      studio.projects || [],
+      consolidated.clients,
+      consolidated.clientIdAliases,
+    );
+    return { ...consolidated, projects };
+  }, [studio.clients, studio.projects]);
+
   const clientUniverse = useMemo(
-    () => buildClientUniverse(studio.clients, studio.projects),
-    [studio.clients, studio.projects],
+    () => buildClientUniverse(integrityStudio.clients, integrityStudio.projects),
+    [integrityStudio.clients, integrityStudio.projects],
   );
   const clients = useMemo(
-    () => clientUniverse.map((client) => mapClientRow(client, studio.projects)),
-    [clientUniverse, studio.projects],
+    () => clientUniverse.map((client) => mapClientRow(client, integrityStudio.projects)),
+    [clientUniverse, integrityStudio.projects],
   );
   const availableYears = useMemo(() => {
-    const years = new Set(studio.projects.map(getProjectYear).filter(Boolean));
+    const years = new Set(integrityStudio.projects.map(getProjectYear).filter(Boolean));
     years.add(new Date().getFullYear());
     return [...years].sort((a, b) => b - a);
-  }, [studio.projects]);
+  }, [integrityStudio.projects]);
   const filteredClients = useMemo(() => clients.filter((client) => {
     if (!clientMatchesSearch(client, search)) return false;
     if (selectedYear === 'all') return true;
@@ -806,7 +862,12 @@ export default function Clientes() {
     if (selectedYear === 'all') return client;
     const yearProjects = client.projects.filter((project) => getProjectYear(project) === Number(selectedYear));
     return mapClientRow(client, yearProjects);
-  }), [clients, search, selectedYear]);
+  }).sort((left, right) => {
+    if (sortBy === 'name') return String(left.nome || '').localeCompare(String(right.nome || ''), 'pt-BR');
+    if (sortBy === 'value') return Number(right.valorTotal || 0) - Number(left.valorTotal || 0);
+    if (sortBy === 'works') return Number(right.projects?.length || 0) - Number(left.projects?.length || 0);
+    return String(right.dataTrabalho || '').localeCompare(String(left.dataTrabalho || ''));
+  }), [clients, search, selectedYear, sortBy]);
 
   const paymentSummary = useMemo(() => calculatePayments(formData), [formData]);
   const formattedRemaining = maskCurrency(String(Math.round(paymentSummary.valorRestante * 100)));
@@ -1073,6 +1134,7 @@ export default function Clientes() {
   };
 
   const openNewClient = () => {
+    setOperationError('');
     setFormData({
       ...emptyForm,
       divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
@@ -1090,6 +1152,7 @@ export default function Clientes() {
   };
 
   const openEditClient = (client) => {
+    setOperationError('');
     setSelectedClientId(client.id);
     setFormData(formFromClient(client));
     setDuplicate(null);
@@ -1100,6 +1163,7 @@ export default function Clientes() {
   };
 
   const closeModal = () => {
+    if (isSaving || isDeleting) return;
     setIsModalOpen(false);
     setFormData({
       ...emptyForm,
@@ -1117,13 +1181,44 @@ export default function Clientes() {
 
   const saveClient = async (event) => {
     event.preventDefault();
+    if (isSaving || isDeleting) return;
+    setIsSaving(true);
+    setOperationError('');
     setSyncStatus('saving');
 
     const now = new Date().toISOString();
-    const matches = findClientDuplicates(formData, clients, formData.id);
-    if (!allowDuplicate && matches.length) {
+    const officialClients = integrityStudio.clients || [];
+    const projectBeingEdited = integrityStudio.projects.find(
+      (project) => String(project.id) === String(formData.projectId || ''),
+    );
+    const linkedProjectClientId = String(
+      projectBeingEdited?.clientId
+      || projectBeingEdited?.clienteId
+      || projectBeingEdited?.client_id
+      || projectBeingEdited?.cliente_id
+      || '',
+    );
+    const matches = findClientDuplicates(formData, officialClients, formData.id);
+    const exactExisting = !formData.id
+      ? matches.find((item) => item.strong || (
+          item.field === 'nome'
+          && normalizeIntegrityName(item.client?.nome) === normalizeIntegrityName(formData.nome)
+        ))
+      : null;
+    const importedExisting = !formData.id && formData.sourceImportedName
+      ? resolveClientForImportedName(formData.sourceImportedName, officialClients)
+      : null;
+    const effectiveClientId = formData.id
+      || exactExisting?.client?.id
+      || (linkedProjectClientId && officialClients.some((client) => String(client.id) === linkedProjectClientId)
+        ? linkedProjectClientId
+        : null)
+      || importedExisting?.id
+      || null;
+    if (!effectiveClientId && (!allowDuplicate || Boolean(formData.sourceImportedName)) && matches.length) {
       setDuplicate({ match: matches[0], event: null });
       setSyncStatus('saved');
+      setIsSaving(false);
       return;
     }
     setDuplicate(null);
@@ -1136,16 +1231,20 @@ export default function Clientes() {
     if (!isSalarySplitValid(formData.divisaoSalarios)) {
       alert('A divisao entre Camilla e Junior deve somar exatamente 100%.');
       setSyncStatus('saved');
+      setIsSaving(false);
       return;
     }
     if (salarySummary.camilla.disponivel < -0.01 || salarySummary.junior.disponivel < -0.01) {
       alert('O pagamento nao pode ser alterado porque deixaria uma retirada salarial sem saldo correspondente.');
       setSyncStatus('saved');
+      setIsSaving(false);
       return;
     }
 
     try {
-      const existingClient = studio.clients.find((client) => String(client.id) === String(formData.id)) || {};
+      const existingClient = officialClients.find((client) => String(client.id) === String(effectiveClientId))
+        || studio.clients.find((client) => String(client.id) === String(effectiveClientId))
+        || {};
       const existingProject = studio.projects.find((project) => String(project.id) === String(formData.projectId)) || {};
       const currentFinance = existingProject.financeiro && typeof existingProject.financeiro === 'object'
         ? existingProject.financeiro
@@ -1254,39 +1353,16 @@ export default function Clientes() {
         updated_at: now,
       };
 
-      const clientBasicDatabasePayload = {
-        nome: clientLocalPayload.nome,
-        email: clientLocalPayload.email,
-        telefone: clientLocalPayload.telefone,
-        whatsapp: clientLocalPayload.whatsapp,
-        instagram: clientLocalPayload.instagram,
-        cpf_cnpj: clientLocalPayload.cpfCnpj,
-        endereco: clientLocalPayload.endereco,
-        cidade: clientLocalPayload.cidade,
-        data_nascimento:
-          clientLocalPayload.dataNascimento,
-        origem: clientLocalPayload.origem,
-        indicacao: clientLocalPayload.indicacao,
-        observacoes: clientLocalPayload.observacoes,
-        updated_at: now,
-      };
-
       let savedClient;
       let savedProject;
 
       if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
         const savedDatabaseClient = await saveClientRowSafely({
-          id: formData.id,
-          fullPayload: formData.id
+          id: effectiveClientId,
+          fullPayload: effectiveClientId
             ? clientDatabasePayload
             : {
                 ...clientDatabasePayload,
-                created_at: now,
-              },
-          basicPayload: formData.id
-            ? clientBasicDatabasePayload
-            : {
-                ...clientBasicDatabasePayload,
                 created_at: now,
               },
         });
@@ -1297,13 +1373,13 @@ export default function Clientes() {
           ...clientLocalPayload,
           id:
             savedDatabaseClient?.id
-            || formData.id
+            || effectiveClientId
             || createId('client'),
           updated_at: now,
         };
       } else {
         savedClient = {
-          id: formData.id || createId('client'),
+          id: effectiveClientId || createId('client'),
           ...existingClient,
           ...clientLocalPayload,
           created_at:
@@ -1396,6 +1472,25 @@ export default function Clientes() {
           id: formData.projectId,
           payload: formData.projectId ? projectPayload : { ...projectPayload, created_at: now },
         });
+
+        // Ao transformar um cliente importado em cadastro oficial, vincula todos
+        // os trabalhos órfãos daquele nome ao mesmo cliente. Assim o cartão
+        // importado desaparece e não nasce um segundo cadastro a cada salvamento.
+        const importedSourceName = normalizeIntegrityName(formData.sourceImportedName || '');
+        if (importedSourceName) {
+          const orphanProjectIds = studio.projects
+            .filter((project) => !String(project.clientId || project.clienteId || project.client_id || project.cliente_id || '').trim())
+            .filter((project) => normalizeIntegrityName(getProjectImportedClientName(project)) === importedSourceName)
+            .map((project) => project.id)
+            .filter(Boolean);
+          if (orphanProjectIds.length) {
+            const { error: linkError } = await supabase
+              .from('projetos')
+              .update({ cliente_id: savedClient.id })
+              .in('id', orphanProjectIds);
+            if (linkError) throw linkError;
+          }
+        }
       } else {
         savedClient = {
           ...savedClient,
@@ -1427,9 +1522,9 @@ export default function Clientes() {
 
         const localStudio = loadLocalStudio();
 
-        const nextClients = formData.id
+        const nextClients = effectiveClientId
           ? localStudio.clients.map((client) => (
-              String(client.id) === String(formData.id)
+              String(client.id) === String(effectiveClientId)
                 ? { ...client, ...savedClient }
                 : client
             ))
@@ -1467,116 +1562,277 @@ export default function Clientes() {
           clientName: savedClient.nome || clientLocalPayload.nome,
         });
         await upsertAgendaEvent(savedProject, savedClient);
-        emitDbUpdate();
       }
 
-      setStudio((current) => {
-        const nextClients = formData.id
-          ? current.clients.map((client) => (
-              String(client.id)
-              === String(savedClient.id)
-                ? {
-                    ...client,
-                    ...savedClient,
-                  }
+      const nextClients = effectiveClientId
+        ? studio.clients.map((client) => (
+            String(client.id) === String(savedClient.id)
+              ? { ...client, ...savedClient }
+              : client
+          ))
+        : [
+            savedClient,
+            ...studio.clients.filter((client) => String(client.id) !== String(savedClient.id)),
+          ];
+
+      let nextProjects = studio.projects;
+      if (savedProject) {
+        nextProjects = formData.projectId
+          ? studio.projects.map((project) => (
+              String(project.id) === String(savedProject.id)
+                ? { ...project, ...savedProject }
+                : project
+            ))
+          : [
+              savedProject,
+              ...studio.projects.filter((project) => String(project.id) !== String(savedProject.id)),
+            ];
+      }
+
+      if (!isSupabaseConfigured || CLIENTS_LOCAL_MODE) {
+        saveLocalStudio(nextClients, nextProjects);
+      }
+
+      if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
+        const { data: confirmedRow, error: confirmationError } = await supabase
+          .from('clientes')
+          .select('*')
+          .eq('id', savedClient.id)
+          .single();
+
+        if (confirmationError) throw confirmationError;
+        if (!confirmedRow) throw new Error('O Supabase não confirmou o cliente salvo.');
+
+        const confirmedClient = mapClientFromDb(confirmedRow);
+        const nextConfirmedClients = effectiveClientId
+          ? studio.clients.map((client) => (
+              String(client.id) === String(confirmedClient.id)
+                ? confirmedClient
                 : client
             ))
           : [
-              savedClient,
-              ...current.clients.filter(
-                (client) => (
-                  String(client.id)
-                  !== String(savedClient.id)
-                ),
-              ),
+              confirmedClient,
+              ...studio.clients.filter((client) => String(client.id) !== String(confirmedClient.id)),
             ];
 
-        let nextProjects = current.projects;
-
-        if (savedProject) {
-          nextProjects = formData.projectId
-            ? current.projects.map((project) => (
-                String(project.id)
-                === String(savedProject.id)
-                  ? {
-                      ...project,
-                      ...savedProject,
-                    }
-                  : project
-              ))
-            : [
-                savedProject,
-                ...current.projects.filter(
-                  (project) => (
-                    String(project.id)
-                    !== String(savedProject.id)
-                  ),
-                ),
-              ];
-        }
-
-        return {
-          clients: nextClients,
-          projects: nextProjects,
-        };
-      });
+        // Recarrega a fonte oficial depois que cliente e trabalhos foram confirmados.
+        // Isso remove imediatamente cartões importados já vinculados e impede que um
+        // estado local antigo permita um segundo cadastro do mesmo contato.
+        await load();
+        savedClient = confirmedClient;
+      } else {
+        setStudio({ clients: nextClients, projects: nextProjects });
+      }
 
       setSelectedClientId(savedClient.id);
-      closeModal();
+      setIsModalOpen(false);
+      setFormData({
+        ...emptyForm,
+        divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
+        pagamentos: [],
+        retiradasSalariais: [],
+        historicoContatos: [],
+        datasImportantes: [],
+      });
+      setDuplicate(null);
+      setAllowDuplicate(false);
+      setContactDraft(emptyContact);
+      setWithdrawalDraft(emptyWithdrawal);
     } catch (error) {
       console.error(
         'Erro ao salvar cliente localmente:',
         error.message,
       );
-      alert(
-        `Não foi possível salvar as alterações: ${
-          error.message || 'erro desconhecido'
-        }`,
-      );
+      setOperationError(`Não foi possível salvar as alterações: ${error.message || 'erro desconhecido'}`);
     } finally {
+      setIsSaving(false);
       setSyncStatus('saved');
     }
   };
 
-  const deleteClient = async () => {
-    if (!formData.id) return;
-    const relations = getClientRelations(formData.id, { projects: studio.projects, contracts: readStorage(STORAGE_KEYS.contracts, []) });
-    const historyCount = formData.historicoContatos.length;
-    if (relations.projects.length || relations.contracts.length || relations.payments.length) {
-      alert(`Este cliente não pode ser excluído: possui ${relations.projects.length} trabalho(s), ${relations.contracts.length} contrato(s) e ${relations.payments.length} pagamento(s). Altere o status para inativo ou perdido.`);
+  const deleteImportedClient = async (targetClient) => {
+    if (!targetClient?.virtualImportedClient || isSaving || isDeleting) return;
+
+    const importedName = targetClient.nome || targetClient.name || 'este registro';
+    const relatedProjects = getClientProjects(targetClient, studio.projects);
+
+    if (!relatedProjects.length) {
+      setStudio((current) => ({
+        ...current,
+        projects: current.projects.filter((project) => (
+          normalizeIdentity(getImportedClientName(project)) !== normalizeIdentity(importedName)
+        )),
+      }));
       return;
     }
-    if (!window.confirm(`Excluir este cliente${historyCount ? ` e seus ${historyCount} registro(s) de contato` : ''}?`)) return;
+
+    const confirmationMessage =
+      `Remover “${importedName}” da lista de clientes?\n\n`
+      + `O${relatedProjects.length > 1 ? 's' : ''} ${relatedProjects.length} trabalho${relatedProjects.length > 1 ? 's serão preservados' : ' será preservado'} em Trabalhos, Financeiro e Relatórios. Apenas o cartão duplicado deixará de aparecer em Clientes.`;
+
+    if (!window.confirm(confirmationMessage)) return;
+
+    setIsDeleting(true);
+    setOperationError('');
     setSyncStatus('saving');
 
     try {
-      if (!isSupabaseConfigured || CLIENTS_LOCAL_MODE) {
-        const localStudio = loadLocalStudio();
-        const nextProjects = localStudio.projects;
-        const nextClients = localStudio.clients.filter((client) => client.id !== formData.id);
-        saveLocalStudio(nextClients, nextProjects);
-        setSelectedClientId(null);
-        closeModal();
+      const projectIds = new Set(relatedProjects.map((project) => String(project.id || '')).filter(Boolean));
+      const nextProjects = studio.projects.map((project) => {
+        if (!projectIds.has(String(project.id || ''))) return project;
+        return {
+          ...project,
+          financeiro: {
+            ...(project.financeiro && typeof project.financeiro === 'object' ? project.financeiro : {}),
+            hideFromClients: true,
+            ocultarDaListaClientes: true,
+            hiddenFromClientsAt: new Date().toISOString(),
+          },
+        };
+      });
+
+      if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
+        for (const project of relatedProjects) {
+          if (!project.id) continue;
+          const nextFinance = {
+            ...(project.financeiro && typeof project.financeiro === 'object' ? project.financeiro : {}),
+            hideFromClients: true,
+            ocultarDaListaClientes: true,
+            hiddenFromClientsAt: new Date().toISOString(),
+          };
+          const { error } = await supabase
+            .from('projetos')
+            .update({ financeiro: nextFinance })
+            .eq('id', project.id);
+          if (error) throw error;
+        }
         await load();
-        return;
+      } else {
+        saveLocalStudio(studio.clients, nextProjects);
+        setStudio((current) => ({ ...current, projects: nextProjects }));
       }
 
-      const { error: clientError } = await supabase.from('clientes').delete().eq('id', formData.id);
-      if (clientError) throw clientError;
-
-      setSelectedClientId(null);
-      closeModal();
-      await load();
+      emitDbUpdate();
     } catch (error) {
-      console.error('Erro ao excluir cliente:', error.message);
+      console.error('Erro ao remover cliente importado da lista:', error);
+      const message = `Não foi possível remover o registro da lista: ${error.message || 'erro desconhecido'}`;
+      setOperationError(message);
+      alert(message);
     } finally {
+      setIsDeleting(false);
+      setSyncStatus('saved');
+    }
+  };
+
+  const deleteClient = async (targetClient = formData) => {
+    const clientId = targetClient?.id;
+    if (!clientId || targetClient?.virtualImportedClient || isSaving || isDeleting) return;
+
+    const clientName = targetClient.nome || targetClient.name || 'este cliente';
+    const clientHistory = Array.isArray(targetClient.historicoContatos)
+      ? targetClient.historicoContatos
+      : Array.isArray(targetClient.historico_contatos)
+        ? targetClient.historico_contatos
+        : [];
+    const relations = getClientRelations(clientId, {
+      projects: studio.projects,
+      contracts: readStorage(STORAGE_KEYS.contracts, []),
+    });
+    const historyCount = clientHistory.length;
+
+    if (relations.contracts.length || relations.payments.length) {
+      alert(
+        `Este cliente ainda possui ${relations.contracts.length} contrato(s) e `
+        + `${relations.payments.length} pagamento(s). Mescle ou desvincule esses registros antes de excluir.`,
+      );
+      return;
+    }
+
+    const hasProjects = relations.projects.length > 0;
+    const confirmationMessage = hasProjects
+      ? `Este cliente possui ${relations.projects.length} trabalho(s). Ao excluir, os trabalhos serão preservados e ficarão sem vínculo, usando o nome “${clientName}”. Deseja continuar?`
+      : `Excluir ${clientName}${historyCount ? ` e seus ${historyCount} registro(s) de contato` : ''}?`;
+
+    if (!window.confirm(confirmationMessage)) return;
+
+    setIsDeleting(true);
+    setOperationError('');
+    setSyncStatus('saving');
+
+    try {
+      let nextProjects = studio.projects;
+
+      if (hasProjects) {
+        nextProjects = studio.projects.map((project) => {
+          const linkedId = String(
+            project.clientId || project.clienteId || project.cliente_id || project.client_id || '',
+          );
+          if (linkedId !== String(clientId)) return project;
+          return {
+            ...project,
+            clientId: null,
+            clienteId: null,
+            cliente_id: null,
+            client_id: null,
+            clienteNome: clientName,
+            cliente_nome_importado: clientName,
+            clienteNomeImportado: clientName,
+          };
+        });
+      }
+
+      if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
+        if (hasProjects) {
+          const projectIds = relations.projects.map((project) => project.id).filter(Boolean);
+          if (projectIds.length) {
+            const { error: unlinkError } = await supabase
+              .from('projetos')
+              .update({ cliente_id: null, cliente_nome_importado: clientName || null })
+              .in('id', projectIds);
+            if (unlinkError) throw unlinkError;
+          }
+        }
+
+        const { error: clientError } = await supabase
+          .from('clientes')
+          .delete()
+          .eq('id', clientId);
+        if (clientError) throw clientError;
+      }
+
+      const nextClients = studio.clients.filter(
+        (client) => String(client.id) !== String(clientId),
+      );
+      saveLocalStudio(nextClients, nextProjects);
+      setStudio({ clients: nextClients, projects: nextProjects });
+      setSelectedClientId((current) => String(current) === String(clientId) ? null : current);
+      emitDbUpdate();
+
+      if (String(formData.id || '') === String(clientId)) {
+        setIsModalOpen(false);
+        setFormData({
+          ...emptyForm,
+          divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
+          pagamentos: [],
+          retiradasSalariais: [],
+          historicoContatos: [],
+          datasImportantes: [],
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao excluir cliente:', error);
+      const message = `Não foi possível excluir o cliente: ${error.message || 'erro desconhecido'}`;
+      setOperationError(message);
+      alert(message);
+    } finally {
+      setIsDeleting(false);
       setSyncStatus('saved');
     }
   };
 
   return (
-    <div className="sf-finance-section">
-      <div className="sf-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <div className="sf-finance-section sf-clients-page">
+      <div className="sf-section-header sf-clients-header">
         <div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: 0 }}>
             Clientes <AutoSaveIndicator state={syncStatus} />
@@ -1607,89 +1863,90 @@ export default function Clientes() {
               <option value="all">Todos os anos</option>
             </select>
           </label>
+          <label className="sf-client-year-filter">
+            <span>Ordenar por</span>
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+              <option value="recent">Última contratação</option>
+              <option value="name">Nome</option>
+              <option value="value">Maior valor</option>
+              <option value="works">Mais trabalhos</option>
+            </select>
+          </label>
           <div className="sf-client-year-summary">
             <strong>{filteredClients.length}</strong>
             <span>{filteredClients.length === 1 ? 'cliente' : 'clientes'}</span>
           </div>
         </div>
 
-        <div className="sf-client-table-scroll">
-          <table className="sf-table">
-          <thead>
-            <tr>
-              <th>Nome do cliente</th>
-              <th>Contato</th>
-              <th>Trabalhos</th>
-              <th>Último trabalho</th>
-              <th>Contratado</th>
-              <th>Recebido</th>
-              <th>Restante</th>
-              <th>Status</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="sf-client-list" role="table" aria-label="Clientes">
+          <div className="sf-client-list-header" role="row">
+            <span>Nome</span><span>Telefone</span><span>Último trabalho</span><span>Valor contratado</span><span>Status</span><span>Ações</span>
+          </div>
+          <div className="sf-client-list-body">
             {filteredClients.map((client) => (
-              <tr
+              <article
                 key={client.id}
-                onClick={() => setSelectedClientId(client.id)}
-                style={{ cursor: 'pointer', backgroundColor: selectedClientId === client.id ? '#111111' : 'transparent' }}
+                className={`sf-client-row ${client.projects.length > 1 ? 'is-recurring' : ''}`}
+                onClick={() => {
+                  setSelectedClientId(client.id);
+                  if (!client.virtualImportedClient) openEditClient(client);
+                }}
               >
-                <td><strong>{client.nome || '-'}</strong></td>
-                <td>
-                  <div className="sf-client-contact-cell">
-                    <span>{client.telefone || 'Sem telefone'}</span>
-                    <small>{client.email || 'Sem e-mail'}</small>
-                  </div>
-                </td>
-                <td>
-                  <strong>{client.projects.length}</strong>
-                  <small className="sf-client-work-type">{client.tipoTrabalho || '-'}</small>
-                </td>
-                <td>{displayDate(client.dataTrabalho)}</td>
-                <td className="positive"><strong>{formatMoney(client.valorTotal)}</strong></td>
-                <td className="positive">{formatMoney(client.valorRecebido)}</td>
-                <td className={client.valorRestante > 0 ? 'sf-client-pending-value' : ''}>{formatMoney(client.valorRestante)}</td>
-                <td><span className={`sf-client-status ${client.valorRestante <= 0 && client.valorTotal > 0 ? 'is-paid' : ''}`}>{client.status || '-'}</span></td>
-                <td>
+                <div className="sf-client-row-name">
+                  <span className="sf-client-avatar">{String(client.nome || '?').trim().charAt(0).toUpperCase()}</span>
+                  <span>
+                    <strong>{client.nome || '-'}</strong>
+                    <small>{client.projects.length > 1 ? 'Cliente recorrente' : 'Cliente'}</small>
+                  </span>
+                </div>
+                <div data-label="Telefone">{client.telefone || 'Sem telefone'}</div>
+                <div data-label="Último trabalho">
+                  <strong>{client.tipoTrabalho || '-'}</strong>
+                  <small>{displayDate(client.dataTrabalho)}</small>
+                </div>
+                <div data-label="Valor contratado">
+                  <strong>{formatMoney(client.valorTotal)}</strong>
+                  <small>Último trabalho · recebido {formatMoney(client.valorRecebido)}</small>
+                </div>
+                <div data-label="Status"><span className={`sf-client-status ${client.valorRestante <= 0 && client.valorTotal > 0 ? 'is-paid' : ''}`}>{client.status || '-'}</span></div>
+                <div className="sf-client-row-actions">
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (client.virtualImportedClient) {
-                        openNewClient();
-                        setFormData((current) => ({ ...current, nome: client.nome, email: client.email || '', telefone: client.telefone || '', cidade: client.cidade || '' }));
-                        return;
-                      }
                       openEditClient(client);
                     }}
-                    className="sf-secondary-button"
-                    style={{ padding: '8px 10px' }}
+                    className="sf-secondary-button sf-client-edit-button"
                   >
                     <Pencil size={14} /> {client.virtualImportedClient ? 'Cadastrar' : 'Editar'}
                   </button>
-                  {(String(client.status || '').toLowerCase().includes('aprov') || client.projectId || client.tipoTrabalho) && (
-                    <button
-                      type="button"
-                      className="sf-secondary-button"
-                      style={{ padding: '8px 10px', marginLeft: '6px' }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setContractClient(client);
-                        setSelectedContractModel(suggestContractModel(client.tipoTrabalho).id);
-                      }}
-                    >Gerar contrato</button>
-                  )}
-                </td>
-              </tr>
+                  <button
+                    type="button"
+                    className="sf-client-delete-button"
+                    title={client.virtualImportedClient
+                      ? `Remover ${client.nome || 'registro'} da lista de clientes`
+                      : `Excluir ${client.nome || 'cliente'}`}
+                    aria-label={client.virtualImportedClient
+                      ? `Remover ${client.nome || 'registro'} da lista de clientes`
+                      : `Excluir ${client.nome || 'cliente'}`}
+                    disabled={isSaving || isDeleting}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (client.virtualImportedClient) {
+                        deleteImportedClient(client);
+                      } else {
+                        deleteClient(client);
+                      }
+                    }}
+                  >
+                    <Trash2 size={15} />
+                    <span>{client.virtualImportedClient ? 'Remover' : 'Excluir'}</span>
+                  </button>
+                </div>
+              </article>
             ))}
-            {filteredClients.length === 0 && (
-              <tr>
-                <td colSpan="8" className="empty">Nenhum cliente integrado ainda.</td>
-              </tr>
-            )}
-          </tbody>
-          </table>
+            {filteredClients.length === 0 && <div className="sf-client-empty">Nenhum cliente integrado ainda.</div>}
+          </div>
         </div>
       </div>
 
@@ -1892,15 +2149,20 @@ export default function Clientes() {
             <div className="sf-client-withdrawal-list">{formData.historicoContatos.map((contact) => <div key={contact.id}><span>{displayDate(contact.data)} · {contact.tipo} · {contact.observacao}</span><button type="button" onClick={() => setContactDraft({ ...contact, data: normalizeDate(contact.data) })}><Pencil size={14} /></button><button type="button" onClick={() => removeContact(contact.id)}><Trash2 size={14} /></button></div>)}</div>
           </section>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
+          {operationError && <div className="sf-client-operation-error" role="alert">{operationError}</div>}
+
+          <div className="sf-client-modal-footer">
             {formData.id ? (
-              <button type="button" onClick={deleteClient} className="sf-secondary-button">
-                <Trash2 size={16} /> Excluir
+              <button type="button" onClick={() => deleteClient(formData)} className="sf-secondary-button" disabled={isSaving || isDeleting}>
+                <Trash2 size={16} /> {isDeleting ? 'Excluindo...' : 'Excluir cliente'}
               </button>
             ) : <span />}
-            <button type="submit" className="sf-primary-button">
-              {formData.id ? 'Editar' : 'Salvar'}
-            </button>
+            <div className="sf-client-modal-footer-actions">
+              <button type="button" className="sf-secondary-button" onClick={closeModal} disabled={isSaving || isDeleting}>Cancelar</button>
+              <button type="submit" className="sf-primary-button" disabled={isSaving || isDeleting}>
+                {isSaving ? 'Salvando...' : (formData.id ? 'Salvar alterações' : 'Salvar cliente')}
+              </button>
+            </div>
           </div>
         </form>
       </Modal>
@@ -1910,7 +2172,9 @@ export default function Clientes() {
           <p>Encontramos <strong>{duplicate?.match.client.nome}</strong> com o mesmo {duplicate?.match.reason}.</p>
           <p className="sf-muted">{duplicate?.match.client.telefone || 'Sem telefone'} · {duplicate?.match.client.email || 'Sem e-mail'} · {getClientRelations(duplicate?.match.client.id, { projects: studio.projects }).projects.length} trabalho(s)</p>
           <button type="button" className="sf-primary-button" onClick={() => { const existing = clients.find((item) => item.id === duplicate.match.client.id); setDuplicate(null); openEditClient(existing); }}>Usar cliente existente</button>
-          <button type="button" className="sf-secondary-button" onClick={() => { setAllowDuplicate(true); setDuplicate(null); setTimeout(() => document.querySelector('.sf-client-form')?.requestSubmit(), 0); }}>Continuar e criar novo</button>
+          {!formData.sourceImportedName && (
+            <button type="button" className="sf-secondary-button" onClick={() => { setAllowDuplicate(true); setDuplicate(null); setTimeout(() => document.querySelector('.sf-client-form')?.requestSubmit(), 0); }}>Continuar e criar novo</button>
+          )}
           <button type="button" className="sf-secondary-button" onClick={() => setDuplicate(null)}>Cancelar</button>
         </div>
       </Modal>

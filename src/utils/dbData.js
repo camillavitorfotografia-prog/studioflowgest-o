@@ -30,9 +30,21 @@ export const isMissingRelationError = (error, table) => {
     );
 };
 
-export const emitDbUpdate = () => {
+export const emitDbUpdate = (detail = {}) => {
+  if (typeof window === 'undefined') return;
+
   window.dispatchEvent(new Event('storage'));
-  window.dispatchEvent(new Event('sf_storage_update'));
+  window.dispatchEvent(new CustomEvent('sf_storage_update', { detail }));
+
+  if ('BroadcastChannel' in window) {
+    const channel = new BroadcastChannel('studioflow-db-updates');
+    channel.postMessage({
+      type: 'studioflow-db-update',
+      at: Date.now(),
+      detail,
+    });
+    channel.close();
+  }
 };
 
 export const normalizePaymentValue = (value) => {
@@ -301,9 +313,24 @@ export const mapClientFromDb = (client = {}) => ({
   telefone: client.telefone || client.whatsapp || '',
   whatsapp: client.whatsapp || client.telefone || '',
   instagram: client.instagram || '',
+  cpfCnpj: client.cpf_cnpj || client.cpfCnpj || '',
+  endereco: client.endereco || '',
   cidade: client.cidade || '',
+  dataNascimento: client.data_nascimento || client.dataNascimento || '',
   origem: client.origem || '',
+  indicacao: client.indicacao || '',
+  indicacaoClienteId: client.indicacao_cliente_id || client.indicacaoClienteId || '',
   observacoes: client.observacoes || '',
+  datasImportantes: Array.isArray(client.datas_importantes)
+    ? client.datas_importantes
+    : (Array.isArray(client.datasImportantes) ? client.datasImportantes : []),
+  historicoContatos: Array.isArray(client.historico_contatos)
+    ? client.historico_contatos
+    : (Array.isArray(client.historicoContatos) ? client.historicoContatos : []),
+  dataPrimeiroContato: client.data_primeiro_contato || client.dataPrimeiroContato || '',
+  dataUltimoContato: client.data_ultimo_contato || client.dataUltimoContato || '',
+  dataProximoRetorno: client.data_proximo_retorno || client.dataProximoRetorno || '',
+  statusComercial: client.status_comercial || client.statusComercial || 'novo',
   status: client.status || 'ativo',
   clienteDesde:
     client.cliente_desde
@@ -311,14 +338,10 @@ export const mapClientFromDb = (client = {}) => ({
     || client.created_at
     || client.createdAt
     || new Date().toISOString(),
-  createdAt:
-    client.created_at
-    || client.createdAt
-    || new Date().toISOString(),
-  updatedAt:
-    client.updated_at
-    || client.updatedAt
-    || new Date().toISOString(),
+  createdAt: client.created_at || client.createdAt || new Date().toISOString(),
+  updatedAt: client.updated_at || client.updatedAt || new Date().toISOString(),
+  created_at: client.created_at || client.createdAt,
+  updated_at: client.updated_at || client.updatedAt,
 });
 
 
@@ -1017,7 +1040,9 @@ const safeMirrorWrite = (key, value, { maxBytes = 700_000 } = {}) => {
 const saveMirrors = ({ leads, clients, projects, transactions, equipment }) => {
   if (!unavailableTables.has('leads')) safeMirrorWrite('cv_crm_leads', leads);
   safeMirrorWrite('cv_studio_clients', clients);
-  safeMirrorWrite('cv_studio_projects', projects);
+  // Projetos podem exceder facilmente o limite do localStorage.
+  // O Supabase é a fonte oficial e nenhum espelho completo é gravado aqui.
+  try { localStorage.removeItem('cv_studio_projects'); } catch { /* noop */ }
   // O Supabase é a fonte oficial do Financeiro. Evita estourar o limite de 5 MB do localStorage.
   safeMirrorWrite('cv_studio_financas', transactions, { maxBytes: 350_000 });
   if (!unavailableTables.has('equipamentos')) safeMirrorWrite('cv_studio_equipamentos', equipment);
@@ -1084,33 +1109,73 @@ export const getDbStudioData = async () => {
 };
 
 export const subscribeDbUpdates = (callback) => {
-  const channel = supabase.channel(
-    `studioflow-db-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  );
+  let disposed = false;
+  let timer = null;
+  let realtimeChannel = null;
+  let broadcastChannel = null;
 
-  const tables = [
-    'clientes',
-    'projetos',
-    'financas',
-    PROFILE_TABLE,
-    'equipamentos',
-  ];
+  const schedule = () => {
+    if (disposed) return;
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      if (!disposed) callback();
+    }, 120);
+  };
 
-  tables.forEach((table) => {
-    channel.on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table,
-      },
-      callback,
+  const handleVisibility = () => {
+    if (document.visibilityState === 'visible') schedule();
+  };
+
+  window.addEventListener('sf_storage_update', schedule);
+  window.addEventListener('storage', schedule);
+  window.addEventListener('focus', schedule);
+  window.addEventListener('pageshow', schedule);
+  document.addEventListener('visibilitychange', handleVisibility);
+
+  if ('BroadcastChannel' in window) {
+    broadcastChannel = new BroadcastChannel('studioflow-db-updates');
+    broadcastChannel.addEventListener('message', schedule);
+  }
+
+  if (isSupabaseConfigured) {
+    realtimeChannel = supabase.channel(
+      `studioflow-db-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     );
-  });
 
-  channel.subscribe();
+    const tables = [
+      'clientes',
+      'projetos',
+      'financas',
+      PROFILE_TABLE,
+      'equipamentos',
+    ];
 
-  return () => supabase.removeChannel(channel);
+    tables.forEach((table) => {
+      realtimeChannel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table,
+        },
+        schedule,
+      );
+    });
+
+    realtimeChannel.subscribe();
+  }
+
+  return () => {
+    disposed = true;
+    window.clearTimeout(timer);
+    window.removeEventListener('sf_storage_update', schedule);
+    window.removeEventListener('storage', schedule);
+    window.removeEventListener('focus', schedule);
+    window.removeEventListener('pageshow', schedule);
+    document.removeEventListener('visibilitychange', handleVisibility);
+    broadcastChannel?.close();
+    if (realtimeChannel) void supabase.removeChannel(realtimeChannel);
+  };
 };export const updateProjectSchedule = async ({
   projectId,
   data,

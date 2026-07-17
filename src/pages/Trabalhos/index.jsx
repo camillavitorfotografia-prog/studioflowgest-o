@@ -92,6 +92,12 @@ import {
   writeStorage,
 } from '../../utils/storage';
 import {
+  buildOfficialProjectRegistry,
+  getOfficialProjectDate,
+  getOfficialProjectYear,
+  isCompletedOfficialProject,
+} from '../../utils/officialProjects';
+import {
   calculateDeliveryDate,
   calculateProjectValues,
   COMMERCIAL_STATUSES,
@@ -112,6 +118,7 @@ import {
   upsertCustomItem,
 } from '../../utils/checklistEngine';
 import { loadSettings } from '../../utils/settings';
+import { syncSingleProjectToGoogle } from '../../services/googleCalendarIntegration';
 import './Trabalhos.css';
 
 const colunas = OPERATIONAL_PIPELINE;
@@ -193,6 +200,56 @@ const formatProjectDate = (value) => {
 
   return date.toLocaleDateString('pt-BR');
 };
+
+
+const getProjectDateValue = getOfficialProjectDate;
+
+const getProjectYear = getOfficialProjectYear;
+
+const getProjectClientId = (project = {}) => String(
+  project.clientId
+  || project.clienteId
+  || project.cliente_id
+  || '',
+);
+
+
+const getProjectClientName = (project = {}) => String(
+  project.clienteNome
+  || project.cliente_nome
+  || project.clientName
+  || '',
+).trim();
+
+const getProjectUpdatedTimestamp = (project = {}) => {
+  const candidates = [
+    project.updated_at,
+    project.updatedAt,
+    project.created_at,
+    project.createdAt,
+    getProjectDateValue(project),
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    const timestamp = new Date(value).getTime();
+    if (!Number.isNaN(timestamp)) return timestamp;
+  }
+
+  return 0;
+};
+
+const selectProjectsSyncedWithClients = (projects = [], clients = [], year) => (
+  buildOfficialProjectRegistry({
+    projects,
+    clients,
+    year,
+    includeUndated: true,
+    includeCancelled: false,
+    includeArchived: false,
+  })
+);
+
 
 const getDeliveryCountdown = (project = {}) => {
   if (project.dataRealEntrega) {
@@ -809,13 +866,15 @@ export default function Trabalhos() {
   const [financeFilter, setFinanceFilter] = useState('');
   const [dateFromFilter, setDateFromFilter] = useState('');
   const [dateToFilter, setDateToFilter] = useState('');
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [viewMode, setViewMode] = useState(() => (
-    globalThis.localStorage?.getItem('sf_projects_view_mode') || 'kanban'
+    globalThis.localStorage?.getItem('sf_projects_view_mode') || 'list'
   ));
+  const [previewProjectId, setPreviewProjectId] = useState(null);
   const [density, setDensity] = useState(() => (
     globalThis.localStorage?.getItem('sf_projects_density') || 'compact'
   ));
@@ -1663,6 +1722,7 @@ export default function Trabalhos() {
           nextProjects,
         );
 
+        void syncSingleProjectToGoogle(complete).catch(() => null);
         return complete;
       }
 
@@ -1695,6 +1755,10 @@ export default function Trabalhos() {
       });
 
       emitDbUpdate();
+
+      void syncSingleProjectToGoogle(complete).catch((error) => {
+        console.warn('Projeto salvo, mas a sincronização com o Google Calendar não foi concluída:', error?.message || error);
+      });
 
       return savedData;
     },
@@ -2784,172 +2848,100 @@ export default function Trabalhos() {
     }
   };
 
-  const handleDeleteProject = async (
-    project,
-  ) => {
-    const links = (
-      (project.contratoId ? 1 : 0)
-      + (
-        project.pagamentos
-        || project.financeiro?.receitas
-        || []
-      ).length
-      + (
-        project.equipamentoIds
-        || []
-      ).length
+  const handleDeleteProject = async (project) => {
+    if (!project?.id || savingIds.includes(project.id)) return;
+
+    const clientId = getProjectClientId(project);
+    const client = clients.find((item) => String(item.id) === String(clientId));
+    const clientName = client?.nome || client?.name || project.clienteNome || 'cliente não informado';
+    const linkedProjects = uniqueProjects(rawProjects).filter(
+      (item) => getProjectClientId(item) === String(clientId),
     );
 
-    if (links) {
-      setActionError(
-        `Este trabalho possui ${links} vínculo(s) e não pode ser excluído. Arquive ou cancele o trabalho.`,
-      );
-
+    if (!clientId || !client) {
+      setActionError('Este trabalho não possui um cliente oficial vinculado.');
       return;
     }
 
     const confirmed = window.confirm(
-      `Excluir o projeto de ${project.clienteNome}? Esta ação não pode ser desfeita.`,
+      `Excluir o trabalho de ${clientName}?
+
+Como a aba Trabalhos está sincronizada com Clientes, esta ação também excluirá o cadastro do cliente e ${linkedProjects.length} trabalho(s) vinculados. Esta ação não pode ser desfeita.`,
     );
 
     if (!confirmed) return;
 
     const previousProjects = projects;
     const previousRawProjects = rawProjects;
+    const previousClients = clients;
 
     setActiveMenuId(null);
     setActionError('');
-
-    setProjects((current) => (
-      current.filter(
-        (item) => item.id !== project.id,
-      )
-    ));
-
-    setRawProjects((current) => (
-      current.filter(
-        (item) => item.id !== project.id,
-      )
-    ));
-
     setSaving(project.id, true);
 
     try {
       if (isSupabaseConfigured) {
-        const { error } = await supabase
-          .from('projetos')
-          .delete()
-          .eq('id', project.id);
+        const projectIds = linkedProjects.map((item) => item.id).filter(Boolean);
 
-        if (error) throw error;
+        if (projectIds.length) {
+          const { error: projectsError } = await supabase
+            .from('projetos')
+            .delete()
+            .in('id', projectIds);
+
+          if (projectsError) throw projectsError;
+        }
+
+        const { error: clientError } = await supabase
+          .from('clientes')
+          .delete()
+          .eq('id', clientId);
+
+        if (clientError) throw clientError;
       } else {
         writeStorage(
           STORAGE_KEYS.projects,
-          readStorage(
-            STORAGE_KEYS.projects,
-            [],
-          ).filter(
-            (item) => item.id !== project.id,
+          readStorage(STORAGE_KEYS.projects, []).filter(
+            (item) => getProjectClientId(item) !== String(clientId),
           ),
         );
+        writeStorage(
+          STORAGE_KEYS.clients,
+          readStorage(STORAGE_KEYS.clients, []).filter(
+            (item) => String(item.id) !== String(clientId),
+          ),
+        );
+      }
+
+      setProjects((current) => current.filter(
+        (item) => getProjectClientId(item) !== String(clientId),
+      ));
+      setRawProjects((current) => current.filter(
+        (item) => getProjectClientId(item) !== String(clientId),
+      ));
+      setClients((current) => current.filter(
+        (item) => String(item.id) !== String(clientId),
+      ));
+
+      if (selectedProject && getProjectClientId(selectedProject) === String(clientId)) {
+        setSelectedProject(null);
+      }
+      if (previewProject && getProjectClientId(previewProject) === String(clientId)) {
+        setPreviewProjectId(null);
       }
 
       emitDbUpdate();
       await load();
     } catch (error) {
-      console.error(
-        'Erro ao excluir projeto:',
-        error,
-      );
-
+      console.error('Erro ao excluir trabalho e cliente:', error);
       setProjects(previousProjects);
       setRawProjects(previousRawProjects);
-
+      setClients(previousClients);
       setActionError(
-        'Não foi possível excluir o projeto. O card foi restaurado.',
+        `Não foi possível excluir o trabalho e o cliente: ${error?.message || 'erro desconhecido'}`,
       );
     } finally {
       setSaving(project.id, false);
-    }
-  };
-
-  const saveChecklist = async (
-    nextChecklist,
-  ) => {
-    if (!selectedProject) return;
-
-    const latest = rawProjects.find(
-      (item) => (
-        item.id === selectedProject.id
-      ),
-    ) || selectedProject;
-
-    const updated = {
-      ...latest,
-      checklist: nextChecklist,
-    };
-
-    setSelectedProject(updated);
-
-    setProjects((current) => (
-      current.map((item) => (
-        item.id === updated.id
-          ? updated
-          : item
-      ))
-    ));
-
-    setRawProjects((current) => (
-      current.map((item) => (
-        item.id === updated.id
-          ? updated
-          : item
-      ))
-    ));
-
-    try {
-      await persistProject(
-        updated,
-        {
-          checklist: nextChecklist,
-        },
-      );
-    } catch (error) {
-      setActionError(
-        `Não foi possível salvar o checklist: ${error.message}`,
-      );
-
-      await load();
-    }
-  };
-
-  const initializeSelectedChecklist = () => {
-    if (!selectedProject) return;
-
-    void saveChecklist(
-      createChecklist(
-        selectedProject.tipoServico,
-      ),
-    );
-  };
-
-  const submitChecklistItem = () => {
-    try {
-      const next = upsertCustomItem(
-        selectedProject.checklist,
-        checklistDraft,
-      );
-
-      void saveChecklist(next);
-
-      setChecklistDraft({
-        id: null,
-        titulo: '',
-        categoria: 'personalizado',
-        observacao: '',
-      });
-    } catch (error) {
-      setActionError(error.message);
     }
   };
 
@@ -5071,6 +5063,25 @@ export default function Trabalhos() {
     setDateToFilter('');
   };
 
+  const availableYears = useMemo(() => {
+    const years = new Set([new Date().getFullYear()]);
+    uniqueProjects(projects).forEach((project) => {
+      const year = getProjectYear(project);
+      if (year) years.add(year);
+    });
+    return [...years].sort((a, b) => b - a);
+  }, [projects]);
+
+  const officialClientIds = useMemo(() => new Set(
+    clients
+      .filter((client) => client?.id)
+      .map((client) => String(client.id)),
+  ), [clients]);
+
+  const syncedProjects = useMemo(() => (
+    selectProjectsSyncedWithClients(projects, clients, selectedYear)
+  ), [clients, projects, selectedYear]);
+
   const projectsByColumn = useMemo(() => {
     const grouped = Object.fromEntries(
       colunas.map((column) => [
@@ -5079,7 +5090,7 @@ export default function Trabalhos() {
       ]),
     );
 
-    uniqueProjects(projects)
+    syncedProjects
       .filter((project) => {
         const operationalStatus =
           getProjectOperationalStatus(project);
@@ -5135,8 +5146,19 @@ export default function Trabalhos() {
           )
         );
 
+        const projectClientId = getProjectClientId(project);
+        const belongsToOfficialClient = (
+          projectClientId
+          && officialClientIds.has(projectClientId)
+        );
+        const belongsToSelectedYear = (
+          getProjectYear(project) === Number(selectedYear)
+        );
+
         return (
-          (
+          belongsToOfficialClient
+          && belongsToSelectedYear
+          && (
             showArchived
             || !project.arquivado
           )
@@ -5214,15 +5236,47 @@ export default function Trabalhos() {
     dateFromFilter,
     dateToFilter,
     financeFilter,
+    officialClientIds,
     productionFilter,
-    projects,
+    syncedProjects,
     responsibleFilter,
     search,
+    selectedYear,
     showArchived,
     transactions,
     typeFilter,
   ]);
 
+
+  const visibleProjects = useMemo(() => (
+    colunas.flatMap((column) => projectsByColumn[column.id] || [])
+  ), [projectsByColumn]);
+
+  const visibleClientCount = useMemo(() => new Set(
+    visibleProjects.map((project) => getProjectClientId(project)).filter(Boolean),
+  ).size, [visibleProjects]);
+
+  const undatedProjects = useMemo(() => syncedProjects.filter((project) => {
+    const clientId = getProjectClientId(project);
+    if (!clientId || !officialClientIds.has(clientId) || project.arquivado) return false;
+    if (getProjectDateValue(project)) return false;
+    if (productionFilter && getProjectOperationalStatus(project) !== productionFilter) return false;
+    if (!projectMatchesSearch(project, clients.find((client) => String(client.id) === clientId), search)) return false;
+    return true;
+  }), [clients, officialClientIds, productionFilter, search, syncedProjects]);
+
+  const previewProject = useMemo(() => (
+    visibleProjects.find((project) => project.id === previewProjectId)
+    || undatedProjects.find((project) => project.id === previewProjectId)
+    || visibleProjects[0]
+    || null
+  ), [previewProjectId, undatedProjects, visibleProjects]);
+
+  const visibleCompletedCount = visibleProjects.filter(
+    isCompletedOfficialProject,
+  ).length;
+
+  const visibleUpcomingCount = visibleProjects.length - visibleCompletedCount;
 
   const selectedExecutiveFinance = selectedProject
     ? calculateProjectFinancials(selectedProject, transactions)
@@ -5563,7 +5617,7 @@ export default function Trabalhos() {
         <div className="sf-projects-header">
           <div className="sf-projects-heading">
             <h1>Trabalhos</h1>
-            <span>{projects.length} trabalho(s)</span>
+            <span>{visibleProjects.length} trabalho(s) em {selectedYear}</span>
           </div>
 
           <div className="sf-projects-header-actions">
@@ -5607,6 +5661,25 @@ export default function Trabalhos() {
           </div>
         </div>
 
+        <div className="sf-projects-overview">
+          <div>
+            <strong>{visibleProjects.length}</strong>
+            <span>Trabalhos em {selectedYear}</span>
+          </div>
+          <div>
+            <strong>{visibleUpcomingCount}</strong>
+            <span>A realizar</span>
+          </div>
+          <div>
+            <strong>{visibleCompletedCount}</strong>
+            <span>Já realizados</span>
+          </div>
+          <div>
+            <strong>{visibleClientCount}</strong>
+            <span>Clientes do ano</span>
+          </div>
+        </div>
+
         {actionError && (
           <p
             className="sf-project-action-error"
@@ -5624,6 +5697,21 @@ export default function Trabalhos() {
             }}
             placeholder="Buscar trabalhos"
           />
+
+          <select
+            className="sf-project-year-filter"
+            value={selectedYear}
+            aria-label="Ano dos trabalhos"
+            onChange={(event) => {
+              setSelectedYear(Number(event.target.value));
+            }}
+          >
+            {availableYears.map((year) => (
+              <option key={year} value={year}>
+                Trabalhos de {year}
+              </option>
+            ))}
+          </select>
 
           <select
             value={commercialFilter}
@@ -6172,67 +6260,87 @@ export default function Trabalhos() {
         </div>
       </section>
       ) : (
-        <section className="sf-projects-list-shell">
-          <div className="sf-projects-list-header">
-            <span>Cliente</span>
-            <span>Serviço</span>
-            <span>Data</span>
-            <span>Etapa</span>
-            <span>Contratado</span>
-            <span>Recebido</span>
-            <span>Restante</span>
-            <span aria-hidden="true" />
+        <section className="sf-workspace-layout">
+          <div className="sf-workspace-main">
+            <div className="sf-projects-list-shell">
+              <div className="sf-projects-list-title">
+                <strong>Com data definida</strong>
+                <span>{visibleProjects.length}</span>
+              </div>
+              <div className="sf-projects-list-header">
+                <span>Cliente</span><span>Serviço</span><span>Data do evento</span><span>Status</span>
+                <span>Contratado</span><span>Recebido</span><span>Ações</span>
+              </div>
+              <div className="sf-projects-list-body">
+                {colunas.flatMap((column) => (projectsByColumn[column.id] || []).map((project) => ({ project, column })))
+                  .sort((a, b) => String(a.project.data || '').localeCompare(String(b.project.data || '')))
+                  .map(({ project, column }) => {
+                    const financials = calculateProjectFinancials(project, transactions);
+                    const received = Number(financials.valorRecebido ?? financials.recebido ?? project.valorRecebido ?? project.valor_recebido ?? 0);
+                    const contracted = Number(project.valorContratado || project.valor_contratado || 0);
+                    const percent = contracted > 0 ? Math.min(100, Math.round((received / contracted) * 100)) : 0;
+                    return (
+                      <div className={`sf-project-list-row${previewProject?.id === project.id ? ' selected' : ''}`} key={project.id}>
+                        <button type="button" className="sf-project-row-main" onClick={() => setPreviewProjectId(project.id)}>
+                          <span className="sf-project-list-client"><span className="sf-project-avatar">{(project.clienteNome || 'CI').split(/\s+/).slice(0,2).map((part)=>part[0]).join('').toUpperCase()}</span><span><strong>{project.clienteNome || 'Cliente não informado'}</strong><small>{project.categoria || project.tipoServico || 'Trabalho'}</small></span></span>
+                          <span>{project.titulo || project.tipoServico || 'Não informado'}</span>
+                          <span><strong>{formatProjectDate(getProjectDateValue(project))}</strong><small>{project.horario || ''}</small></span>
+                          <span><small className="sf-project-stage-badge">{column.titulo}</small></span>
+                          <span>{formatMoney(contracted)}</span>
+                          <span className="sf-project-received-cell"><strong>{formatMoney(received)}</strong><small>{percent}%</small><i><b style={{ width: `${percent}%` }} /></i></span>
+                        </button>
+                        <div className="sf-project-row-actions">
+                          <button type="button" title="Editar" onClick={() => openDetails(project)}><Edit3 size={15}/></button>
+                          <label className="sf-project-status-control" title="Alterar status">
+                            <span>{column.titulo}</span>
+                            <select
+                              value={getProjectOperationalStatus(project)}
+                              onChange={(event) => void mudarStatus(project.id, event.target.value)}
+                              disabled={savingIds.includes(project.id)}
+                            >
+                              {colunas.map((item) => (
+                                <option key={item.id} value={item.id}>{item.titulo}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <button type="button" className="danger" title="Excluir" onClick={() => void handleDeleteProject(project)} disabled={savingIds.includes(project.id)}><Trash2 size={15}/></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {undatedProjects.length > 0 && <div className="sf-projects-list-shell sf-undated-shell">
+              <div className="sf-projects-list-title"><strong>Sem data definida</strong><span>{undatedProjects.length}</span></div>
+              <div className="sf-projects-list-body">
+                {undatedProjects.map((project) => {
+                  const financials = calculateProjectFinancials(project, transactions);
+                  const received = Number(financials.valorRecebido ?? project.valorRecebido ?? 0);
+                  return <div className="sf-project-list-row sf-undated-row" key={project.id}>
+                    <button type="button" className="sf-project-row-main" onClick={() => setPreviewProjectId(project.id)}>
+                      <span className="sf-project-list-client"><span className="sf-project-avatar">{(project.clienteNome || 'CI').slice(0,2).toUpperCase()}</span><span><strong>{project.clienteNome || 'Cliente não informado'}</strong><small>{project.tipoServico || 'Trabalho'}</small></span></span>
+                      <span>{project.titulo || project.tipoServico || 'Não informado'}</span><span>—</span>
+                      <span><small className="sf-project-stage-badge">{colunas.find((item)=>item.id===getProjectOperationalStatus(project))?.titulo || 'Pendente'}</small></span>
+                      <span>{formatMoney(project.valorContratado || 0)}</span><span>{formatMoney(received)}</span>
+                    </button>
+                    <div className="sf-project-row-actions"><button type="button" onClick={() => openDetails(project)}><Edit3 size={15}/></button><button type="button" className="danger" onClick={() => void handleDeleteProject(project)}><Trash2 size={15}/></button></div>
+                  </div>;
+                })}
+              </div>
+            </div>}
           </div>
 
-          <div className="sf-projects-list-body">
-            {colunas.flatMap((column) => (projectsByColumn[column.id] || []).map((project) => ({
-              project,
-              column,
-            }))).map(({ project, column }) => {
-              const financials = calculateProjectFinancials(project, transactions);
-              const received = Number(
-                financials.valorRecebido
-                ?? financials.recebido
-                ?? project.valorRecebido
-                ?? project.valor_recebido
-                ?? 0,
-              );
-              const remaining = Number(
-                financials.saldoPendente
-                ?? financials.saldo
-                ?? financials.aReceber
-                ?? Math.max(0, Number(project.valorContratado || 0) - received),
-              );
-
-              return (
-                <button
-                  type="button"
-                  className="sf-project-list-row"
-                  key={project.id}
-                  onClick={() => openDetails(project)}
-                >
-                  <span className="sf-project-list-client">
-                    <span className="sf-project-avatar">
-                      {(project.clienteNome || 'CI')
-                        .split(/\s+/)
-                        .slice(0, 2)
-                        .map((part) => part[0])
-                        .join('')
-                        .toUpperCase()}
-                    </span>
-                    <strong>{project.clienteNome || 'Cliente não informado'}</strong>
-                  </span>
-                  <span>{project.titulo || project.tipoServico || 'Não informado'}</span>
-                  <span>{formatProjectDate(project.data)}</span>
-                  <span><small className="sf-project-stage-badge">{column.titulo}</small></span>
-                  <span>{formatMoney(project.valorContratado || 0)}</span>
-                  <span>{formatMoney(received)}</span>
-                  <span className={remaining > 0 ? 'pending' : 'paid'}>{formatMoney(remaining)}</span>
-                  <span className="sf-project-list-open"><Eye size={15} /></span>
-                </button>
-              );
-            })}
-          </div>
+          <aside className="sf-project-preview">
+            {previewProject ? <>
+              <div className="sf-project-preview-head"><div><h3>{previewProject.clienteNome || 'Cliente'}</h3><small className="sf-project-stage-badge">{colunas.find((item)=>item.id===getProjectOperationalStatus(previewProject))?.titulo}</small></div></div>
+              <div className="sf-project-preview-tabs"><span className="active">Resumo</span><span>Financeiro</span><span>Progresso</span><span>Arquivos</span></div>
+              <div className="sf-project-preview-section"><label>Cliente</label><strong>{previewProject.clienteNome || 'Não informado'}</strong><label>Serviço</label><strong>{previewProject.titulo || previewProject.tipoServico || 'Não informado'}</strong><label>Data do evento</label><strong>{formatProjectDate(getProjectDateValue(previewProject))}</strong><label>Local</label><strong>{previewProject.local || 'Não informado'}</strong></div>
+              <div className="sf-project-preview-section"><h4>Contrato</h4><div><span>Valor contratado</span><strong>{formatMoney(previewProject.valorContratado || 0)}</strong></div></div>
+              <div className="sf-project-preview-section"><h4>Financeiro</h4>{(()=>{const f=calculateProjectFinancials(previewProject,transactions);const r=Number(f.valorRecebido??f.recebido??previewProject.valorRecebido??0);const c=Number(previewProject.valorContratado||0);return <><div><span>Recebido</span><strong className="paid">{formatMoney(r)}</strong></div><div><span>Pendente</span><strong className="pending">{formatMoney(Math.max(0,c-r))}</strong></div></>})()}<button type="button" className="sf-preview-open" onClick={() => openDetails(previewProject)}>Abrir painel completo</button></div>
+              <div className="sf-project-preview-section"><h4>Progresso do trabalho</h4><div><span>Etapa atual</span><strong>{getProjectProgress(previewProject)}%</strong></div><div className="sf-preview-progress"><i style={{width:`${getProjectProgress(previewProject)}%`}}/></div></div>
+            </> : <div className="sf-project-preview-empty">Selecione um trabalho para visualizar os detalhes.</div>}
+          </aside>
         </section>
       )}
 

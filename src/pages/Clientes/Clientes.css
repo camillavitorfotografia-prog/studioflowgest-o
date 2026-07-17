@@ -299,3 +299,251 @@
   .sf-client-toolbar { grid-template-columns: 1fr 1fr; }
   .sf-client-toolbar .sf-client-search { grid-column: 1 / -1; }
 }
+
+
+/* Clientes 2.2 — layout sem rolagem horizontal */
+.sf-client-table-scroll { width: 100%; overflow: visible; }
+.sf-client-table-scroll .sf-table,
+.sf-client-table { width: 100%; min-width: 0 !important; table-layout: fixed; }
+.sf-client-table th:nth-child(1) { width: 25%; }
+.sf-client-table th:nth-child(2) { width: 17%; }
+.sf-client-table th:nth-child(3) { width: 15%; }
+.sf-client-table th:nth-child(4) { width: 18%; }
+.sf-client-table th:nth-child(5) { width: 12%; }
+.sf-client-table th:nth-child(6) { width: 13%; }
+.sf-client-table td { overflow-wrap: anywhere; }
+.sf-client-name-cell { display:flex; align-items:center; gap:10px; min-width:0; }
+.sf-client-name-cell > span:last-child { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.sf-client-name-cell small, .sf-client-received { display:block; color:var(--text-secondary); font-size:.68rem; }
+.sf-client-avatar { width:34px; height:34px; flex:0 0 34px; display:grid; place-items:center; border-radius:50%; color:var(--color-highlight); background:rgba(197,160,89,.12); border:1px solid rgba(197,160,89,.25); font-weight:800; }
+.sf-client-table tr.is-recurring td:first-child { box-shadow: inset 3px 0 0 var(--color-highlight); }
+.sf-client-actions-cell { text-align:right; }
+.sf-client-edit-button { white-space:nowrap; padding:8px 10px !important; }
+.sf-client-modal-footer { position:sticky; bottom:-1px; z-index:20; margin:8px -16px -16px; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; background:rgba(12,12,12,.97); border-top:1px solid rgba(255,255,255,.1); backdrop-filter:blur(16px); }
+.sf-client-modal-footer-actions { margin-left:auto; display:flex; gap:10px; }
+
+@media (max-width: 900px) {
+  .sf-client-table thead { display:none; }
+  .sf-client-table, .sf-client-table tbody, .sf-client-table tr, .sf-client-table td { display:block; width:100%; }
+  .sf-client-table tbody { display:grid; gap:12px; }
+  .sf-client-table tr { padding:14px; border:1px solid rgba(255,255,255,.08); border-radius:12px; background:rgba(255,255,255,.02); }
+  .sf-client-table td { padding:8px 0; display:flex; justify-content:space-between; align-items:center; gap:16px; border:0; text-align:right; }
+  .sf-client-table td::before { content:attr(data-label); flex:0 0 38%; color:var(--text-secondary); font-size:.7rem; font-weight:700; text-align:left; text-transform:uppercase; letter-spacing:.04em; }
+  .sf-client-table td:first-child { padding-top:0; }
+  .sf-client-table td:first-child::before { display:none; }
+  .sf-client-name-cell { width:100%; text-align:left; }
+  .sf-client-actions-cell { position:sticky; bottom:0; padding-top:12px !important; background:#111; }
+  .sf-client-actions-cell .sf-client-edit-button { width:100%; justify-content:center; }
+  .sf-client-modal-footer { flex-direction:column-reverse; align-items:stretch; }
+  .sf-client-modal-footer > button, .sf-client-modal-footer-actions, .sf-client-modal-footer-actions button { width:100%; }
+}
+
+/* Clientes 3.0 — lista responsiva sem tabela e sem rolagem horizontal */
+.sf-table-card { overflow: hidden !important; }
+.sf-client-toolbar { grid-template-columns: minmax(220px, 1fr) repeat(3, auto); }
+.sf-client-list { width: 100%; min-width: 0; }
+.sf-client-list-header,
+.sf-client-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.45fr) minmax(130px, .9fr) minmax(120px, .8fr) minmax(150px, 1fr) minmax(100px, .7fr) minmax(110px, auto);
+  gap: 14px;
+  align-items: center;
+}
+.sf-client-list-header { padding: 12px 16px; color: var(--text-secondary); background: rgba(255,255,255,.02); border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.sf-client-list-body { min-width: 0; }
+.sf-client-row { min-width: 0; padding: 14px 16px; border-bottom: 1px solid var(--border-color); cursor: pointer; transition: var(--transition-fast); }
+.sf-client-row:hover { background: rgba(255,255,255,.02); }
+.sf-client-row > div { min-width: 0; overflow-wrap: anywhere; }
+.sf-client-row-name { display: flex; align-items: center; gap: 10px; }
+.sf-client-row-name > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sf-client-row small { display: block; color: var(--text-secondary); font-size: .68rem; }
+.sf-client-row.is-recurring { box-shadow: inset 3px 0 0 var(--color-highlight); }
+.sf-client-row-actions { display: flex; justify-content: flex-end; position: static !important; }
+.sf-client-edit-button { min-width: 96px; justify-content: center; white-space: nowrap; }
+.sf-client-empty { padding: 32px; text-align: center; color: var(--text-secondary); }
+.sf-client-operation-error { position: sticky; bottom: 72px; z-index: 21; padding: 12px 14px; color: var(--color-danger); background: rgba(42,12,12,.98); border: 1px solid rgba(239,68,68,.35); border-radius: 8px; }
+
+@media (max-width: 1050px) {
+  .sf-client-toolbar { grid-template-columns: 1fr 1fr; }
+  .sf-client-toolbar .sf-client-search { grid-column: 1 / -1; }
+  .sf-client-list-header { display: none; }
+  .sf-client-list-body { padding: 12px; display: grid; gap: 12px; }
+  .sf-client-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; padding: 14px; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(255,255,255,.02); }
+  .sf-client-row-name { grid-column: 1 / -1; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+  .sf-client-row > div:not(.sf-client-row-name):not(.sf-client-row-actions)::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: .64rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .sf-client-row-actions { grid-column: 1 / -1; }
+  .sf-client-edit-button { width: 100%; min-height: 42px; }
+}
+
+@media (max-width: 620px) {
+  .sf-client-toolbar { grid-template-columns: 1fr; }
+  .sf-client-toolbar .sf-client-search { grid-column: auto; }
+  .sf-client-row { grid-template-columns: 1fr; }
+  .sf-client-row-name, .sf-client-row-actions { grid-column: auto; }
+  .sf-client-modal-footer { position: sticky; bottom: -1px; }
+}
+
+/* Layout compacto e responsivo pela largura real do módulo, inclusive em tela dividida. */
+.sf-clients-page {
+  container-type: inline-size;
+  container-name: clients-page;
+  min-width: 0;
+}
+
+.sf-clients-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sf-clients-header h1 { font-size: clamp(1.2rem, 2.3cqi, 1.65rem); }
+.sf-clients-header p { margin-top: 4px; font-size: .78rem; }
+.sf-clients-header .sf-primary-button { min-height: 36px; padding: 8px 12px; }
+
+.sf-clients-page .sf-table-card { min-width: 0; overflow: hidden; }
+.sf-client-toolbar { padding: 9px 10px; gap: 8px; }
+.sf-client-search input,
+.sf-client-year-filter select { min-height: 36px !important; padding-top: 7px !important; padding-bottom: 7px !important; }
+.sf-client-year-filter { gap: 4px; font-size: .61rem; }
+.sf-client-year-summary { min-height: 36px; padding: 4px 9px; }
+
+.sf-client-list { width: 100%; min-width: 0; overflow: hidden; }
+.sf-client-list-header,
+.sf-client-row {
+  grid-template-columns: minmax(180px, 1.35fr) minmax(118px, .82fr) minmax(150px, 1fr) minmax(150px, .95fr) minmax(92px, .62fr) 96px;
+  column-gap: 10px;
+}
+.sf-client-list-header { padding: 8px 12px; font-size: .62rem; }
+.sf-client-row { min-height: 58px; padding: 8px 12px; font-size: .76rem; }
+.sf-client-row > div { min-width: 0; }
+.sf-client-row strong,
+.sf-client-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-client-row small { margin-top: 2px; font-size: .64rem; }
+.sf-client-avatar { width: 30px; height: 30px; min-width: 30px; font-size: .75rem; }
+.sf-client-edit-button { min-width: 82px; min-height: 32px; padding: 6px 9px; font-size: .71rem; }
+.sf-client-status { padding: 4px 7px; font-size: .64rem; }
+
+.sf-client-form { gap: 10px !important; }
+.sf-client-form label > span { margin-bottom: 4px !important; font-size: .66rem !important; }
+.sf-client-form input,
+.sf-client-form select,
+.sf-client-form textarea { min-height: 36px !important; padding: 8px 10px !important; }
+.sf-client-finance-center,
+.sf-client-salary-center { padding: 11px; }
+.sf-client-payment { padding: 8px; }
+.sf-client-modal-footer { padding-top: 9px; padding-bottom: 9px; }
+
+@container clients-page (max-width: 980px) {
+  .sf-client-toolbar { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(128px, .45fr)) auto; }
+  .sf-client-list-header { display: none; }
+  .sf-client-list-body { padding: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .sf-client-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 10px;
+    min-height: 0;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: rgba(255,255,255,.018);
+  }
+  .sf-client-row-name { grid-column: 1 / -1; padding-bottom: 7px; border-bottom: 1px solid var(--border-color); }
+  .sf-client-row > div:not(.sf-client-row-name):not(.sf-client-row-actions)::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: var(--text-secondary);
+    font-size: .56rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .sf-client-row-actions { grid-column: 1 / -1; }
+  .sf-client-edit-button { width: 100%; }
+}
+
+@container clients-page (max-width: 760px) {
+  .sf-clients-header { align-items: stretch; }
+  .sf-client-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sf-client-toolbar .sf-client-search { grid-column: 1 / -1; }
+  .sf-client-year-summary { min-width: 0; }
+  .sf-client-list-body { grid-template-columns: 1fr; }
+  .sf-client-form > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .sf-client-payment-fields,
+  .sf-client-withdrawal-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container clients-page (max-width: 520px) {
+  .sf-clients-header { flex-direction: column; }
+  .sf-clients-header .sf-primary-button { width: 100%; justify-content: center; }
+  .sf-client-toolbar { grid-template-columns: 1fr; }
+  .sf-client-toolbar .sf-client-search { grid-column: auto; }
+  .sf-client-row { grid-template-columns: 1fr; }
+  .sf-client-row-name,
+  .sf-client-row-actions { grid-column: auto; }
+  .sf-client-payment-fields,
+  .sf-client-withdrawal-form { grid-template-columns: 1fr; }
+  .sf-client-modal-footer { gap: 7px; }
+  .sf-client-modal-footer-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+}
+
+/* Ações rápidas do cliente: editar e excluir sem abrir o painel. */
+.sf-client-row-actions {
+  gap: 6px;
+  align-items: center;
+}
+
+.sf-client-delete-button {
+  min-width: 34px;
+  min-height: 32px;
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #ef6b6b;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 8px;
+  font-size: .71rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sf-client-delete-button:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.42);
+}
+
+.sf-client-delete-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.sf-client-delete-button span { display: none; }
+
+@container clients-page (max-width: 980px) {
+  .sf-client-row-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sf-client-edit-button { width: 100%; }
+  .sf-client-delete-button { min-width: 42px; min-height: 42px; }
+}
+
+@container clients-page (max-width: 520px) {
+  .sf-client-row-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .72fr);
+  }
+
+  .sf-client-delete-button {
+    width: 100%;
+  }
+
+  .sf-client-delete-button span { display: inline; }
+}

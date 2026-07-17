@@ -23,6 +23,7 @@ import { loadSettings } from '../../utils/settings';
 import {
   buildAnnualReport,
   getAvailableReportYears,
+  formatReportDate,
 } from './annualReportData';
 import './Relatorios.css';
 
@@ -111,6 +112,11 @@ export default function Relatorios() {
     + report.warnings.projectsWithoutDate
     + report.warnings.pendingExpenses
     + report.warnings.reconciliationItems
+    + report.warnings.duplicateProjectsRemoved
+    + report.warnings.excludedProjects
+    + report.warnings.orphanedProjects
+    + (report.warnings.orphanAnnualProjects || 0)
+    + (report.warnings.ignoredFinanceContractReceipts || 0)
   );
 
   return (
@@ -120,7 +126,7 @@ export default function Relatorios() {
           <span className="sf-reports-eyebrow">Inteligência anual</span>
           <h1>Relatório anual</h1>
           <p>
-            Visão operacional e financeira do exercício, com PDF completo para conferência anual e apoio ao imposto de renda.
+            Consolidação anual de contratos, recebimentos e despesas pagas, usando as parcelas cadastradas em Clientes como fonte oficial dos contratos e o Financeiro apenas para receitas avulsas e despesas.
           </p>
         </div>
 
@@ -162,8 +168,8 @@ export default function Relatorios() {
           <span>Filtrados pela data do evento ou serviço.</span>
         </div>
         <div>
-          <strong>Financeiro de {effectiveYear}</strong>
-          <span>Recebimentos pela data de pagamento e despesas somente quando marcadas como pagas.</span>
+          <strong>Base financeira de {effectiveYear}</strong>
+          <span>Regime de caixa: parcelas dos clientes pela data real de recebimento, receitas avulsas do Financeiro e despesas pela data efetiva de pagamento.</span>
         </div>
       </div>
 
@@ -181,19 +187,28 @@ export default function Relatorios() {
               {' · '}
               {report.warnings.pendingExpenses} despesa(s) ainda não confirmada(s) como paga(s)
               {' · '}
-              {report.warnings.reconciliationItems} contrato(s) com valor recebido sem pagamento individual detalhado.
+              {report.warnings.reconciliationItems} contrato(s) com valor recebido sem pagamento individual detalhado
+              {' · '}
+              {report.warnings.duplicateProjectsRemoved} trabalho(s) duplicado(s) removido(s) da consolidação
+              {' · '}
+              {report.warnings.excludedProjects} trabalho(s) cancelado(s), arquivado(s) ou excluído(s) fora dos totais
+              {' · '}
+              {report.warnings.orphanAnnualProjects || 0} trabalho(s) do ano sem cliente oficial vinculado
+              {' · '}
+              {report.warnings.ignoredFinanceContractReceipts || 0} lançamento(s) financeiros de contratos ignorado(s) por já existirem em Clientes.
             </span>
           </div>
         </div>
       )}
 
       <div className="sf-metric-grid sf-reports-metrics">
-        <Metric icon={BriefcaseBusiness} label={`Projetos de ${effectiveYear}`} value={report.totals.projects} raw />
-        <Metric icon={DollarSign} label="Receita contratada dos trabalhos" value={report.totals.contracted} />
-        <Metric icon={TrendingUp} label={`Recebimentos em ${effectiveYear}`} value={report.totals.annualReceived} />
-        <Metric icon={CircleDollarSign} label="Saldo dos trabalhos do ano" value={report.totals.remaining} />
-        <Metric icon={TrendingDown} label="Despesas pagas no ano" value={report.totals.annualExpenses} />
-        <Metric icon={WalletCards} label="Resultado financeiro do ano" value={report.totals.annualResult} />
+        <Metric icon={Users} label={`Clientes com trabalho em ${effectiveYear}`} value={report.totals.clients} raw />
+        <Metric icon={BriefcaseBusiness} label={`Trabalhos únicos em ${effectiveYear}`} value={report.totals.projects} raw />
+        <Metric icon={DollarSign} label={`Valor contratado dos trabalhos de ${effectiveYear}`} value={report.totals.contracted} />
+        <Metric icon={CircleDollarSign} label={`Saldo desses contratos de ${effectiveYear}`} value={report.totals.remaining} />
+        <Metric icon={TrendingUp} label={`Receita recebida em ${effectiveYear} (regime de caixa)`} value={report.totals.taxCashBasisRevenue} />
+        <Metric icon={TrendingDown} label={`Despesas pagas em ${effectiveYear}`} value={report.totals.taxCashBasisExpenses} />
+        <Metric icon={WalletCards} label="Resultado pelo regime de caixa" value={report.totals.taxCashBasisResult} />
       </div>
 
       <div className="sf-report-grid sf-reports-summary-grid">
@@ -205,6 +220,45 @@ export default function Relatorios() {
             ['Conta não informada', formatMoney(report.totals.unclassifiedAccountReceived)],
           ]}
           icon={Building2}
+        />
+        <Report
+          title="Base para conferência fiscal"
+          rows={[
+            ['Receita bruta recebida', formatMoney(report.totals.taxCashBasisRevenue)],
+            ['Despesas pagas', formatMoney(report.totals.taxCashBasisExpenses)],
+            ['Resultado financeiro', formatMoney(report.totals.taxCashBasisResult)],
+          ]}
+          icon={WalletCards}
+        />
+        <Report
+          title={`Origem dos recebimentos de ${effectiveYear}`}
+          rows={[
+            [`Contratos do próprio ${effectiveYear}`, formatMoney(report.totals.currentYearContractReceipts)],
+            ['Contratos de anos anteriores', formatMoney(report.totals.previousYearContractReceipts)],
+            ['Contratos de anos futuros', formatMoney(report.totals.futureYearContractReceipts)],
+            ['Sem trabalho vinculado', formatMoney(report.totals.unlinkedReceipts)],
+          ]}
+          icon={CalendarDays}
+        />
+        <Report
+          title="Registros consolidados"
+          rows={[
+            ['Recebimentos válidos', `${report.ledgerStats.receipts} lançamento(s)`],
+            ['Despesas pagas', `${report.ledgerStats.expenses} lançamento(s)`],
+            ['Parcelas cadastradas em Clientes', `${report.ledgerStats.projectReceipts} recebimento(s)`],
+            ['Receitas avulsas do Financeiro', `${report.ledgerStats.financeReceipts} recebimento(s)`],
+            ['Espelhos financeiros ignorados', `${report.ledgerStats.ignoredFinanceContractReceipts || 0} lançamento(s)`],
+            [`Trabalhos únicos de ${effectiveYear}`, `${report.ledgerStats.annualProjects} registro(s)`],
+            [`Todos os trabalhos válidos de ${effectiveYear}`, `${report.ledgerStats.allAnnualProjects} registro(s)`],
+            [`Clientes atendidos em ${effectiveYear}`, `${report.ledgerStats.annualClients} cliente(s)`],
+            ['Trabalhos totais na base', `${report.ledgerStats.sourceProjects} registro(s)`],
+            ['Trabalhos vinculados a clientes atuais', `${report.ledgerStats.clientBackedProjects} registro(s)`],
+            ['Trabalhos totais após consolidação', `${report.ledgerStats.consolidatedProjects} registro(s)`],
+            ['Trabalhos órfãos/ocultados fora dos totais', `${report.ledgerStats.orphanedProjects} registro(s)`],
+            ['Duplicados/ocultos desconsiderados', `${report.ledgerStats.duplicateProjectsRemoved} registro(s)`],
+            ['Trabalhos do ano sem cliente oficial', `${report.ledgerStats.orphanAnnualProjects || 0} registro(s)`],
+          ]}
+          icon={CircleDollarSign}
         />
         <Report
           title="Despesas ainda não confirmadas"
@@ -269,6 +323,31 @@ export default function Relatorios() {
           columns={['Mês', 'Recebido', 'Empresa/CNPJ', 'Despesas', 'Resultado']}
         />
         <TableCard
+          title={`Contratos que formam o total · ${effectiveYear}`}
+          icon={BriefcaseBusiness}
+          rows={report.projectRows.map((item) => [
+            formatReportDate(item.date),
+            item.clientName,
+            item.service,
+            formatMoney(item.contracted),
+            formatMoney(item.receivedTotal),
+            formatMoney(item.remaining),
+          ])}
+          columns={['Data', 'Cliente', 'Serviço', 'Contratado', 'Recebido total', 'Saldo']}
+        />
+        <TableCard
+          title={`Recebimentos que formam o caixa · ${effectiveYear}`}
+          icon={CircleDollarSign}
+          rows={report.receipts.map((item) => [
+            formatReportDate(item.date),
+            item.clientName || item.description,
+            item.source === 'financeiro' ? 'Financeiro' : 'Trabalho',
+            item.account || 'Não informada',
+            formatMoney(item.amount),
+          ])}
+          columns={['Data', 'Cliente / descrição', 'Origem', 'Conta', 'Valor']}
+        />
+        <TableCard
           title="Rentabilidade por contrato no ano"
           icon={Users}
           rows={report.profitabilityRows.slice(0, 18).map((item) => [
@@ -279,6 +358,33 @@ export default function Relatorios() {
             formatMoney(item.profit),
           ])}
           columns={['Projeto / cliente', 'Serviço', 'Recebido', 'Despesas', 'Resultado']}
+        />
+        <TableCard
+          title="Despesas pagas por categoria"
+          icon={TrendingDown}
+          rows={report.expenseCategoryRows.map((item) => [
+            item.category,
+            formatMoney(item.amount),
+          ])}
+          columns={['Categoria', 'Total pago']}
+        />
+        <TableCard
+          title="Recebimentos por forma de pagamento"
+          icon={WalletCards}
+          rows={report.receiptMethodRows.map((item) => [
+            item.method,
+            formatMoney(item.amount),
+          ])}
+          columns={['Forma de pagamento', 'Total recebido']}
+        />
+        <TableCard
+          title="Recebimentos por conta"
+          icon={Building2}
+          rows={report.receiptAccountRows.map((item) => [
+            item.account,
+            formatMoney(item.amount),
+          ])}
+          columns={['Conta de destino', 'Total recebido']}
         />
         <TableCard
           title="Equipamentos por retorno no ano"

@@ -425,15 +425,29 @@ export async function generateAnnualReportPdf({ report, studio = {} }) {
   );
 
   drawMetricGrid([
-    { label: 'Projetos com data no ano', value: String(report.totals.projects) },
-    { label: 'Receita contratada dos trabalhos', value: money(report.totals.contracted) },
-    { label: 'Recebimentos com data no ano', value: money(report.totals.annualReceived), color: COLORS.positive },
-    { label: 'Recebido em Empresa / CNPJ', value: money(report.totals.companyReceived), color: COLORS.positive },
-    { label: 'Saldo dos trabalhos do ano', value: money(report.totals.remaining) },
+    { label: 'Clientes com trabalho no ano', value: String(report.totals.clients) },
+    { label: 'Trabalhos com data no ano', value: String(report.totals.projects) },
+    { label: 'Valor contratado desses trabalhos', value: money(report.totals.contracted) },
+    { label: 'Saldo desses contratos', value: money(report.totals.remaining) },
+    { label: 'Recebimentos no ano (caixa)', value: money(report.totals.annualReceived), color: COLORS.positive },
     { label: 'Despesas pagas no ano', value: money(report.totals.annualExpenses), color: COLORS.negative },
     { label: 'Resultado financeiro do ano', value: money(report.totals.annualResult), color: report.totals.annualResult >= 0 ? COLORS.positive : COLORS.negative },
     { label: 'Casamentos no ano', value: String(report.totals.weddings) },
   ]);
+
+  drawTable({
+    title: 'Origem dos recebimentos pelo ano do contrato',
+    columns: [
+      { key: 'origin', label: 'Origem', width: 330, bold: true },
+      { key: 'amount', label: 'Valor recebido no exercício', width: 181, bold: true },
+    ],
+    rows: [
+      { origin: `Contratos do próprio ${report.year}`, amount: money(report.totals.currentYearContractReceipts) },
+      { origin: 'Contratos de anos anteriores', amount: money(report.totals.previousYearContractReceipts) },
+      { origin: 'Contratos de anos futuros', amount: money(report.totals.futureYearContractReceipts) },
+      { origin: 'Recebimentos sem trabalho vinculado', amount: money(report.totals.unlinkedReceipts) },
+    ],
+  });
 
   if (report.warnings.receiptsWithoutDate || report.warnings.expensesWithoutDate || report.warnings.projectsWithoutDate || report.warnings.pendingExpenses) {
     drawWarning(

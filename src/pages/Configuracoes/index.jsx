@@ -32,6 +32,8 @@ import {
   maskPhone,
 } from '../../utils/masks';
 import { parseCurrency } from '../../utils/formatters';
+import { getDbStudioData } from '../../utils/dbData';
+import { syncGoogleCalendarProjects } from '../../services/googleCalendarIntegration';
 import {
   INTEGRATION_PROVIDERS,
   disconnectIntegration,
@@ -477,8 +479,17 @@ export default function Configuracoes() {
     if (!config) return;
     setIntegrationBusy(key);
     try {
-      await requestIntegrationAction('integration-sync', { provider: config.provider });
-      setMessage(`${config.name} sincronizado com sucesso.`);
+      if (key === 'googleCalendar' || key === 'googleMeet') {
+        const studioData = await getDbStudioData();
+        const response = await syncGoogleCalendarProjects(
+          studioData?.projects || [],
+          { force: false },
+        );
+        setMessage(response?.message || `${config.name} sincronizado com sucesso.`);
+      } else {
+        await requestIntegrationAction('integration-sync', { provider: config.provider });
+        setMessage(`${config.name} sincronizado com sucesso.`);
+      }
       await refreshIntegrations();
     } catch (error) {
       setMessage(error?.message || 'Não foi possível sincronizar agora.');
@@ -966,7 +977,7 @@ export default function Configuracoes() {
                           <>
                             <button type="button" onClick={() => syncIntegration(key)} disabled={busy}>
                               <RefreshCw size={15} className={busy ? 'spin' : ''} />
-                              Sincronizar
+                              {key === 'googleCalendar' ? 'Sincronizar eventos' : key === 'googleMeet' ? 'Sincronizar reuniões' : 'Sincronizar'}
                             </button>
                             <button className="danger" type="button" onClick={() => removeIntegration(key)} disabled={busy}>
                               <Unplug size={15} />
@@ -996,13 +1007,17 @@ export default function Configuracoes() {
                 })}
               </div>
 
-              <div className="integration-setup-note">
-                <CircleAlert size={18} />
-                <div>
-                  <strong>Ativação das integrações Google</strong>
-                  <p>O código e as tabelas estão preparados. Para concluir a conexão real, cadastre GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e GOOGLE_OAUTH_REDIRECT_URI como segredos do Supabase e publique as Edge Functions de OAuth e sincronização.</p>
+              {!['google_calendar', 'google_meet', 'gmail', 'google_drive'].every(
+                (provider) => integrationAccountMap[provider]?.status === 'connected',
+              ) && (
+                <div className="integration-setup-note">
+                  <CircleAlert size={18} />
+                  <div>
+                    <strong>Ativação das integrações Google</strong>
+                    <p>Conclua a autorização do Google Workspace para liberar Calendar, Meet, Gmail e Drive.</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {selectedIntegration && (
                 <div className="integration-detail-panel">
