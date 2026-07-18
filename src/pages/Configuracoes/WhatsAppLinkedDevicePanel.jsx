@@ -23,7 +23,7 @@ export default function WhatsAppLinkedDevicePanel() {
     try {
       const result = await getLinkedDeviceStatus();
       setState(result);
-      setError('');
+      setError(result?.error || '');
     } catch (err) {
       setError(err.message);
     }
@@ -39,7 +39,9 @@ export default function WhatsAppLinkedDevicePanel() {
     setBusy(true);
     setError('');
     try {
-      setState(await startLinkedDeviceSession());
+      const result = await startLinkedDeviceSession();
+      setState(result);
+      setError(result?.error || '');
     } catch (err) {
       setError(err.message);
     } finally {

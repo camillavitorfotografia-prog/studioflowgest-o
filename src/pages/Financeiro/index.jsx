@@ -7691,69 +7691,59 @@ function DreFinanceira({ data }) {
   const [closings, setClosings] = useState(readMonthClosings);
 
   const dre = useMemo(() => {
-    const revenues = data.consolidated.todasReceitas.filter(
-      (item) => (
-        deriveFinancialStatus(item) !== 'cancelada'
-        && StringgetTransactionCompetence(item)
-          === referenceMonth
-      ),
+    const allRevenues = Array.isArray(data.consolidated?.todasReceitas)
+      ? data.consolidated.todasReceitas
+      : [];
+    const allExpenses = Array.isArray(data.consolidated?.despesas)
+      ? data.consolidated.despesas
+      : [];
+
+    const belongsToReferenceMonth = (item) => (
+      deriveFinancialStatus(item) !== 'cancelada'
+      && String(getTransactionCompetence(item) || '') === referenceMonth
     );
 
-    const expenses = data.consolidated.despesas.filter(
-      (item) => (
-        deriveFinancialStatus(item) !== 'cancelada'
-        && StringgetTransactionCompetence(item)
-          === referenceMonth
-      ),
-    );
+    const safeAmount = (item) => {
+      const amount = Number(item?.valor ?? item?.amount ?? 0);
+      return Number.isFinite(amount) ? amount : 0;
+    };
+
+    const isTaxExpense = (item) => {
+      const category = String(item?.categoria || item?.category || '')
+        .trim()
+        .toLowerCase();
+      return category.includes('imposto') || category.includes('mei');
+    };
+
+    const revenues = allRevenues.filter(belongsToReferenceMonth);
+    const expenses = allExpenses.filter(belongsToReferenceMonth);
+    const operatingExpenses = expenses.filter((item) => !isTaxExpense(item));
 
     const grossRevenue = revenues.reduce(
-      (sum, item) => sum + Number(item.valor || 0),
+      (sum, item) => sum + safeAmount(item),
       0,
     );
 
-    const fixedExpenses = expenses
-      .filter((item) => item.tipo === 'fixa')
-      .reduce(
-        (sum, item) => sum + Number(item.valor || 0),
-        0,
-      );
+    const fixedExpenses = operatingExpenses
+      .filter((item) => String(item?.tipo || '').toLowerCase() === 'fixa')
+      .reduce((sum, item) => sum + safeAmount(item), 0);
 
-    const variableExpenses = expenses
-      .filter((item) => item.tipo === 'variavel')
-      .reduce(
-        (sum, item) => sum + Number(item.valor || 0),
-        0,
-      );
+    const variableExpenses = operatingExpenses
+      .filter((item) => String(item?.tipo || '').toLowerCase() === 'variavel')
+      .reduce((sum, item) => sum + safeAmount(item), 0);
 
     const taxes = expenses
-      .filter((item) => (
-        String(item.categoria || '')
-          .toLowerCase()
-          .includes('imposto')
-        || String(item.categoria || '')
-          .toLowerCase()
-          .includes('mei')
-      ))
-      .reduce(
-        (sum, item) => sum + Number(item.valor || 0),
-        0,
-      );
+      .filter(isTaxExpense)
+      .reduce((sum, item) => sum + safeAmount(item), 0);
 
-    const operationalCost = (
-      fixedExpenses
-      + variableExpenses
-      + data.depreciacaoMensal
-    );
+    const depreciationValue = Number(data.depreciacaoMensal || 0);
+    const depreciation = Number.isFinite(depreciationValue)
+      ? depreciationValue
+      : 0;
 
+    const operationalCost = fixedExpenses + variableExpenses + depreciation;
     const grossProfit = grossRevenue - variableExpenses;
-    const operatingProfit = (
-      grossRevenue
-      - fixedExpenses
-      - variableExpenses
-      - data.depreciacaoMensal
-    );
-
+    const operatingProfit = grossRevenue - operationalCost;
     const netProfit = operatingProfit - taxes;
     const margin = grossRevenue > 0
       ? (netProfit / grossRevenue) * 100
@@ -7763,13 +7753,13 @@ function DreFinanceira({ data }) {
       grossRevenue,
       fixedExpenses,
       variableExpenses,
-      depreciation: data.depreciacaoMensal,
+      depreciation,
       taxes,
       operationalCost,
       grossProfit,
       operatingProfit,
       netProfit,
-      margin,
+      margin: Number.isFinite(margin) ? margin : 0,
     };
   }, [
     data.consolidated.despesas,
