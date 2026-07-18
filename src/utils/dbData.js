@@ -303,6 +303,39 @@ export const mapLeadFromDb = (lead = {}) => {
     updatedAt:
       lead.updated_at
       || lead.updatedAt,
+
+    // Preserve lifecycle fields so a trashed lead remains trashed after reload.
+    deletedAt:
+      lead.deleted_at
+      || lead.deletedAt
+      || lead.excluido_em
+      || lead.excluidoEm
+      || null,
+
+    deleted_at:
+      lead.deleted_at
+      || lead.deletedAt
+      || lead.excluido_em
+      || lead.excluidoEm
+      || null,
+
+    naLixeira: Boolean(
+      lead.na_lixeira
+      ?? lead.naLixeira
+      ?? lead.deleted_at
+      ?? lead.deletedAt
+      ?? lead.excluido_em
+      ?? lead.excluidoEm
+    ),
+
+    na_lixeira: Boolean(
+      lead.na_lixeira
+      ?? lead.naLixeira
+      ?? lead.deleted_at
+      ?? lead.deletedAt
+      ?? lead.excluido_em
+      ?? lead.excluidoEm
+    ),
   });
 };
 
@@ -402,6 +435,27 @@ export const mapTransactionFromDb = (transaction = {}) => ({
     || transaction.dataVencimento
     || transaction.data
     || '',
+  vencimento:
+    transaction.data_vencimento
+    || transaction.vencimento
+    || transaction.dataVencimento
+    || transaction.data
+    || '',
+  dataPagamento:
+    transaction.data_pagamento
+    || transaction.dataPagamento
+    || '',
+  data_pagamento:
+    transaction.data_pagamento
+    || transaction.dataPagamento
+    || '',
+  dataRecebimento:
+    transaction.data_recebimento
+    || transaction.dataRecebimento
+    || ((String(transaction.tipo_geral || transaction.tipoGeral || '').toLowerCase() === 'entrada'
+      || ['receita_avulsa', 'receita_contrato', 'avulsa'].includes(transaction.tipo))
+      ? (transaction.data_pagamento || transaction.dataPagamento || '')
+      : ''),
   status: transaction.status || '',
   categoria: transaction.categoria || '',
   fornecedor: transaction.fornecedor || '',
@@ -418,6 +472,7 @@ export const mapTransactionFromDb = (transaction = {}) => ({
     || transaction.contaOrigem
     || 'empresa',
   detalhes: transaction.detalhes || {},
+  ...(transaction.detalhes && typeof transaction.detalhes === 'object' ? transaction.detalhes : {}),
   recurrenceId:
     transaction.recurrence_id
     || transaction.recurrenceId
@@ -960,7 +1015,16 @@ export const syncEquipmentList = async (items = []) => {
   localStorage.setItem('cv_studio_equipamentos', JSON.stringify(list));
   if (!isSupabaseConfigured || unavailableTables.has('equipamentos')) return list;
 
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
+
+  const userId = authData?.user?.id;
+  if (!userId) {
+    throw new Error('Sessão do usuário não encontrada. Entre novamente para sincronizar os equipamentos.');
+  }
+
   const payload = list.map((item) => ({
+    user_id: userId,
     id: String(item.id || `equipamento-${crypto.randomUUID()}`),
     nome: item.nome || item.name || 'Equipamento',
     categoria: item.categoria || 'Outro',
@@ -980,12 +1044,60 @@ export const syncEquipmentList = async (items = []) => {
     observacoes: item.observacoes || null,
     manutencoes: Array.isArray(item.manutencoes) ? item.manutencoes : [],
     origem: item.origem || 'manual',
+    comprador: item.destinatarioSaida || item.comprador || null,
+    data_venda: item.dataSaida || item.dataVenda || null,
+    valor_venda: Number(item.valorAtribuidoSaida ?? item.valorVenda ?? 0),
+    forma_recebimento: item.formaSaida || item.formaRecebimento || null,
+    observacoes_venda: item.observacoesSaida || item.observacoesVenda || null,
+    valor_contabil_venda: Number(item.valorContabilVenda || 0),
+    resultado_patrimonial_venda: Number(item.resultadoPatrimonialVenda || 0),
+    depreciacao_encerrada_em: item.depreciacaoEncerradaEm || null,
+    historico: Array.isArray(item.historico) ? item.historico : [],
+    tipo_saida: item.tipoSaida || null,
+    referencia_negociacao: item.referenciaNegociacao || null,
+    servico_recebido: item.servicoRecebido || null,
+    fornecedor_servico: item.fornecedorServico || null,
+    valor_total_servico: Number(item.valorTotalServico || 0),
+    complemento_dinheiro: Number(item.complementoDinheiro || 0),
+    conta_complemento: item.contaComplemento || null,
+    finance_exit_id: item.financeExitId || null,
+    origem_recursos_tipo: item.origemRecursosTipo || null,
+    origem_recursos: item.origemRecursos || null,
+    entrada_origem_id: item.entradaOrigemId || null,
+    composicao_recursos: Array.isArray(item.composicaoRecursos) ? item.composicaoRecursos : [],
     updated_at: new Date().toISOString(),
   }));
 
   if (payload.length) {
-    const { error } = await supabase.from('equipamentos').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
+    // O projeto pode ser aberto antes de a migration mais recente ser aplicada.
+    // Nessa situação o PostgREST rejeita todo o upsert por causa de uma coluna
+    // nova. Removemos somente a coluna desconhecida e repetimos a operação,
+    // preservando a sincronização dos campos já existentes no Supabase.
+    let compatiblePayload = payload.map((item) => ({ ...item }));
+    const removedColumns = [];
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const { error } = await supabase.from('equipamentos').upsert(compatiblePayload, { onConflict: 'id' });
+      if (!error) break;
+
+      const message = String(error.message || error.details || '');
+      const match = message.match(/(?:column|campo) ['"]?([a-zA-Z0-9_]+)['"]?/i)
+        || message.match(/Could not find the ['"]([^'"]+)['"] column/i);
+      const missingColumn = match?.[1];
+      if (!missingColumn || !compatiblePayload.some((item) => Object.prototype.hasOwnProperty.call(item, missingColumn))) {
+        throw error;
+      }
+
+      removedColumns.push(missingColumn);
+      compatiblePayload = compatiblePayload.map((item) => {
+        const next = { ...item };
+        delete next[missingColumn];
+        return next;
+      });
+    }
+
+    if (removedColumns.length) {
+      console.warn('Equipamentos sincronizados em modo compatível. Aplique as migrations para habilitar todos os campos:', removedColumns);
+    }
   }
 
   // Sincroniza apenas os registros informados. Não remove os demais equipamentos
@@ -1069,14 +1181,33 @@ export const getDbStudioData = async () => {
   const localEquipment = (() => {
     try { return JSON.parse(localStorage.getItem('cv_studio_equipamentos') || '[]'); } catch { return []; }
   })();
-  const equipment = rawEquipment.length
-    ? rawEquipment.map(mapEquipmentFromDb)
-    : (Array.isArray(localEquipment) ? localEquipment : []);
+  const remoteEquipment = rawEquipment.map(mapEquipmentFromDb);
+  const localEquipmentList = Array.isArray(localEquipment) ? localEquipment : [];
+  const equipmentMap = new Map();
 
-  if (!rawEquipment.length && equipment.length && isSupabaseConfigured) {
-    void syncEquipmentList(equipment).catch((error) => {
-      console.warn('Não foi possível migrar o patrimônio local para o Supabase:', error);
-    });
+  remoteEquipment.forEach((item) => {
+    equipmentMap.set(String(item.id), item);
+  });
+
+  localEquipmentList.forEach((item) => {
+    const key = String(item?.id || '');
+    if (!key) return;
+    const remote = equipmentMap.get(key);
+    equipmentMap.set(key, remote ? { ...remote, ...item } : item);
+  });
+
+  const equipment = [...equipmentMap.values()];
+
+  if (equipment.length && isSupabaseConfigured) {
+    const hasLocalOnlyItems = localEquipmentList.some((item) => (
+      !remoteEquipment.some((remote) => String(remote.id) === String(item?.id))
+    ));
+
+    if (!rawEquipment.length || hasLocalOnlyItems) {
+      void syncEquipmentList(equipment).catch((error) => {
+        console.warn('Não foi possível sincronizar o patrimônio local com o Supabase:', error);
+      });
+    }
   }
 
   const projects = rawProjects.map((project) => (

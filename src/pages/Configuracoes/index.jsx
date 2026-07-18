@@ -45,6 +45,7 @@ import {
 
 import './Configuracoes.css';
 import './ConfiguracoesEnhancements.css';
+import WhatsAppLinkedDevicePanel from './WhatsAppLinkedDevicePanel';
 
 const tabs = [
   ['general', 'Geral', Settings],
@@ -449,6 +450,15 @@ export default function Configuracoes() {
         status: 'connecting',
         settings: {},
       });
+
+      if (key === 'whatsapp') {
+        const response = await requestIntegrationAction('whatsapp-connect');
+        setMessage(response?.profile?.display_phone_number
+          ? `WhatsApp conectado: ${response.profile.display_phone_number}`
+          : 'WhatsApp Business conectado com sucesso.');
+        await refreshIntegrations();
+        return;
+      }
       await writeIntegrationLog({
         provider: config.provider,
         action: 'oauth_requested',
@@ -479,7 +489,12 @@ export default function Configuracoes() {
     if (!config) return;
     setIntegrationBusy(key);
     try {
-      if (key === 'googleCalendar' || key === 'googleMeet') {
+      if (key === 'whatsapp') {
+        const response = await requestIntegrationAction('whatsapp-connect');
+        setMessage(response?.profile?.display_phone_number
+          ? `WhatsApp validado: ${response.profile.display_phone_number}`
+          : 'WhatsApp validado com sucesso.');
+      } else if (key === 'googleCalendar' || key === 'googleMeet') {
         const studioData = await getDbStudioData();
         const response = await syncGoogleCalendarProjects(
           studioData?.projects || [],
@@ -930,6 +945,7 @@ export default function Configuracoes() {
               </div>
 
               <div className="integration-cards">
+                <WhatsAppLinkedDevicePanel />
                 {Object.entries(INTEGRATION_PROVIDERS).map(([key, config]) => {
                   const Icon = integrationIcons[key] || Link2;
                   const status = getIntegrationStatus(key);
@@ -1031,7 +1047,7 @@ export default function Configuracoes() {
                     <ul>
                       {INTEGRATION_PROVIDERS[selectedIntegration]?.capabilities.map((item) => <li key={item}>{item}</li>)}
                     </ul>
-                    <p>Esta integração será ativada depois do núcleo Google, usando a mesma camada segura de contas, logs e webhooks.</p>
+                    <p>O WhatsApp usa webhook oficial da Meta. Após cadastrar os Secrets no Supabase e publicar as funções, mensagens de números novos criam leads automaticamente no CRM; números conhecidos são vinculados ao cadastro existente.</p>
                   </div>
                 </div>
               )}

@@ -247,7 +247,7 @@ export default function BibliotecaArquivos() {
       <header className="file-library-header">
         <div>
           <span>GESTÃO DE ARQUIVOS</span>
-          <h1>Biblioteca</h1>
+          <h1>Arquivos</h1>
           <p>Centralize fotos, vídeos, documentos e entregas vinculadas aos seus clientes e trabalhos.</p>
         </div>
         <div className="file-library-header-actions">
@@ -297,7 +297,7 @@ export default function BibliotecaArquivos() {
         {isDragging && <div className="file-library-drag-overlay"><UploadCloud /><strong>Solte os arquivos para enviar</strong></div>}
 
         {loading ? (
-          <div className="file-library-empty"><LoaderCircle className="spin" /><h2>Carregando biblioteca</h2></div>
+          <div className="file-library-empty"><LoaderCircle className="spin" /><h2>Carregando arquivos</h2></div>
         ) : filteredFiles.length ? (
           <div className={`file-library-items ${view}`}>
             {filteredFiles.map((file) => {

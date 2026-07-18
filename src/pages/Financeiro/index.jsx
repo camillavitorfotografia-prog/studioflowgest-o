@@ -48,6 +48,7 @@ import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis
 import Modal from '../../components/Modal';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
+import { buildFinancialAccounting, getCanonicalEquipmentForAccounting } from '../../utils/financialAccounting';
 import { readStorage, writeStorage, STORAGE_KEYS, createId } from '../../utils/storage';
 import {
   dateToInput,
@@ -61,10 +62,15 @@ import {
 } from '../../utils/masks';
 import Despesas from './Despesas';
 import {
+  OPERATIONAL_INCOME_CATEGORIES,
+  NON_OPERATIONAL_INCOME_CATEGORIES,
+  isNonOperationalIncome,
+  getIncomeNatureLabel,
+} from '../../utils/incomeClassification';
+import {
   FINANCE_STORAGE_KEYS,
   FIXED_EXPENSE_CATEGORIES,
   VARIABLE_EXPENSE_CATEGORIES,
-  AVULSA_INCOME_CATEGORIES,
   PAYMENT_METHODS,
   formatCurrency,
   getTransactionDate,
@@ -498,6 +504,7 @@ function MonthInput({
 }
 
 function useFinanceData() {
+  const [loading, setLoading] = useState(true);
   const [financasConfig, setFinancasConfig] = useState(() =>
     JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'),
   );
@@ -508,18 +515,50 @@ function useFinanceData() {
     contracts: [],
     clients: [],
     projects: [],
+    canonicalRows: [],
   });
 
   const loadAll = async () => {
+    setLoading(true);
     const config = await loadDistributionConfig();
     setFinancasConfig(config);
 
-    const rawTransactions = readStorage(STORAGE_KEYS.finances, []);
+    const localTransactions = readStorage(STORAGE_KEYS.finances, []);
     const rawRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
-    const projects = readStorage(STORAGE_KEYS.projects, []);
-    const clients = readStorage(STORAGE_KEYS.clients, []);
+    const localProjects = readStorage(STORAGE_KEYS.projects, []);
+    const localClients = readStorage(STORAGE_KEYS.clients, []);
     const contracts = readStorage(STORAGE_KEYS.contracts, []);
-    const equipment = readStorage(STORAGE_KEYS.equipment, []);
+    const localEquipment = readStorage(STORAGE_KEYS.equipment, []);
+
+    let remoteStudio = null;
+    let canonicalRows = [];
+    if (isSupabaseConfigured) {
+      try {
+        const [studioResult, ledgerResult] = await Promise.all([
+          getDbStudioData(),
+          supabase.from('finance_ledger_canonical').select('*'),
+        ]);
+        remoteStudio = studioResult;
+        if (ledgerResult.error) throw ledgerResult.error;
+        canonicalRows = Array.isArray(ledgerResult.data) ? ledgerResult.data : [];
+      } catch (error) {
+        console.warn('Financeiro: não foi possível atualizar os dados canônicos do Supabase; usando lançamentos brutos.', error);
+        try { remoteStudio = remoteStudio || await getDbStudioData(); } catch { /* mantém espelhos locais */ }
+      }
+    }
+
+    const rawTransactions = remoteStudio?.transactions?.length
+      ? remoteStudio.transactions
+      : localTransactions;
+    const projects = remoteStudio?.projects?.length
+      ? remoteStudio.projects
+      : localProjects;
+    const clients = remoteStudio?.clients?.length
+      ? remoteStudio.clients
+      : localClients;
+    const equipment = remoteStudio?.equipment?.length
+      ? remoteStudio.equipment
+      : localEquipment;
 
     // Geração idempotente de competências recorrentes
     const newRecurrents = generateRecurrentExpenses(rawRecurrences, rawTransactions, new Date());
@@ -563,7 +602,9 @@ function useFinanceData() {
       contracts,
       clients,
       projects,
+      canonicalRows,
     });
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -577,9 +618,16 @@ function useFinanceData() {
   }, []);
 
   const computed = useMemo(() => {
-    const { transacoes, equipamentos, contracts, clients, projects } = dataState;
+    const { transacoes, equipamentos, contracts, clients, projects, canonicalRows } = dataState;
     const now = new Date();
     const currentMonth = monthKey(now);
+    const accounting = buildFinancialAccounting({
+      projects,
+      transactions: transacoes,
+      canonicalRows,
+      equipment: equipamentos,
+      referenceDate: now,
+    });
 
     const consolidated = getConsolidatedFinances({ contracts, transactions: transacoes, clients });
     const indicators = calculateFinancialIndicators({
@@ -589,102 +637,44 @@ function useFinanceData() {
       referenceDate: now,
     });
 
-    const localSaldos = { salario: 0, empresa: 0, reserva: 0 };
-    
-    consolidated.todasReceitas.forEach((r) => {
-      const statusDerivado = deriveFinancialStatus(r);
-      if (statusDerivado === 'recebida') {
-        const dest = r.contaOrigem || 'empresa';
-        if (dest in localSaldos) localSaldos[dest] += r.valor || 0;
-      }
-    });
-
-    consolidated.despesas.forEach((d) => {
-      const statusDerivado = deriveFinancialStatus(d);
-      if (statusDerivado === 'paga') {
-        const origin = d.contaOrigem || 'empresa';
-        if (origin in localSaldos) localSaldos[origin] -= d.valor || 0;
-      }
-    });
-
-    transacoes
-      .filter(isInternalTransfer)
-      .forEach((transfer) => {
-        const value = Number(transfer.valor || 0);
-
-        if (transfer.transferDirection === 'out') {
-          const origin = transfer.contaOrigem || 'empresa';
-          if (origin in localSaldos) localSaldos[origin] -= value;
-        }
-
-        if (transfer.transferDirection === 'in') {
-          const destination = transfer.contaDestino
-            || transfer.contaOrigem
-            || 'empresa';
-
-          if (destination in localSaldos) {
-            localSaldos[destination] += value;
-          }
-        }
-      });
-
-    const saldos = {
-      salario: Math.round(localSaldos.salario * 100) / 100,
-      empresa: Math.round(localSaldos.empresa * 100) / 100,
-      reserva: Math.round(localSaldos.reserva * 100) / 100,
-    };
+    const saldos = accounting.accounts;
 
     localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(saldos));
 
-    const despesasFixas = consolidated.despesas
-      .filter((d) => d.tipo === 'fixa' && d.vencimento && d.vencimento.slice(0, 7) === currentMonth)
-      .reduce((sum, d) => sum + (d.valor || 0), 0);
-    const despesasVariaveis = consolidated.despesas
-      .filter((d) => d.tipo === 'variavel' && d.vencimento && d.vencimento.slice(0, 7) === currentMonth)
-      .reduce((sum, d) => sum + (d.valor || 0), 0);
+    const despesasFixas = accounting.paidFixedMonth;
+    const despesasVariaveis = accounting.paidVariableMonth;
 
-    const depreciacaoMensal = getEquipmentMonthlyDepreciation(equipamentos);
-    const mediaVariavel = getAverageVariableExpenses(transacoes);
-    const custoOperacional = despesasFixas + mediaVariavel + depreciacaoMensal;
+    const depreciacaoMensal = accounting.monthlyDepreciation;
+    const mediaVariavel = despesasVariaveis;
+    const custoOperacional = accounting.currentOperatingCost;
 
-    const receitaBruta = indicators.receitasRecebidasMes;
-    
-    const despesasPagasNoMes = consolidated.despesas
-      .filter((d) => {
-        const statusDerivado = deriveFinancialStatus(d);
-        return statusDerivado === 'paga' && d.dataPagamento && d.dataPagamento.slice(0, 7) === currentMonth;
-      })
-      .reduce((sum, d) => sum + (d.valor || 0), 0);
-
-    const lucroReal = receitaBruta - despesasPagasNoMes - depreciacaoMensal;
+    const receitaBruta = accounting.operationalReceivedMonth;
+    const despesasPagasNoMes = accounting.paidExpensesMonth;
+    const resultadoCaixaOperacional = accounting.operationalCashResult;
+    const lucroReal = accounting.accountingResult;
     const margemLucro = receitaBruta > 0 ? (lucroReal / receitaBruta) * 100 : 0;
-    const fluxoCaixa = receitaBruta - despesasPagasNoMes;
+    const fluxoCaixa = accounting.netCashMovement;
 
-    const proximosVencimentos = consolidated.despesas
-      .filter((d) => {
-        const statusDerivado = deriveFinancialStatus(d);
-        return statusDerivado !== 'paga' && statusDerivado !== 'cancelada';
-      })
-      .sort((a, b) => new Date(a.vencimento) - new Date(b.vencimento))
-      .slice(0, 5);
+    const proximosVencimentos = accounting.pendingNext30.slice(0, 5).map((item) => ({
+      ...item,
+      descricao: item.descricao || item.nome || 'Despesa',
+      vencimento: item.dueDate || item.date || '',
+      valor: Number(item.amount || item.valor || 0),
+    }));
 
-    const despesasMes = consolidated.despesas
-      .filter((d) => d.vencimento && d.vencimento.slice(0, 7) === currentMonth && d.status !== 'cancelada');
-    const despesasPorCategoria = groupBySum(despesasMes, (item) => item.categoria);
+    const despesasMes = accounting.paidExpensesMonthRows;
+    const despesasPorCategoria = groupBySum(despesasMes, (item) => item.categoria || item.category || 'Sem categoria');
     const maiorCategoria = Object.entries(despesasPorCategoria).sort((a, b) => b[1] - a[1])[0];
 
-    const totalDespesas = consolidated.despesas
-      .filter((d) => deriveFinancialStatus(d) === 'paga')
-      .reduce((sum, d) => sum + (d.valor || 0), 0);
-
-    const totalRecebidoHistorico = consolidated.todasReceitas
-      .filter((r) => deriveFinancialStatus(r) === 'recebida')
-      .reduce((sum, r) => sum + (r.valor || 0), 0);
-
+    const totalDespesas = accounting.totals.paidExpenses;
+    const totalRecebidoHistorico = accounting.totals.operationalReceived;
     const resultadoLiquido = totalRecebidoHistorico - totalDespesas;
 
+    const entradasNaoOperacionaisRecebidas = accounting.totals.nonOperationalReceived;
+    const entradasNaoOperacionaisMes = accounting.nonOperationalMonth;
+
     const financeSnapshot = {
-      forecast: fluxoCaixa + indicators.totalAReceber,
+      forecast: accounting.projected30,
       distribution: normalizeDistributionConfig(financasConfig),
     };
 
@@ -697,19 +687,24 @@ function useFinanceData() {
       receitaBruta,
       receitaContratada: indicators.receitasPrevistasMes,
       receitaRecebida: totalRecebidoHistorico,
-      contasAReceber: indicators.totalAReceber,
+      contasAReceber: accounting.receivableNext30,
       inadimplente: indicators.receitasVencidas,
       despesasFixas,
       despesasVariaveis,
       totalDespesas,
       resultadoLiquido,
+      entradasNaoOperacionaisRecebidas,
+      entradasNaoOperacionaisMes,
       depreciacaoMensal,
       mediaVariavel,
       custoOperacional,
       lucroReal,
+      resultadoCaixaOperacional,
+      despesasPagasNoMes,
+      accounting,
       margemLucro,
       fluxoCaixa,
-      contasAPagar: indicators.totalAPagar,
+      contasAPagar: accounting.payableNext30,
       proximosVencimentos,
       maiorCategoria,
       financeSnapshot,
@@ -717,6 +712,7 @@ function useFinanceData() {
       projects,
       clients,
       loadAll,
+      loading,
     };
   }, [dataState, financasConfig]);
 
@@ -896,7 +892,7 @@ export default function Financeiro() {
         })}
       </div>
 
-      {activeTab === 'dashboard' && <FinanceDashboard data={financeData} />}
+      {activeTab === 'dashboard' && (financeData.loading ? <FinanceLoading /> : <FinanceDashboard data={financeData} />)}
       {activeTab === 'receitas' && <Receitas data={financeData} />}
       {activeTab === 'fixas' && <Despesas area="fixa" />}
       {activeTab === 'variaveis' && <Despesas area="variavel" />}
@@ -1025,6 +1021,19 @@ export default function Financeiro() {
   );
 }
 
+
+function FinanceLoading() {
+  return (
+    <div className="sf-card" style={{ padding: '24px', display: 'flex', alignItems: 'center', gap: '12px' }} role="status">
+      <div style={{ width: 22, height: 22, border: '2px solid var(--border-color)', borderTopColor: 'var(--color-highlight)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <div style={{ display: 'grid', gap: 4 }}>
+        <strong>Carregando dados financeiros</strong>
+        <span className="sf-muted">Conferindo caixa, recebimentos, despesas e depreciação.</span>
+      </div>
+    </div>
+  );
+}
+
 function FinanceDashboard({ data }) {
   const [configOpen, setConfigOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
@@ -1074,127 +1083,32 @@ function FinanceDashboard({ data }) {
   };
 
   const executive = useMemo(() => {
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    const currentMonth = today.slice(0, 7);
-    const next30 = new Date(now);
-    next30.setDate(next30.getDate() + 30);
-    const next30Date = next30.toISOString().slice(0, 10);
-
-    const revenues = data.consolidated.todasReceitas || [];
-    const expenses = data.consolidated.despesas || [];
-
-    const receivedMonth = revenues
-      .filter((item) => {
-        const status = deriveFinancialStatus(item);
-        const receiptDate = (
-          item.dataRecebimento
-          || item.dataPagamento
-          || item.vencimento
-          || ''
-        );
-
-        return (
-          status === 'recebida'
-          && receiptDate.slice(0, 7) === currentMonth
-        );
-      })
-      .reduce((sum, item) => sum + Number(item.valor || 0), 0);
-
-    const paidMonth = expenses
-      .filter((item) => {
-        const status = deriveFinancialStatus(item);
-        const paidDate = (
-          item.dataPagamento
-          || item.vencimento
-          || ''
-        );
-
-        return (
-          status === 'paga'
-          && paidDate.slice(0, 7) === currentMonth
-        );
-      })
-      .reduce((sum, item) => sum + Number(item.valor || 0), 0);
-
-    const receivableNext30 = revenues
-      .filter((item) => {
-        const status = deriveFinancialStatus(item);
-        const due = item.vencimento || '';
-
-        return (
-          !['recebida', 'cancelada'].includes(status)
-          && due
-          && due >= today
-          && due <= next30Date
-        );
-      })
-      .reduce((sum, item) => sum + Number(item.valor || 0), 0);
-
-    const payableNext30 = expenses
-      .filter((item) => {
-        const status = deriveFinancialStatus(item);
-        const due = item.vencimento || '';
-
-        return (
-          !['paga', 'cancelada'].includes(status)
-          && due
-          && due >= today
-          && due <= next30Date
-        );
-      })
-      .reduce((sum, item) => sum + Number(item.valor || 0), 0);
-
-    const overdueRevenues = revenues.filter((item) => (
-      deriveFinancialStatus(item) === 'vencida'
-    ));
-
-    const overdueExpenses = expenses.filter((item) => (
-      deriveFinancialStatus(item) === 'vencida'
-    ));
-
-    const overdueRevenueTotal = overdueRevenues.reduce(
-      (sum, item) => sum + Number(item.valor || 0),
-      0,
-    );
-
+    const accounting = data.accounting;
+    const today = accounting.today;
+    const receivedMonth = accounting.operationalReceivedMonth;
+    const paidMonth = accounting.paidExpensesMonth;
+    const receivableNext30 = accounting.receivableNext30;
+    const payableNext30 = accounting.payableNext30;
+    const overdueRevenues = [];
+    const overdueExpenses = accounting.overdueExpenses;
+    const overdueRevenueTotal = 0;
     const overdueExpenseTotal = overdueExpenses.reduce(
-      (sum, item) => sum + Number(item.valor || 0),
+      (sum, item) => sum + Number(item.amount || item.valor || 0),
       0,
     );
-
-    const totalBalance = (
-      data.saldos.empresa
-      + data.saldos.reserva
-      + data.saldos.salario
-    );
-
-    const monthProfit = receivedMonth
-      - paidMonth
-      - data.depreciacaoMensal;
-
+    const totalBalance = accounting.totalCashBalance;
+    const monthProfit = accounting.accountingResult;
     const margin = receivedMonth > 0
       ? (monthProfit / receivedMonth) * 100
       : 0;
-
     const goalProgress = monthlyGoal > 0
       ? Math.min(100, (receivedMonth / monthlyGoal) * 100)
       : 0;
-
-    const goalRemaining = Math.max(
-      0,
-      monthlyGoal - receivedMonth,
-    );
-
-    const reserveCoverage = data.custoOperacional > 0
-      ? data.saldos.reserva / data.custoOperacional
+    const goalRemaining = Math.max(0, monthlyGoal - receivedMonth);
+    const reserveCoverage = accounting.currentOperatingCost > 0
+      ? accounting.accounts.reserva / accounting.currentOperatingCost
       : 0;
-
-    const projected30 = (
-      totalBalance
-      + receivableNext30
-      - payableNext30
-    );
+    const projected30 = accounting.projected30;
 
     const health = [
       {
@@ -1332,13 +1246,7 @@ function FinanceDashboard({ data }) {
       health,
       attention,
     };
-  }, [
-    data.consolidated,
-    data.custoOperacional,
-    data.depreciacaoMensal,
-    data.saldos,
-    monthlyGoal,
-  ]);
+  }, [data.accounting, monthlyGoal]);
 
   const accountRows = [
     {
@@ -1359,52 +1267,40 @@ function FinanceDashboard({ data }) {
   ];
 
   const movementRows = useMemo(() => {
-    const list = [];
+    const entries = [
+      ...data.accounting.operationalReceipts.map((item) => ({
+        id: `income-${item.id}`,
+        destino: item.rows?.[0]?.account_code || item.contaOrigem || item.conta_origem || 'empresa',
+        natureza: 'Entrada operacional',
+        origem: item.descricao || item.rows?.[0]?.descricao || 'Recebimento de cliente',
+        cliente: item.clienteNome || '-',
+        valor: Number(item.amount || item.valor || 0),
+        data: item.date || '',
+      })),
+      ...data.accounting.nonOperationalEntries.map((item) => ({
+        id: `non-operational-${item.id}`,
+        destino: item.account_code || item.contaOrigem || item.conta_origem || 'empresa',
+        natureza: 'Entrada não operacional',
+        origem: item.descricao || 'Entrada não operacional',
+        cliente: '-',
+        valor: Number(item.amount || item.valor || 0),
+        data: item.date || '',
+      })),
+      ...data.accounting.paidExpenses.map((item) => ({
+        id: `expense-${item.id}`,
+        destino: item.account_code || item.contaOrigem || item.conta_origem || 'empresa',
+        natureza: 'Saída',
+        origem: item.descricao || 'Despesa',
+        cliente: '-',
+        valor: Number(item.amount || item.valor || 0),
+        data: item.date || '',
+      })),
+    ];
 
-    data.consolidated.todasReceitas.forEach((revenue) => {
-      if (deriveFinancialStatus(revenue) === 'recebida') {
-        list.push({
-          id: `income-${revenue.id}`,
-          destino: revenue.contaOrigem || 'empresa',
-          natureza: 'Entrada',
-          origem: revenue.descricao,
-          cliente: revenue.clienteNome || '-',
-          valor: revenue.valor,
-          data: (
-            revenue.dataRecebimento
-            || revenue.vencimento
-            || ''
-          ),
-        });
-      }
-    });
-
-    data.consolidated.despesas.forEach((expense) => {
-      if (deriveFinancialStatus(expense) === 'paga') {
-        list.push({
-          id: `expense-${expense.id}`,
-          destino: expense.contaOrigem || 'empresa',
-          natureza: 'Saída',
-          origem: expense.descricao,
-          cliente: '-',
-          valor: expense.valor,
-          data: (
-            expense.dataPagamento
-            || expense.vencimento
-            || ''
-          ),
-        });
-      }
-    });
-
-    return list
-      .sort((first, second) => (
-        String(second.data || '').localeCompare(
-          String(first.data || ''),
-        )
-      ))
+    return entries
+      .sort((first, second) => String(second.data || '').localeCompare(String(first.data || '')))
       .slice(0, 10);
-  }, [data.consolidated]);
+  }, [data.accounting]);
 
   const forecastChart = [
     {
@@ -1494,10 +1390,10 @@ function FinanceDashboard({ data }) {
 
         <ExecutiveMetric
           icon={TrendingUp}
-          label="Lucro real do mês"
+          label="Resultado contábil do mês"
           value={executive.monthProfit}
           tone={executive.monthProfit >= 0 ? 'positive' : 'negative'}
-          detail={`Margem ${executive.margin.toFixed(1)}%`}
+          detail={`Caixa operacional ${formatCurrency(data.resultadoCaixaOperacional)} · Depreciação ${formatCurrency(data.depreciacaoMensal)}`}
         />
 
         <ExecutiveMetric
@@ -1796,13 +1692,13 @@ function FinanceDashboard({ data }) {
           <h3>Custo operacional</h3>
 
           <div className="formula-row">
-            <span>Custo fixo mensal</span>
+            <span>Despesas fixas pagas no mês</span>
             <strong>{formatCurrency(data.despesasFixas)}</strong>
           </div>
 
           <div className="formula-row">
-            <span>Média variável</span>
-            <strong>{formatCurrency(data.mediaVariavel)}</strong>
+            <span>Despesas variáveis pagas no mês</span>
+            <strong>{formatCurrency(data.despesasVariaveis)}</strong>
           </div>
 
           <div className="formula-row">
@@ -2141,6 +2037,7 @@ function AttentionRow({ item }) {
 const emptyAvulsaForm = {
   id: null,
   descricao: '',
+  naturezaFinanceira: 'operacional',
   categoria: 'Serviço adicional',
   valor: '',
   vencimento: '',
@@ -2151,6 +2048,9 @@ const emptyAvulsaForm = {
   formaPagamento: 'Pix',
   observacoes: '',
   contaOrigem: 'empresa',
+  origemRecursos: '',
+  patrimonioId: '',
+  documentoReferencia: '',
 };
 
 function Receitas({ data }) {
@@ -2164,7 +2064,7 @@ function Receitas({ data }) {
   const [clientFilter, setClientFilter] = useState('');
 
   const list = useMemo(() => (
-    data.consolidated.todasReceitas.map((revenue) => ({
+    data.consolidated.todasEntradasCaixa.map((revenue) => ({
       ...revenue,
       statusDerivado: deriveFinancialStatus(revenue),
     }))
@@ -2192,12 +2092,9 @@ function Receitas({ data }) {
           return false;
         }
 
-        if (
-          typeFilter === 'avulsa'
-          && revenue.tipo === 'receita_contrato'
-        ) {
-          return false;
-        }
+        if (typeFilter === 'avulsa' && revenue.tipo === 'receita_contrato') return false;
+        if (typeFilter === 'operacional' && isNonOperationalIncome(revenue)) return false;
+        if (typeFilter === 'nao_operacional' && !isNonOperationalIncome(revenue)) return false;
 
         if (
           clientFilter
@@ -2479,6 +2376,7 @@ function Receitas({ data }) {
       id: editingId || `receita-avulsa-${Date.now()}`,
       descricao: formData.descricao,
       categoria: formData.categoria || 'Serviço adicional',
+      naturezaFinanceira: formData.naturezaFinanceira || 'operacional',
       valor: val,
       vencimento: formData.vencimento,
       dataRecebimento: formData.status === 'recebida' ? formData.dataRecebimento || formData.vencimento : '',
@@ -2487,6 +2385,9 @@ function Receitas({ data }) {
       trabalhoId: formData.trabalhoId || '',
       formaPagamento: formData.formaPagamento || 'Pix',
       observacoes: formData.observacoes || '',
+      origemRecursos: formData.origemRecursos || '',
+      patrimonioId: formData.patrimonioId || '',
+      documentoReferencia: formData.documentoReferencia || '',
       tipo: 'receita_avulsa',
       tipoGeral: 'Entrada',
       contaOrigem: formData.contaOrigem || 'empresa',
@@ -2513,6 +2414,7 @@ function Receitas({ data }) {
           descricao: r.descricao,
           nome: r.descricao,
           categoria: r.categoria,
+          natureza_financeira: r.naturezaFinanceira,
           valor: r.valor,
           data: r.vencimento,
           data_vencimento: r.vencimento,
@@ -2522,6 +2424,9 @@ function Receitas({ data }) {
           forma_pagamento: r.formaPagamento,
           conta_origem: r.contaOrigem,
           observacoes: r.observacoes,
+          origem_recursos: r.origemRecursos || null,
+          patrimonio_id: r.patrimonioId || null,
+          documento_referencia: r.documentoReferencia || null,
           updated_at: new Date().toISOString(),
         });
         void supabase.from('financas').upsert([toDbPayload(baseReceita)]);
@@ -2693,7 +2598,7 @@ function Receitas({ data }) {
           onClick={openCreateModal}
         >
           <Plus size={18} />
-          Nova receita avulsa
+          Nova entrada
         </button>
       </div>
 
@@ -2874,7 +2779,9 @@ function Receitas({ data }) {
         >
           <option value="">Todos os tipos</option>
           <option value="contratual">Contratuais</option>
-          <option value="avulsa">Avulsas</option>
+          <option value="operacional">Receitas operacionais</option>
+          <option value="nao_operacional">Entradas não operacionais</option>
+          <option value="avulsa">Todas as avulsas</option>
         </select>
 
         <select
@@ -2949,7 +2856,7 @@ function Receitas({ data }) {
           <span className="sf-pill">
             {row.tipo === 'receita_contrato'
               ? 'Contratual'
-              : 'Avulsa'}
+              : getIncomeNatureLabel(row)}
           </span>,
 
           row.clienteNome || '-',
@@ -3054,7 +2961,7 @@ function Receitas({ data }) {
         />
       </div>
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={`${editingId ? 'Editar' : 'Nova'} Receita Avulsa`}>
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={`${editingId ? 'Editar lançamento' : 'Novo lançamento de entrada'}`}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             <label style={{ ...labelStyle, color: 'var(--text-main)' }}>Para qual saldo destinar?</label>
@@ -3071,6 +2978,34 @@ function Receitas({ data }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div style={{ padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.025)' }}>
+            <Field label="Natureza da entrada">
+              <select
+                style={inputStyle}
+                value={formData.naturezaFinanceira}
+                onChange={(event) => {
+                  const naturezaFinanceira = event.target.value;
+                  const categories = naturezaFinanceira === 'nao_operacional'
+                    ? NON_OPERATIONAL_INCOME_CATEGORIES
+                    : OPERATIONAL_INCOME_CATEGORIES;
+                  setFormData({
+                    ...formData,
+                    naturezaFinanceira,
+                    categoria: categories[0],
+                    clienteId: naturezaFinanceira === 'nao_operacional' ? '' : formData.clienteId,
+                    trabalhoId: naturezaFinanceira === 'nao_operacional' ? '' : formData.trabalhoId,
+                  });
+                }}
+              >
+                <option value="operacional">Receita operacional de fotografia</option>
+                <option value="nao_operacional">Entrada não operacional</option>
+              </select>
+            </Field>
+            <small className="sf-muted" style={{ display: 'block', marginTop: '8px', lineHeight: 1.45 }}>
+              Entradas não operacionais aumentam o saldo da conta, mas não entram no faturamento, nos contratos ou nos valores de clientes.
+            </small>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
@@ -3094,7 +3029,9 @@ function Receitas({ data }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <Field label="Categoria">
               <select style={inputStyle} value={formData.categoria} onChange={(event) => setFormData({ ...formData, categoria: event.target.value })}>
-                {AVULSA_INCOME_CATEGORIES.map((category) => (
+                {(formData.naturezaFinanceira === 'nao_operacional'
+                  ? NON_OPERATIONAL_INCOME_CATEGORIES
+                  : OPERATIONAL_INCOME_CATEGORIES).map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -3133,6 +3070,7 @@ function Receitas({ data }) {
             </Field>
           </div>
 
+          {formData.naturezaFinanceira === 'operacional' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <Field label="Cliente vinculado">
               <select style={inputStyle} value={formData.clienteId} onChange={(event) => setFormData({ ...formData, clienteId: event.target.value })}>
@@ -3151,6 +3089,45 @@ function Receitas({ data }) {
               </select>
             </Field>
           </div>
+          )}
+
+          {formData.naturezaFinanceira === 'nao_operacional' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <Field label="Origem do dinheiro">
+                <input
+                  style={inputStyle}
+                  value={formData.origemRecursos}
+                  onChange={(event) => setFormData({ ...formData, origemRecursos: event.target.value })}
+                  placeholder="Ex.: salário-maternidade, venda da Sony A7II..."
+                />
+              </Field>
+              <Field label="Documento ou referência">
+                <input
+                  style={inputStyle}
+                  value={formData.documentoReferencia}
+                  onChange={(event) => setFormData({ ...formData, documentoReferencia: event.target.value })}
+                  placeholder="Comprovante, contrato, observação..."
+                />
+              </Field>
+            </div>
+          )}
+
+          {formData.categoria === 'Venda de patrimônio' && (
+            <Field label="Patrimônio vendido">
+              <select
+                style={inputStyle}
+                value={formData.patrimonioId}
+                onChange={(event) => setFormData({ ...formData, patrimonioId: event.target.value })}
+              >
+                <option value="">Selecione o equipamento ou patrimônio</option>
+                {data.equipamentos.map((equipment) => (
+                  <option key={equipment.id} value={equipment.id}>
+                    {equipment.nome || equipment.descricao || 'Equipamento sem nome'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
 
           <Field label="Observações">
             <textarea
@@ -3161,7 +3138,7 @@ function Receitas({ data }) {
           </Field>
 
           <button className="sf-primary-button wide" onClick={saveReceita}>
-            Salvar receita
+            Salvar lançamento
           </button>
         </div>
       </Modal>
@@ -8503,9 +8480,13 @@ function IntelligenceMetric({
 }
 
 function Investimentos({ data }) {
-  const totalInvestido = useMemo(() => data.equipamentos.reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0), [data.equipamentos]);
-  const depreciacaoMensal = useMemo(() => getEquipmentMonthlyDepreciation(data.equipamentos), [data.equipamentos]);
-  const valorAtual = useMemo(() => data.equipamentos.reduce((sum, item) => sum + calculateDepreciation(item).currentBookValue, 0), [data.equipamentos]);
+  const equipamentosContabeis = useMemo(
+    () => getCanonicalEquipmentForAccounting(data.equipamentos, new Date()),
+    [data.equipamentos],
+  );
+  const totalInvestido = useMemo(() => equipamentosContabeis.reduce((sum, item) => sum + Number(item.valorCompra ?? item.valor ?? 0), 0), [equipamentosContabeis]);
+  const depreciacaoMensal = useMemo(() => equipamentosContabeis.reduce((sum, item) => sum + calculateDepreciation(item).monthlyDepreciation, 0), [equipamentosContabeis]);
+  const valorAtual = useMemo(() => equipamentosContabeis.reduce((sum, item) => sum + calculateDepreciation(item).currentBookValue, 0), [equipamentosContabeis]);
 
   return (
     <div className="sf-finance-section">
@@ -8517,7 +8498,7 @@ function Investimentos({ data }) {
       </div>
       <SimpleTable
         columns={['Equipamento', 'Compra', 'Depreciação mensal', 'Valor atual']}
-        rows={data.equipamentos}
+        rows={equipamentosContabeis}
         render={(item) => {
           const depreciation = calculateDepreciation(item);
           return [

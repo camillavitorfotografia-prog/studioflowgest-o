@@ -56,7 +56,10 @@ export default function Dashboard() {
     refresh,
   } = useDashboardData();
 
-  const dashboard = useMemo(() => buildDashboardMetrics(data), [data]);
+  const dashboard = useMemo(() => buildDashboardMetrics({
+    ...data,
+    monthlyGoal: Number(localStorage.getItem('studioflow_finance_monthly_goal') || 30000),
+  }), [data]);
 
   const cards = [
     {
@@ -68,9 +71,9 @@ export default function Dashboard() {
       path: '/financeiro',
     },
     {
-      title: 'Lucro líquido',
+      title: 'Resultado contábil do mês',
       value: formatCurrency(dashboard.netProfit),
-      description: `Despesas: ${formatCurrency(dashboard.monthlyExpenses)}`,
+      description: `Caixa ${formatCurrency(dashboard.operationalCashResult)} · Depreciação ${formatCurrency(dashboard.monthlyDepreciation)}`,
       icon: CircleDollarSign,
       tone: dashboard.netProfit >= 0 ? 'gold' : 'red',
       path: '/financeiro',
@@ -210,7 +213,7 @@ export default function Dashboard() {
           </div>
         </DashboardPanel>
 
-        <DashboardPanel title="Serviços contratados" subtitle="Distribuição atual dos trabalhos por categoria.">
+        <DashboardPanel title="Serviços contratados" subtitle="Distribuição dos trabalhos oficiais do ano por categoria.">
           <div className="sf-dashboard-chart sf-dashboard-chart-small">
             <ResponsiveContainer>
               <PieChart>
@@ -308,7 +311,7 @@ export default function Dashboard() {
         <DashboardCard
           title="Saldo de caixa"
           value={formatCurrency(dashboard.cashBalance)}
-          description="Entradas registradas menos despesas"
+          description="Entradas reais menos saídas efetivas"
           icon={WalletCards}
           tone={dashboard.cashBalance >= 0 ? 'green' : 'red'}
           path="/financeiro"
@@ -316,7 +319,7 @@ export default function Dashboard() {
         <DashboardCard
           title="Pagamentos futuros"
           value={formatCurrency(dashboard.upcomingPayments)}
-          description="Despesas ainda não quitadas"
+          description="Despesas dos próximos 30 dias"
           icon={TrendingDown}
           tone="orange"
           path="/financeiro"
@@ -332,7 +335,7 @@ export default function Dashboard() {
         <DashboardCard
           title="Clientes cadastrados"
           value={dashboard.clientsCount}
-          description={`${dashboard.projectsCount} trabalho(s) no histórico`}
+          description={`${dashboard.projectsCount} trabalho(s) oficiais em ${new Date().getFullYear()}`}
           icon={Users}
           tone="blue"
           path="/clientes"

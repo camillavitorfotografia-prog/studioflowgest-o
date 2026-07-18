@@ -1,3 +1,4 @@
+import { isNonOperationalIncome } from './incomeClassification';
 export const FIXED_EXPENSE_CATEGORIES = [
   'Aluguel',
   'Energia',
@@ -32,13 +33,23 @@ export const VARIABLE_EXPENSE_CATEGORIES = [
   'Outras',
 ];
 
+export {
+  OPERATIONAL_INCOME_CATEGORIES,
+  NON_OPERATIONAL_INCOME_CATEGORIES,
+  isOperationalIncome,
+  isNonOperationalIncome,
+} from './incomeClassification';
+
 export const AVULSA_INCOME_CATEGORIES = [
   'Serviço adicional',
   'Taxa extra',
-  'Reembolso',
   'Comissão',
-  'Venda de equipamento',
-  'Outro',
+  'Outro serviço',
+  'Aporte pessoal da titular',
+  'Venda de patrimônio',
+  'Reembolso',
+  'Empréstimo recebido',
+  'Outras entradas não operacionais',
 ];
 
 export const PAYMENT_METHODS = [
@@ -1023,6 +1034,53 @@ export const generateRecurrentExpenses = (recurrences = [], transactions = [], r
   return generated;
 };
 
+
+const normalizeFinancialText = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim();
+
+const deduplicateEquipmentExpenses = (expenses = []) => {
+  const selected = new Map();
+  const passthrough = [];
+
+  expenses.forEach((expense) => {
+    if (normalizeFinancialText(expense?.categoria) !== 'equipamentos') {
+      passthrough.push(expense);
+      return;
+    }
+
+    const details = expense?.detalhes || {};
+    const linkedAsset = expense.patrimonioId || expense.patrimonio_id || details.patrimonioId || details.patrimonio_id || '';
+    const description = normalizeFinancialText(expense.descricao || expense.nome);
+    const value = Math.round(Number(expense.valor || 0) * 100);
+    const account = normalizeFinancialText(expense.contaOrigem || expense.conta_origem || 'empresa');
+    const date = String(expense.dataPagamento || expense.data_pagamento || expense.dataCompra || expense.data || expense.vencimento || '').slice(0, 10);
+    const key = linkedAsset
+      ? `asset:${linkedAsset}`
+      : `equipment:${description}:${value}:${account}:${date}`;
+
+    const current = selected.get(key);
+    if (!current) {
+      selected.set(key, expense);
+      return;
+    }
+
+    const currentRecovered = String(current.id || '').startsWith('recovered-equipment-expense-') || Boolean(current.recuperadoDoPatrimonio || current.detalhes?.recuperadoDoPatrimonio);
+    const candidateRecovered = String(expense.id || '').startsWith('recovered-equipment-expense-') || Boolean(expense.recuperadoDoPatrimonio || expense.detalhes?.recuperadoDoPatrimonio);
+    const currentCreated = String(current.criadoEm || current.created_at || '');
+    const candidateCreated = String(expense.criadoEm || expense.created_at || '');
+
+    if ((currentRecovered && !candidateRecovered) || (currentRecovered === candidateRecovered && candidateCreated && (!currentCreated || candidateCreated < currentCreated))) {
+      selected.set(key, expense);
+    }
+  });
+
+  return [...passthrough, ...selected.values()];
+};
+
 export const getConsolidatedFinances = ({ contracts = [], transactions = [], clients = [] }) => {
   const adaptedIncomes = [];
   const clientMap = new Map(clients.map((c) => [c.id, c.nome || c.name || 'Cliente']));
@@ -1051,11 +1109,17 @@ export const getConsolidatedFinances = ({ contracts = [], transactions = [], cli
     }
   });
 
+  const receitasOperacionaisAvulsas = avulsas.filter((item) => !isNonOperationalIncome(item));
+  const entradasNaoOperacionais = avulsas.filter(isNonOperationalIncome);
+  const despesasConsolidadas = deduplicateEquipmentExpenses(despesas);
+
   return {
     receitasContratuais: adaptedIncomes,
-    receitasAvulsas: avulsas,
-    despesas,
-    todasReceitas: [...adaptedIncomes, ...avulsas]
+    receitasAvulsas: receitasOperacionaisAvulsas,
+    entradasNaoOperacionais,
+    despesas: despesasConsolidadas,
+    todasReceitas: [...adaptedIncomes, ...receitasOperacionaisAvulsas],
+    todasEntradasCaixa: [...adaptedIncomes, ...receitasOperacionaisAvulsas, ...entradasNaoOperacionais],
   };
 };
 

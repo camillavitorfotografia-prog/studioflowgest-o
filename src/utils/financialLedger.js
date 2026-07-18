@@ -125,6 +125,14 @@ const isIncome = (transaction = {}) => {
     && isConfirmedPayment({ ...transaction, valor: amount });
 };
 
+
+const isNonOperationalIncome = (transaction = {}) => {
+  const nature = normalize(transaction.naturezaFinanceira || transaction.natureza_financeira || '');
+  const category = normalize(transaction.categoria || '');
+  return nature === 'nao_operacional'
+    || ['aporte pessoal da titular','aporte do titular','venda de patrimonio','reembolso','emprestimo recebido','outras entradas nao operacionais','entrada nao operacional'].includes(category);
+};
+
 const isExpense = (transaction = {}) => {
   if (isConfiguration(transaction)) return false;
   const type = normalize(transaction.tipo);
@@ -140,6 +148,7 @@ export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) 
   const undatedReceipts = [];
   const reconciliation = [];
   const ignoredFinanceContractReceipts = [];
+  const nonOperationalEntries = [];
 
   const addReceipt = (row, priority) => {
     const semanticKey = receiptSemanticKey(row);
@@ -212,6 +221,18 @@ export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) 
   // Qualquer lançamento ligado a projeto/cliente/parcela é espelho operacional e
   // fica fora do faturamento para não duplicar o que já foi lançado em Clientes.
   transactions.filter(isIncome).forEach((transaction) => {
+    if (isNonOperationalIncome(transaction)) {
+      nonOperationalEntries.push({
+        id: transaction.id,
+        date: transactionDate(transaction),
+        amount: normalizePaymentValue(transaction.valor),
+        description: transaction.descricao || transaction.nome || 'Entrada não operacional',
+        category: transaction.categoria || 'Outras entradas não operacionais',
+        account: resolveAccount(transaction),
+        source: 'nao_operacional',
+      });
+      return;
+    }
     const projectId = transaction.projectId || transaction.project_id || '';
     const clientId = transaction.clientId || transaction.client_id || transaction.cliente_id || '';
     const externalPaymentId = transaction.detalhes?.externalPaymentId
@@ -294,5 +315,6 @@ export const buildFinancialLedger = ({ projects = [], transactions = [] } = {}) 
     undatedExpenses,
     reconciliation,
     ignoredFinanceContractReceipts,
+    nonOperationalEntries,
   };
 };

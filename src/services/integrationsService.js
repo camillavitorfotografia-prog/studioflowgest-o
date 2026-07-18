@@ -45,9 +45,9 @@ export const INTEGRATION_PROVIDERS = {
     provider: 'whatsapp',
     name: 'WhatsApp Business',
     description: 'Mensagens transacionais pela API oficial do WhatsApp Business.',
-    category: 'future',
-    capabilities: ['Lembretes', 'Cobranças', 'Galeria pronta'],
-    requiredSecrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID'],
+    category: 'messaging',
+    capabilities: ['Leads automáticos', 'Conversas', 'Follow-up', 'Status de entrega'],
+    requiredSecrets: ['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_APP_SECRET'],
   },
   electronicSignature: {
     provider: 'electronic_signature',

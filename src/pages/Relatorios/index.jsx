@@ -14,6 +14,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { formatMoney } from '../../utils/integratedData';
+import { supabase } from '../../utils/supabase';
 import {
   getDbStudioData,
   loadProfileFromDb,
@@ -33,20 +34,29 @@ export default function Relatorios() {
     clients: [],
     transactions: [],
     equipment: [],
+    canonicalFinanceRows: [],
   });
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
 
     const load = async () => {
+      setLoading(true);
       try {
-        const data = await getDbStudioData();
-        if (active) setStudio(data);
+        const [data, canonicalResult] = await Promise.all([
+          getDbStudioData(),
+          supabase.from('finance_ledger_canonical').select('*'),
+        ]);
+        if (canonicalResult.error) throw canonicalResult.error;
+        if (active) setStudio({ ...data, canonicalFinanceRows: canonicalResult.data || [] });
       } catch (error) {
         if (active) setMessage(error?.message || 'Não foi possível carregar os dados dos relatórios.');
+      } finally {
+        if (active) setLoading(false);
       }
     };
 
@@ -112,12 +122,14 @@ export default function Relatorios() {
     + report.warnings.projectsWithoutDate
     + report.warnings.pendingExpenses
     + report.warnings.reconciliationItems
-    + report.warnings.duplicateProjectsRemoved
-    + report.warnings.excludedProjects
-    + report.warnings.orphanedProjects
     + (report.warnings.orphanAnnualProjects || 0)
+  );
+  const informationCount = (
+    report.warnings.duplicateProjectsRemoved
+    + report.warnings.excludedProjects
     + (report.warnings.ignoredFinanceContractReceipts || 0)
   );
+  const goTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
     <div className="sf-finance-section sf-reports-page">
@@ -156,13 +168,20 @@ export default function Relatorios() {
         </div>
       </div>
 
+      {loading && (
+        <div className="sf-reports-loading" role="status">
+          <div className="sf-reports-loading-spinner" />
+          <div><strong>Carregando dados financeiros</strong><span>Conferindo recebimentos, despesas, contratos e consolidação fiscal.</span></div>
+        </div>
+      )}
+
       {message && (
         <div className="sf-reports-message" role="status">
           {message}
         </div>
       )}
 
-      <div className="sf-reports-basis-note">
+      {!loading && <div className="sf-reports-basis-note">
         <div>
           <strong>Trabalhos de {effectiveYear}</strong>
           <span>Filtrados pela data do evento ou serviço.</span>
@@ -171,36 +190,39 @@ export default function Relatorios() {
           <strong>Base financeira de {effectiveYear}</strong>
           <span>Regime de caixa: parcelas dos clientes pela data real de recebimento, receitas avulsas do Financeiro e despesas pela data efetiva de pagamento.</span>
         </div>
-      </div>
+      </div>}
 
-      {warningCount > 0 && (
+      {!loading && warningCount > 0 && (
         <div className="sf-reports-warning">
           <AlertTriangle size={18} />
           <div>
-            <strong>Há dados que precisam de conferência antes do fechamento anual.</strong>
+            <strong>Pendências reais que precisam de conferência.</strong>
             <span>
-              {report.warnings.receiptsWithoutDate} recebimento(s) sem data
-              {' · '}
-              {report.warnings.expensesWithoutDate} despesa(s) paga(s) sem data
-              {' · '}
-              {report.warnings.projectsWithoutDate} projeto(s) sem data do trabalho
-              {' · '}
-              {report.warnings.pendingExpenses} despesa(s) ainda não confirmada(s) como paga(s)
-              {' · '}
-              {report.warnings.reconciliationItems} contrato(s) com valor recebido sem pagamento individual detalhado
-              {' · '}
-              {report.warnings.duplicateProjectsRemoved} trabalho(s) duplicado(s) removido(s) da consolidação
-              {' · '}
-              {report.warnings.excludedProjects} trabalho(s) cancelado(s), arquivado(s) ou excluído(s) fora dos totais
-              {' · '}
-              {report.warnings.orphanAnnualProjects || 0} trabalho(s) do ano sem cliente oficial vinculado
-              {' · '}
-              {report.warnings.ignoredFinanceContractReceipts || 0} lançamento(s) financeiros de contratos ignorado(s) por já existirem em Clientes.
+              {report.warnings.receiptsWithoutDate} recebimento(s) sem data · {report.warnings.expensesWithoutDate} despesa(s) paga(s) sem data · {report.warnings.projectsWithoutDate} projeto(s) sem data · {report.warnings.pendingExpenses} despesa(s) pendente(s) · {report.warnings.reconciliationItems} divergência(s) financeira(s).
             </span>
           </div>
         </div>
       )}
 
+      {!loading && informationCount > 0 && (
+        <div className="sf-reports-info">
+          <CircleDollarSign size={18} />
+          <div>
+            <strong>Informações de consolidação — não são erros.</strong>
+            <span>{report.warnings.ignoredFinanceContractReceipts || 0} espelho(s) de receita de projeto ignorado(s) para evitar duplicidade · {report.warnings.duplicateProjectsRemoved} duplicado(s) desconsiderado(s) · {report.warnings.excludedProjects} cancelado(s), arquivado(s) ou excluído(s) fora dos totais.</span>
+          </div>
+        </div>
+      )}
+
+      {!loading && <div className="sf-report-actions">
+        <button className="sf-secondary-button" onClick={() => goTo('despesas-sem-data')}>Ver despesas sem data</button>
+        <button className="sf-secondary-button" onClick={() => goTo('projetos-sem-data')}>Ver projetos sem data</button>
+        <button className="sf-secondary-button" onClick={() => goTo('divergencias-financeiras')}>Ver divergências financeiras</button>
+        <button className="sf-secondary-button" onClick={() => goTo('projetos-sem-cliente')}>Vincular clientes</button>
+        <button className="sf-secondary-button" onClick={() => goTo('despesas-pendentes')}>Conferir despesas pendentes</button>
+      </div>}
+
+      {!loading && <>
       <div className="sf-metric-grid sf-reports-metrics">
         <Metric icon={Users} label={`Clientes com trabalho em ${effectiveYear}`} value={report.totals.clients} raw />
         <Metric icon={BriefcaseBusiness} label={`Trabalhos únicos em ${effectiveYear}`} value={report.totals.projects} raw />
@@ -209,6 +231,7 @@ export default function Relatorios() {
         <Metric icon={TrendingUp} label={`Receita recebida em ${effectiveYear} (regime de caixa)`} value={report.totals.taxCashBasisRevenue} />
         <Metric icon={TrendingDown} label={`Despesas pagas em ${effectiveYear}`} value={report.totals.taxCashBasisExpenses} />
         <Metric icon={WalletCards} label="Resultado pelo regime de caixa" value={report.totals.taxCashBasisResult} />
+        <Metric icon={CircleDollarSign} label="Entradas não operacionais (fora do faturamento)" value={report.totals.nonOperationalEntries || 0} />
       </div>
 
       <div className="sf-report-grid sf-reports-summary-grid">
@@ -217,9 +240,19 @@ export default function Relatorios() {
           rows={[
             ['Empresa / CNPJ', formatMoney(report.totals.companyReceived)],
             ['Conta pessoal / CPF', formatMoney(report.totals.personalReceived)],
+            ['Reserva', formatMoney(report.totals.reserveReceived || 0)],
             ['Conta não informada', formatMoney(report.totals.unclassifiedAccountReceived)],
           ]}
           icon={Building2}
+        />
+        <Report
+          title="Entradas não operacionais"
+          rows={[
+            ['Aportes, patrimônio, reembolsos e empréstimos', formatMoney(report.totals.nonOperationalEntries || 0)],
+            ['Entradas totais de caixa', formatMoney(report.totals.totalCashInflows || report.totals.taxCashBasisRevenue)],
+            ['Faturamento fotográfico', formatMoney(report.totals.taxCashBasisRevenue)],
+          ]}
+          icon={CircleDollarSign}
         />
         <Report
           title="Base para conferência fiscal"
@@ -316,11 +349,12 @@ export default function Relatorios() {
           rows={report.monthly.map((item) => [
             item.label,
             formatMoney(item.received),
-            formatMoney(item.companyReceived),
+            formatMoney(item.forecastReceived),
             formatMoney(item.expenses),
+            formatMoney(item.forecastExpenses),
             formatMoney(item.result),
           ])}
-          columns={['Mês', 'Recebido', 'Empresa/CNPJ', 'Despesas', 'Resultado']}
+          columns={['Mês', 'Recebido', 'Previsto a receber', 'Despesas pagas', 'Despesas previstas', 'Resultado de caixa']}
         />
         <TableCard
           title={`Contratos que formam o total · ${effectiveYear}`}
@@ -358,6 +392,52 @@ export default function Relatorios() {
             formatMoney(item.profit),
           ])}
           columns={['Projeto / cliente', 'Serviço', 'Recebido', 'Despesas', 'Resultado']}
+        />
+        <div id="despesas-pendentes">
+          <TableCard
+            title="Despesas pendentes para conferência"
+            icon={AlertTriangle}
+            rows={(report.pendingExpenses || []).map((item) => [formatReportDate(item.date), item.description, item.category, formatMoney(item.amount)])}
+            columns={['Vencimento', 'Descrição', 'Categoria', 'Valor']}
+          />
+        </div>
+        <div id="despesas-sem-data">
+          <TableCard
+            title="Despesas pagas sem data efetiva"
+            icon={AlertTriangle}
+            rows={(report.undatedExpenses || []).map((item) => [item.description, item.category, formatMoney(item.amount)])}
+            columns={['Descrição', 'Categoria', 'Valor']}
+          />
+        </div>
+        <div id="divergencias-financeiras">
+          <TableCard
+            title="Divergências financeiras reais"
+            icon={AlertTriangle}
+            rows={(report.reconciliation || []).map((item) => [item.clientName, item.reason, formatMoney(item.amount)])}
+            columns={['Cliente / trabalho', 'Motivo', 'Diferença']}
+          />
+        </div>
+        <div id="projetos-sem-data">
+          <TableCard
+            title="Projetos sem data definida"
+            icon={CalendarDays}
+            rows={(report.projectsWithoutDateRows || []).map((item) => [item.clientName, item.service])}
+            columns={['Cliente', 'Serviço']}
+          />
+        </div>
+        <div id="projetos-sem-cliente">
+          <TableCard
+            title="Projetos sem cliente oficial vinculado"
+            icon={Users}
+            rows={(report.orphanAnnualProjectRows || []).map((item) => [item.clientName, item.service, formatReportDate(item.date)])}
+            columns={['Nome importado', 'Serviço', 'Data']}
+          />
+        </div>
+        <TableCard
+          title="Entradas não operacionais do ano"
+          icon={CircleDollarSign}
+          rows={(report.nonOperationalEntries || []).map((item) => [formatReportDate(item.date), item.description, item.category, item.account || 'Não informada', formatMoney(item.amount)])}
+          columns={['Data', 'Descrição', 'Categoria', 'Conta', 'Valor']}
         />
         <TableCard
           title="Despesas pagas por categoria"
@@ -397,6 +477,7 @@ export default function Relatorios() {
           columns={['Ativo', 'Frequência', 'Receita associada']}
         />
       </div>
+      </>}
     </div>
   );
 }
@@ -438,7 +519,7 @@ function TableCard({ title, icon: Icon, columns, rows }) {
             {rows.map((row, index) => (
               <tr key={`${title}-${index}`}>
                 {row.map((cell, cellIndex) => (
-                  <td key={`${title}-${index}-${cellIndex}`}>{cell}</td>
+                  <td data-label={columns[cellIndex]} key={`${title}-${index}-${cellIndex}`}>{cell}</td>
                 ))}
               </tr>
             ))}

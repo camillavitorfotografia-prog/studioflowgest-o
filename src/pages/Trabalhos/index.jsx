@@ -72,7 +72,7 @@ import {
 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { formatMoney } from '../../utils/integratedData';
-import { capitalizeName, maskCurrency } from '../../utils/masks';
+import { capitalizeName, maskCurrency, maskPhone } from '../../utils/masks';
 import { parseCurrency } from '../../utils/formatters';
 import { calculateProjectFinancials } from '../../utils/financeEngine';
 import {
@@ -122,6 +122,9 @@ import { syncSingleProjectToGoogle } from '../../services/googleCalendarIntegrat
 import './Trabalhos.css';
 
 const colunas = OPERATIONAL_PIPELINE;
+const colunasAtivas = OPERATIONAL_PIPELINE.filter(
+  (column) => column.id !== 'cancelado',
+);
 
 
 const createProjectRecordId = () => {
@@ -167,9 +170,7 @@ const getProjectProgress = (project = {}) => {
     return 0;
   }
 
-  const progressColumns = colunas.filter(
-    (column) => column.id !== 'cancelado',
-  );
+  const progressColumns = colunasAtivas;
 
   const index = progressColumns.findIndex(
     (column) => column.id === status,
@@ -317,9 +318,7 @@ const getDeliveryCountdown = (project = {}) => {
 
 const getProjectMilestones = (project = {}) => {
   const status = getProjectOperationalStatus(project);
-  const activeColumns = colunas.filter(
-    (column) => column.id !== 'cancelado',
-  );
+  const activeColumns = colunasAtivas;
   const currentIndex = activeColumns.findIndex(
     (column) => column.id === status,
   );
@@ -437,6 +436,8 @@ const projectToDraft = (project = {}) => {
       || project.clienteId
       || '',
     clienteNome: project.clienteNome || '',
+    clienteTelefone: project.clienteTelefone || project.telefone || '',
+    clienteEmail: project.clienteEmail || project.email || '',
     categoria: project.categoria || 'Outro',
     tipoServico:
       project.tipoServico
@@ -2577,10 +2578,18 @@ export default function Trabalhos() {
   };
 
   const openEdit = (project) => {
+    const draft = projectToDraft(project);
+    const linkedClient = clients.find((client) => (
+      String(client.id) === String(draft.clienteId)
+    ));
+
     setEditingProject(project);
-    setProjectDraft(
-      projectToDraft(project),
-    );
+    setProjectDraft({
+      ...draft,
+      clienteNome: linkedClient?.nome || draft.clienteNome,
+      clienteTelefone: linkedClient?.telefone || linkedClient?.whatsapp || draft.clienteTelefone,
+      clienteEmail: linkedClient?.email || draft.clienteEmail,
+    });
     setActiveMenuId(null);
   };
 
@@ -2709,6 +2718,8 @@ export default function Trabalhos() {
       clienteNome:
         selectedClient?.nome
         || projectDraft.clienteNome,
+      clienteTelefone: projectDraft.clienteTelefone || selectedClient?.telefone || selectedClient?.whatsapp || '',
+      clienteEmail: projectDraft.clienteEmail || selectedClient?.email || '',
       criadoEm:
         editingProject.criadoEm
         || new Date().toISOString(),
@@ -2746,6 +2757,8 @@ export default function Trabalhos() {
         editedProject.clienteId,
       clienteNome:
         editedProject.clienteNome,
+      clienteTelefone: editedProject.clienteTelefone,
+      clienteEmail: editedProject.clienteEmail,
       categoria:
         editedProject.categoria,
       descricao:
@@ -2821,6 +2834,59 @@ export default function Trabalhos() {
     setSaving(savingId, true);
 
     try {
+      if (selectedClient?.id) {
+        const clientPayload = {
+          nome: selectedClient.nome,
+          telefone: projectDraft.clienteTelefone || selectedClient.telefone || '',
+          whatsapp: projectDraft.clienteTelefone || selectedClient.whatsapp || selectedClient.telefone || '',
+          email: projectDraft.clienteEmail || selectedClient.email || '',
+        };
+
+        if (isSupabaseConfigured) {
+          await saveRow({
+            table: 'clientes',
+            id: selectedClient.id,
+            payload: clientPayload,
+          });
+        } else {
+          writeStorage(
+            STORAGE_KEYS.clients,
+            readStorage(STORAGE_KEYS.clients, []).map((client) => (
+              String(client.id) === String(selectedClient.id)
+                ? { ...client, ...clientPayload }
+                : client
+            )),
+          );
+        }
+
+        const normalizedClientName = String(selectedClient.nome || '').trim().toLocaleLowerCase('pt-BR');
+        writeStorage(
+          STORAGE_KEYS.leads,
+          readStorage(STORAGE_KEYS.leads, []).map((lead) => {
+            const linkedClientId = String(lead.clienteId || lead.clientId || lead.cliente_id || '');
+            const normalizedLeadName = String(lead.nome || '').trim().toLocaleLowerCase('pt-BR');
+            const isLinked = linkedClientId
+              ? linkedClientId === String(selectedClient.id)
+              : normalizedLeadName === normalizedClientName;
+
+            return isLinked
+              ? {
+                ...lead,
+                telefone: clientPayload.telefone,
+                whatsapp: clientPayload.whatsapp,
+                email: clientPayload.email,
+              }
+              : lead;
+          }),
+        );
+
+        setClients((current) => current.map((client) => (
+          String(client.id) === String(selectedClient.id)
+            ? { ...client, ...clientPayload }
+            : client
+        )));
+      }
+
       await persistProject(
         editedProject,
         payload,
@@ -2851,29 +2917,13 @@ export default function Trabalhos() {
   const handleDeleteProject = async (project) => {
     if (!project?.id || savingIds.includes(project.id)) return;
 
-    const clientId = getProjectClientId(project);
-    const client = clients.find((item) => String(item.id) === String(clientId));
-    const clientName = client?.nome || client?.name || project.clienteNome || 'cliente não informado';
-    const linkedProjects = uniqueProjects(rawProjects).filter(
-      (item) => getProjectClientId(item) === String(clientId),
-    );
-
-    if (!clientId || !client) {
-      setActionError('Este trabalho não possui um cliente oficial vinculado.');
-      return;
-    }
-
     const confirmed = window.confirm(
-      `Excluir o trabalho de ${clientName}?
-
-Como a aba Trabalhos está sincronizada com Clientes, esta ação também excluirá o cadastro do cliente e ${linkedProjects.length} trabalho(s) vinculados. Esta ação não pode ser desfeita.`,
+      `Excluir somente este trabalho de ${project.clienteNome || 'cliente não informado'}? O cadastro do cliente e o lead do CRM serão preservados. Esta ação não pode ser desfeita.`,
     );
-
     if (!confirmed) return;
 
     const previousProjects = projects;
     const previousRawProjects = rawProjects;
-    const previousClients = clients;
 
     setActiveMenuId(null);
     setActionError('');
@@ -2881,68 +2931,85 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
 
     try {
       if (isSupabaseConfigured) {
-        const projectIds = linkedProjects.map((item) => item.id).filter(Boolean);
-
-        if (projectIds.length) {
-          const { error: projectsError } = await supabase
-            .from('projetos')
-            .delete()
-            .in('id', projectIds);
-
-          if (projectsError) throw projectsError;
-        }
-
-        const { error: clientError } = await supabase
-          .from('clientes')
+        const { error } = await supabase
+          .from('projetos')
           .delete()
-          .eq('id', clientId);
-
-        if (clientError) throw clientError;
+          .eq('id', project.id);
+        if (error) throw error;
       } else {
         writeStorage(
           STORAGE_KEYS.projects,
           readStorage(STORAGE_KEYS.projects, []).filter(
-            (item) => getProjectClientId(item) !== String(clientId),
-          ),
-        );
-        writeStorage(
-          STORAGE_KEYS.clients,
-          readStorage(STORAGE_KEYS.clients, []).filter(
-            (item) => String(item.id) !== String(clientId),
+            (item) => String(item.id) !== String(project.id),
           ),
         );
       }
 
       setProjects((current) => current.filter(
-        (item) => getProjectClientId(item) !== String(clientId),
+        (item) => String(item.id) !== String(project.id),
       ));
       setRawProjects((current) => current.filter(
-        (item) => getProjectClientId(item) !== String(clientId),
-      ));
-      setClients((current) => current.filter(
-        (item) => String(item.id) !== String(clientId),
+        (item) => String(item.id) !== String(project.id),
       ));
 
-      if (selectedProject && getProjectClientId(selectedProject) === String(clientId)) {
-        setSelectedProject(null);
-      }
-      if (previewProject && getProjectClientId(previewProject) === String(clientId)) {
-        setPreviewProjectId(null);
-      }
+      if (selectedProject?.id === project.id) setSelectedProject(null);
+      if (previewProject?.id === project.id) setPreviewProjectId(null);
 
       emitDbUpdate();
       await load();
     } catch (error) {
-      console.error('Erro ao excluir trabalho e cliente:', error);
+      console.error('Erro ao excluir trabalho:', error);
       setProjects(previousProjects);
       setRawProjects(previousRawProjects);
-      setClients(previousClients);
       setActionError(
-        `Não foi possível excluir o trabalho e o cliente: ${error?.message || 'erro desconhecido'}`,
+        `Não foi possível excluir o trabalho: ${error?.message || 'erro desconhecido'}`,
       );
     } finally {
       setSaving(project.id, false);
     }
+  };
+
+  const saveChecklist = async (checklistValue) => {
+    if (!selectedProject?.id || savingIds.includes(selectedProject.id)) return;
+
+    const normalized = normalizeChecklist(checklistValue);
+    const latest = rawProjects.find((item) => item.id === selectedProject.id) || selectedProject;
+    const updated = {
+      ...latest,
+      checklist: normalized,
+      financeiro: {
+        ...(latest.financeiro || {}),
+        checklist: normalized.itens,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+
+    setSaving(selectedProject.id, true);
+    setActionError('');
+
+    try {
+      await persistProject(updated, {
+        checklist: normalized.itens,
+        financeiro: updated.financeiro,
+      });
+      setSelectedProject(updated);
+      setProjects((current) => current.map((item) => (
+        item.id === updated.id ? updated : item
+      )));
+      setRawProjects((current) => current.map((item) => (
+        item.id === updated.id ? updated : item
+      )));
+    } catch (error) {
+      console.error('Erro ao salvar checklist:', error);
+      setActionError('Não foi possível salvar o checklist.');
+    } finally {
+      setSaving(selectedProject.id, false);
+    }
+  };
+
+  const initializeSelectedChecklist = () => {
+    if (!selectedProject) return;
+    void saveChecklist(createChecklist(selectedProject.tipoServico));
   };
 
   const deleteChecklistItem = (item) => {
@@ -5084,7 +5151,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
 
   const projectsByColumn = useMemo(() => {
     const grouped = Object.fromEntries(
-      colunas.map((column) => [
+      colunasAtivas.map((column) => [
         column.id,
         [],
       ]),
@@ -5220,7 +5287,11 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
         const targetStatus =
           grouped[status]
             ? status
-            : 'novo';
+            : status === 'cancelado'
+              ? null
+              : 'novo';
+
+        if (!targetStatus) return;
 
         grouped[targetStatus].push({
           ...project,
@@ -5249,7 +5320,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
 
 
   const visibleProjects = useMemo(() => (
-    colunas.flatMap((column) => projectsByColumn[column.id] || [])
+    colunasAtivas.flatMap((column) => projectsByColumn[column.id] || [])
   ), [projectsByColumn]);
 
   const visibleClientCount = useMemo(() => new Set(
@@ -5259,6 +5330,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
   const undatedProjects = useMemo(() => syncedProjects.filter((project) => {
     const clientId = getProjectClientId(project);
     if (!clientId || !officialClientIds.has(clientId) || project.arquivado) return false;
+    if (getProjectOperationalStatus(project) === 'cancelado') return false;
     if (getProjectDateValue(project)) return false;
     if (productionFilter && getProjectOperationalStatus(project) !== productionFilter) return false;
     if (!projectMatchesSearch(project, clients.find((client) => String(client.id) === clientId), search)) return false;
@@ -5518,21 +5590,21 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
     ? getProjectOperationalStatus(selectedProject)
     : 'novo';
 
-  const selectedStageIndex = colunas.findIndex(
+  const selectedStageIndex = colunasAtivas.findIndex(
     (column) => column.id === selectedOperationalStatus,
   );
 
   const selectedStage = selectedStageIndex >= 0
-    ? colunas[selectedStageIndex]
-    : colunas[0];
+    ? colunasAtivas[selectedStageIndex]
+    : colunasAtivas[0];
 
   const selectedNextStage = (
     selectedOperationalStatus !== 'cancelado'
     && selectedStageIndex >= 0
   )
-    ? colunas
+    ? colunasAtivas
       .slice(selectedStageIndex + 1)
-      .find((column) => column.id !== 'cancelado')
+      .find(Boolean)
     : null;
 
   const selectedAlerts = selectedProject
@@ -5749,7 +5821,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
               Etapa operacional
             </option>
 
-            {colunas.map((item) => (
+            {colunasAtivas.map((item) => (
               <option
                 key={item.id}
                 value={item.id}
@@ -5890,7 +5962,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
           className="sf-projects-board"
           onWheel={handleBoardWheel}
         >
-          {colunas.map((col) => (
+          {colunasAtivas.map((col) => (
           <div
             className={
               `sf-projects-column${
@@ -6086,7 +6158,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                               Mover para
                             </div>
 
-                            {colunas
+                            {colunasAtivas
                               .filter(
                                 (item) => (
                                   item.id
@@ -6272,7 +6344,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                 <span>Contratado</span><span>Recebido</span><span>Ações</span>
               </div>
               <div className="sf-projects-list-body">
-                {colunas.flatMap((column) => (projectsByColumn[column.id] || []).map((project) => ({ project, column })))
+                {colunasAtivas.flatMap((column) => (projectsByColumn[column.id] || []).map((project) => ({ project, column })))
                   .sort((a, b) => String(a.project.data || '').localeCompare(String(b.project.data || '')))
                   .map(({ project, column }) => {
                     const financials = calculateProjectFinancials(project, transactions);
@@ -6298,7 +6370,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                               onChange={(event) => void mudarStatus(project.id, event.target.value)}
                               disabled={savingIds.includes(project.id)}
                             >
-                              {colunas.map((item) => (
+                              {colunasAtivas.map((item) => (
                                 <option key={item.id} value={item.id}>{item.titulo}</option>
                               ))}
                             </select>
@@ -6321,7 +6393,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                     <button type="button" className="sf-project-row-main" onClick={() => setPreviewProjectId(project.id)}>
                       <span className="sf-project-list-client"><span className="sf-project-avatar">{(project.clienteNome || 'CI').slice(0,2).toUpperCase()}</span><span><strong>{project.clienteNome || 'Cliente não informado'}</strong><small>{project.tipoServico || 'Trabalho'}</small></span></span>
                       <span>{project.titulo || project.tipoServico || 'Não informado'}</span><span>—</span>
-                      <span><small className="sf-project-stage-badge">{colunas.find((item)=>item.id===getProjectOperationalStatus(project))?.titulo || 'Pendente'}</small></span>
+                      <span><small className="sf-project-stage-badge">{colunasAtivas.find((item)=>item.id===getProjectOperationalStatus(project))?.titulo || 'Pendente'}</small></span>
                       <span>{formatMoney(project.valorContratado || 0)}</span><span>{formatMoney(received)}</span>
                     </button>
                     <div className="sf-project-row-actions"><button type="button" onClick={() => openDetails(project)}><Edit3 size={15}/></button><button type="button" className="danger" onClick={() => void handleDeleteProject(project)}><Trash2 size={15}/></button></div>
@@ -6333,7 +6405,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
 
           <aside className="sf-project-preview">
             {previewProject ? <>
-              <div className="sf-project-preview-head"><div><h3>{previewProject.clienteNome || 'Cliente'}</h3><small className="sf-project-stage-badge">{colunas.find((item)=>item.id===getProjectOperationalStatus(previewProject))?.titulo}</small></div></div>
+              <div className="sf-project-preview-head"><div><h3>{previewProject.clienteNome || 'Cliente'}</h3><small className="sf-project-stage-badge">{colunasAtivas.find((item)=>item.id===getProjectOperationalStatus(previewProject))?.titulo}</small></div></div>
               <div className="sf-project-preview-tabs"><span className="active">Resumo</span><span>Financeiro</span><span>Progresso</span><span>Arquivos</span></div>
               <div className="sf-project-preview-section"><label>Cliente</label><strong>{previewProject.clienteNome || 'Não informado'}</strong><label>Serviço</label><strong>{previewProject.titulo || previewProject.tipoServico || 'Não informado'}</strong><label>Data do evento</label><strong>{formatProjectDate(getProjectDateValue(previewProject))}</strong><label>Local</label><strong>{previewProject.local || 'Não informado'}</strong></div>
               <div className="sf-project-preview-section"><h4>Contrato</h4><div><span>Valor contratado</span><strong>{formatMoney(previewProject.valorContratado || 0)}</strong></div></div>
@@ -12146,11 +12218,15 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                   projectDraft.clienteId
                 }
                 onChange={(event) => {
+                  const clientId = event.target.value;
+                  const client = clients.find((item) => String(item.id) === String(clientId));
                   setProjectDraft(
                     (draft) => ({
                       ...draft,
-                      clienteId:
-                        event.target.value,
+                      clienteId: clientId,
+                      clienteNome: client?.nome || '',
+                      clienteTelefone: client?.telefone || client?.whatsapp || '',
+                      clienteEmail: client?.email || '',
                     }),
                   );
                 }}
@@ -12173,6 +12249,33 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                 ))}
               </select>
             </label>
+
+            <div className="sf-project-form-row">
+              <label>
+                Telefone do cliente
+                <input
+                  value={projectDraft.clienteTelefone || ''}
+                  onChange={(event) => setProjectDraft((draft) => ({
+                    ...draft,
+                    clienteTelefone: maskPhone(event.target.value),
+                  }))}
+                  placeholder="(00) 0 0000-0000"
+                />
+              </label>
+
+              <label>
+                E-mail do cliente
+                <input
+                  type="email"
+                  value={projectDraft.clienteEmail || ''}
+                  onChange={(event) => setProjectDraft((draft) => ({
+                    ...draft,
+                    clienteEmail: event.target.value.trimStart(),
+                  }))}
+                  placeholder="cliente@email.com"
+                />
+              </label>
+            </div>
 
             <label>
               Título
@@ -12274,7 +12377,7 @@ Como a aba Trabalhos está sincronizada com Clientes, esta ação também exclui
                     );
                   }}
                 >
-                  {colunas.map((item) => (
+                  {colunasAtivas.map((item) => (
                     <option
                       key={item.id}
                       value={item.id}

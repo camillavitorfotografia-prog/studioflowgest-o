@@ -1,0 +1,13 @@
+alter table if exists public.financas add column if not exists data_pagamento date;
+alter table if exists public.financas add column if not exists detalhes jsonb not null default '{}'::jsonb;
+alter table if exists public.equipamentos add column if not exists status text default 'Ativo';
+alter table if exists public.equipamentos add column if not exists comprador text;
+alter table if exists public.equipamentos add column if not exists data_venda date;
+alter table if exists public.equipamentos add column if not exists valor_venda numeric(14,2);
+alter table if exists public.equipamentos add column if not exists forma_recebimento text;
+alter table if exists public.equipamentos add column if not exists observacoes_venda text;
+alter table if exists public.equipamentos add column if not exists valor_contabil_venda numeric(14,2);
+alter table if exists public.equipamentos add column if not exists resultado_patrimonial_venda numeric(14,2);
+alter table if exists public.equipamentos add column if not exists depreciacao_encerrada_em date;
+alter table if exists public.equipamentos add column if not exists historico jsonb not null default '[]'::jsonb;
+create index if not exists idx_financas_data_pagamento on public.financas(data_pagamento);

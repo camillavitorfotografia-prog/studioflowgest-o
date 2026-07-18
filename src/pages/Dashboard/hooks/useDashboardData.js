@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getDbStudioData, subscribeDbUpdates } from '../../../utils/dbData';
+import { isSupabaseConfigured, supabase } from '../../../utils/supabase';
 import storage from '../../../features/documents/storage/documentStorageAdapter';
 
 const EMPTY_DATA = {
@@ -7,6 +8,7 @@ const EMPTY_DATA = {
   clients: [],
   projects: [],
   transactions: [],
+  canonicalRows: [],
   equipment: [],
   documents: [],
 };
@@ -25,10 +27,15 @@ export default function useDashboardData() {
     }
 
     try {
-      const [studio, documents] = await Promise.all([
+      const [studio, documents, ledgerResult] = await Promise.all([
         getDbStudioData(),
         storage.listDocuments(),
+        isSupabaseConfigured
+          ? supabase.from('finance_ledger_canonical').select('*')
+          : Promise.resolve({ data: [], error: null }),
       ]);
+
+      if (ledgerResult?.error) throw ledgerResult.error;
 
       setState({
         data: {
@@ -36,6 +43,7 @@ export default function useDashboardData() {
           clients: studio.clients || [],
           projects: studio.projects || [],
           transactions: studio.transactions || [],
+          canonicalRows: Array.isArray(ledgerResult?.data) ? ledgerResult.data : [],
           equipment: studio.equipment || [],
           documents: documents || [],
         },

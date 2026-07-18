@@ -12,6 +12,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
+import VariableExpenses from './VariableExpenses';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
 import {
@@ -181,6 +182,7 @@ function DateInput({
 }
 
 export default function Despesas({ area = 'fixa' }) {
+  if (area === 'variavel') return <VariableExpenses />;
   const [transacoes, setTransacoes] = useState([]);
   const [recorrencias, setRecorrencias] = useState([]);
   const [saldos, setSaldos] = useState({ salario: 0, empresa: 0, reserva: 0 });

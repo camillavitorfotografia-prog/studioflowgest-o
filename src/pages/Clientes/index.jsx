@@ -855,9 +855,13 @@ export default function Clientes() {
     return [...years].sort((a, b) => b - a);
   }, [integrityStudio.projects]);
   const filteredClients = useMemo(() => clients.filter((client) => {
+    if (String(client.status || '').toLowerCase() === 'arquivado') return false;
     if (!clientMatchesSearch(client, search)) return false;
     if (selectedYear === 'all') return true;
-    return client.projects.some((project) => getProjectYear(project) === Number(selectedYear));
+    if (!client.projects.length) return true;
+    const projectYears = client.projects.map(getProjectYear);
+    return projectYears.some((year) => year === Number(selectedYear))
+      || projectYears.some((year) => year === null);
   }).map((client) => {
     if (selectedYear === 'all') return client;
     const yearProjects = client.projects.filter((project) => getProjectYear(project) === Number(selectedYear));
@@ -1749,9 +1753,29 @@ export default function Clientes() {
     }
 
     const hasProjects = relations.projects.length > 0;
-    const confirmationMessage = hasProjects
-      ? `Este cliente possui ${relations.projects.length} trabalho(s). Ao excluir, os trabalhos serão preservados e ficarão sem vínculo, usando o nome “${clientName}”. Deseja continuar?`
-      : `Excluir ${clientName}${historyCount ? ` e seus ${historyCount} registro(s) de contato` : ''}?`;
+    let deletionMode = 'registration';
+
+    if (hasProjects) {
+      const option = window.prompt(
+        `${clientName} possui ${relations.projects.length} trabalho(s).\n\n`
+        + 'Digite 1 para ARQUIVAR o cliente.\n'
+        + 'Digite 2 para EXCLUIR APENAS O CADASTRO e preservar os trabalhos.\n'
+        + 'Digite 3 para EXCLUIR O CLIENTE E TODOS OS TRABALHOS.\n\n'
+        + 'Nenhum dado será apagado sem a sua confirmação.',
+        '1',
+      );
+      if (!option) return;
+      deletionMode = option === '1' ? 'archive' : option === '2' ? 'registration' : option === '3' ? 'all' : '';
+      if (!deletionMode) { alert('Opção inválida. Nenhuma alteração foi feita.'); return; }
+    }
+
+    const confirmationMessage = deletionMode === 'archive'
+      ? `Arquivar ${clientName}? Os trabalhos e vínculos serão preservados.`
+      : deletionMode === 'all'
+        ? `Excluir definitivamente ${clientName} e ${relations.projects.length} trabalho(s)? Esta ação não pode ser desfeita.`
+        : hasProjects
+          ? `Excluir apenas o cadastro de ${clientName}? Os trabalhos serão preservados sem vínculo com o cadastro.`
+          : `Excluir ${clientName}${historyCount ? ` e seus ${historyCount} registro(s) de contato` : ''}?`;
 
     if (!window.confirm(confirmationMessage)) return;
 
@@ -1760,9 +1784,28 @@ export default function Clientes() {
     setSyncStatus('saving');
 
     try {
-      let nextProjects = studio.projects;
+      if (deletionMode === 'archive') {
+        const archivedAt = new Date().toISOString();
+        if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
+          const { error: archiveError } = await supabase.from('clientes').update({ status: 'arquivado', updated_at: archivedAt }).eq('id', clientId);
+          if (archiveError) throw archiveError;
+        }
+        const nextClients = studio.clients.map((client) => String(client.id) === String(clientId)
+          ? { ...client, status: 'arquivado', archivedAt }
+          : client);
+        saveLocalStudio(nextClients, studio.projects);
+        setStudio({ clients: nextClients, projects: studio.projects });
+        setSelectedClientId(null);
+        setIsModalOpen(false);
+        emitDbUpdate();
+        return;
+      }
 
-      if (hasProjects) {
+      let nextProjects = deletionMode === 'all'
+        ? studio.projects.filter((project) => !relations.projects.some((related) => String(related.id) === String(project.id)))
+        : studio.projects;
+
+      if (hasProjects && deletionMode === 'registration') {
         nextProjects = studio.projects.map((project) => {
           const linkedId = String(
             project.clientId || project.clienteId || project.cliente_id || project.client_id || '',
@@ -1784,7 +1827,10 @@ export default function Clientes() {
       if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
         if (hasProjects) {
           const projectIds = relations.projects.map((project) => project.id).filter(Boolean);
-          if (projectIds.length) {
+          if (projectIds.length && deletionMode === 'all') {
+            const { error: projectsDeleteError } = await supabase.from('projetos').delete().in('id', projectIds);
+            if (projectsDeleteError) throw projectsDeleteError;
+          } else if (projectIds.length) {
             const { error: unlinkError } = await supabase
               .from('projetos')
               .update({ cliente_id: null, cliente_nome_importado: clientName || null })

@@ -24,6 +24,7 @@ import {
   getDbStudioData,
   subscribeDbUpdates,
   syncEquipmentList,
+  upsertRow,
 } from '../../utils/dbData';
 import {
   formatDateBR,
@@ -36,6 +37,8 @@ import {
   parseCurrency,
 } from '../../utils/financeEngine';
 import { loadSettings } from '../../utils/settings';
+import { readStorage, writeStorage, STORAGE_KEYS } from '../../utils/storage';
+import { isSupabaseConfigured } from '../../utils/supabase';
 import './Equipamentos.css';
 
 const EQUIPMENT_STORAGE_KEY = 'cv_studio_equipamentos';
@@ -56,8 +59,26 @@ const EQUIPMENT_STATUSES = [
   'Ativo',
   'Em manutenção',
   'Emprestado',
-  'Inativo',
   'Vendido',
+  'Baixado',
+];
+
+const ASSET_EXIT_TYPES = [
+  ['venda', 'Venda'],
+  ['permuta', 'Permuta por serviço'],
+  ['parte_pagamento', 'Dado como parte de pagamento'],
+  ['baixa', 'Baixa administrativa'],
+  ['perda', 'Perda ou avaria irreparável'],
+];
+
+const EXIT_PAYMENT_METHODS = [
+  'Pix',
+  'Transferência',
+  'Dinheiro',
+  'Cartão',
+  'Permuta patrimonial',
+  'Pagamento misto',
+  'Outro',
 ];
 
 const EQUIPMENT_SORT_OPTIONS = [
@@ -143,6 +164,28 @@ const emptyEquipment = {
   financeExpenseId: '',
   origemFinanceiraId: '',
   origem: 'manual',
+  comprador: '',
+  dataVenda: '',
+  valorVenda: '',
+  formaRecebimento: '',
+  vendidoEm: '',
+  observacoesVenda: '',
+  valorContabilVenda: 0,
+  resultadoPatrimonialVenda: 0,
+  tipoSaida: '',
+  dataSaida: '',
+  valorAtribuidoSaida: '',
+  destinatarioSaida: '',
+  referenciaNegociacao: '',
+  servicoRecebido: '',
+  fornecedorServico: '',
+  valorTotalServico: '',
+  complementoDinheiro: '',
+  contaComplemento: 'empresa',
+  formaSaida: '',
+  observacoesSaida: '',
+  financeExitId: '',
+  historico: [],
 };
 
 const emptyMaintenance = {
@@ -246,6 +289,47 @@ const getEquipmentAlert = (equipment) => {
 
   return null;
 };
+
+
+const makeId = (prefix) => (
+  globalThis.crypto?.randomUUID
+    ? `${prefix}-${globalThis.crypto.randomUUID()}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+);
+
+const normalizeText = (value) => String(value || '').trim();
+
+const saveFinancialMirror = (transaction) => {
+  const current = readStorage(STORAGE_KEYS.finances, []);
+  const index = current.findIndex((item) => String(item.id) === String(transaction.id));
+  const next = index >= 0
+    ? current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...transaction } : item))
+    : [transaction, ...current];
+  writeStorage(STORAGE_KEYS.finances, next);
+  window.dispatchEvent(new Event('sf_storage_update'));
+};
+
+const buildFinancePayload = (transaction) => ({
+  id: String(transaction.id),
+  descricao: transaction.descricao,
+  categoria: transaction.categoria,
+  valor: Number(transaction.valor || 0),
+  data: transaction.data || transaction.dataPagamento || transaction.vencimento || null,
+  data_pagamento: transaction.dataPagamento || null,
+  data_recebimento: transaction.dataRecebimento || null,
+  vencimento: transaction.vencimento || null,
+  status: transaction.status,
+  tipo: transaction.tipo,
+  tipo_geral: transaction.tipoGeral,
+  conta_origem: transaction.contaOrigem || null,
+  forma_pagamento: transaction.formaPagamento || null,
+  natureza_financeira: transaction.naturezaFinanceira || null,
+  patrimonio_id: transaction.patrimonioId || null,
+  origem_recursos: transaction.origemRecursos || null,
+  observacoes: transaction.observacoes || null,
+  detalhes: transaction.detalhes || {},
+  updated_at: new Date().toISOString(),
+});
 
 export default function Equipamentos() {
   const navigate = useNavigate();
@@ -486,7 +570,7 @@ export default function Equipamentos() {
     setIsModalOpen(true);
   };
 
-  const salvarEquipamento = () => {
+  const salvarEquipamento = async () => {
     const nome = String(formData.nome || '').trim();
     const valorCompra = parseCurrency(
       formData.valorCompra || formData.valor,
@@ -505,6 +589,31 @@ export default function Equipamentos() {
     if (!formData.dataCompra) {
       alert('Informe a data da compra.');
       return;
+    }
+
+    const isExit = ['Vendido', 'Baixado'].includes(formData.status);
+    const exitType = formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa');
+    if (isExit && !formData.dataSaida && !formData.dataVenda) {
+      alert('Informe a data da saída do patrimônio.');
+      return;
+    }
+    if (isExit && ['venda', 'permuta', 'parte_pagamento'].includes(exitType) && parseCurrency(formData.valorAtribuidoSaida || formData.valorVenda) <= 0) {
+      alert('Informe o valor atribuído ao equipamento na negociação.');
+      return;
+    }
+    if (isExit && ['permuta', 'parte_pagamento'].includes(exitType)) {
+      if (!normalizeText(formData.referenciaNegociacao)) {
+        alert('Informe uma referência para a negociação. Use a mesma referência ao incluir outro equipamento na mesma permuta.');
+        return;
+      }
+      if (!normalizeText(formData.servicoRecebido)) {
+        alert('Informe qual serviço foi recebido na permuta ou como parte do pagamento.');
+        return;
+      }
+      if (parseCurrency(formData.valorTotalServico) <= 0) {
+        alert('Informe o valor total do serviço recebido.');
+        return;
+      }
     }
 
     const settings = loadSettings().financial;
@@ -556,6 +665,52 @@ export default function Equipamentos() {
         || formData.criadoEm
         || now,
       atualizadoEm: now,
+      comprador: formData.destinatarioSaida || formData.comprador || existingEquipment?.comprador || '',
+      dataVenda: formData.dataSaida || formData.dataVenda || existingEquipment?.dataVenda || '',
+      valorVenda: parseCurrency(formData.valorAtribuidoSaida || formData.valorVenda) || Number(existingEquipment?.valorVenda || 0),
+      formaRecebimento: formData.formaSaida || formData.formaRecebimento || existingEquipment?.formaRecebimento || '',
+      vendidoEm: formData.status === 'Vendido'
+        ? (formData.vendidoEm || existingEquipment?.vendidoEm || now)
+        : '',
+      depreciacaoEncerradaEm: ['Vendido', 'Baixado'].includes(formData.status)
+        ? (formData.dataSaida || formData.dataVenda || existingEquipment?.depreciacaoEncerradaEm || now.slice(0, 10))
+        : '',
+      observacoesVenda: formData.observacoesSaida || formData.observacoesVenda || existingEquipment?.observacoesVenda || '',
+      valorContabilVenda: ['Vendido', 'Baixado'].includes(formData.status)
+        ? Number(existingEquipment?.valorContabilVenda || calculateDepreciation({ ...existingEquipment, ...formData, valorCompra }).currentBookValue || 0)
+        : Number(existingEquipment?.valorContabilVenda || 0),
+      resultadoPatrimonialVenda: ['Vendido', 'Baixado'].includes(formData.status)
+        ? (parseCurrency(formData.valorAtribuidoSaida || formData.valorVenda) || Number(existingEquipment?.valorVenda || 0))
+          - Number(existingEquipment?.valorContabilVenda || calculateDepreciation({ ...existingEquipment, ...formData, valorCompra }).currentBookValue || 0)
+        : Number(existingEquipment?.resultadoPatrimonialVenda || 0),
+      tipoSaida: ['Vendido', 'Baixado'].includes(formData.status)
+        ? (formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa'))
+        : '',
+      dataSaida: formData.dataSaida || formData.dataVenda || existingEquipment?.dataSaida || '',
+      valorAtribuidoSaida: parseCurrency(formData.valorAtribuidoSaida || formData.valorVenda) || Number(existingEquipment?.valorAtribuidoSaida || 0),
+      destinatarioSaida: formData.destinatarioSaida || formData.comprador || existingEquipment?.destinatarioSaida || '',
+      referenciaNegociacao: formData.referenciaNegociacao || existingEquipment?.referenciaNegociacao || '',
+      servicoRecebido: formData.servicoRecebido || existingEquipment?.servicoRecebido || '',
+      fornecedorServico: formData.fornecedorServico || existingEquipment?.fornecedorServico || '',
+      valorTotalServico: parseCurrency(formData.valorTotalServico) || Number(existingEquipment?.valorTotalServico || 0),
+      complementoDinheiro: parseCurrency(formData.complementoDinheiro) || Number(existingEquipment?.complementoDinheiro || 0),
+      contaComplemento: formData.contaComplemento || existingEquipment?.contaComplemento || 'empresa',
+      formaSaida: formData.formaSaida || formData.formaRecebimento || existingEquipment?.formaSaida || '',
+      observacoesSaida: formData.observacoesSaida || formData.observacoesVenda || existingEquipment?.observacoesSaida || '',
+      financeExitId: existingEquipment?.financeExitId || formData.financeExitId || '',
+      historico: [
+        ...(existingEquipment?.historico || []),
+        {
+          id: `hist-${Date.now()}`,
+          data: now,
+          acao: existingEquipment ? 'Equipamento editado' : 'Equipamento cadastrado',
+          statusAnterior: existingEquipment?.status || '',
+          statusNovo: formData.status || 'Ativo',
+          observacao: ['Vendido', 'Baixado'].includes(formData.status)
+            ? `Saída registrada: ${ASSET_EXIT_TYPES.find(([value]) => value === (formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa')))?.[1] || 'Baixa'}.`
+            : '',
+        },
+      ],
     };
 
     const nextEquipment = formData.id
@@ -567,6 +722,114 @@ export default function Equipamentos() {
       : [equipamento, ...equipamentos];
 
     saveList(nextEquipment);
+
+    if (['Vendido', 'Baixado'].includes(equipamento.status)) {
+      const exitType = equipamento.tipoSaida || (equipamento.status === 'Vendido' ? 'venda' : 'baixa');
+      const exitDate = equipamento.dataSaida || equipamento.dataVenda || now.slice(0, 10);
+      const attributedValue = Number(equipamento.valorAtribuidoSaida || equipamento.valorVenda || 0);
+      let transaction = null;
+
+      if (exitType === 'venda') {
+        const transactionId = equipamento.financeExitId || `asset-sale-${equipamento.id}`;
+        transaction = {
+          id: transactionId,
+          descricao: `Venda de patrimônio · ${equipamento.nome}`,
+          categoria: 'Venda de patrimônio',
+          valor: attributedValue,
+          data: exitDate,
+          dataRecebimento: exitDate,
+          status: 'Recebida',
+          tipo: 'entrada_nao_operacional',
+          tipoGeral: 'Entrada',
+          naturezaFinanceira: 'nao_operacional',
+          contaOrigem: formData.contaDestinoVenda || 'empresa',
+          formaPagamento: equipamento.formaSaida || equipamento.formaRecebimento || 'Outro',
+          patrimonioId: equipamento.id,
+          origemRecursos: 'Venda de patrimônio',
+          observacoes: equipamento.observacoesSaida || '',
+          detalhes: {
+            tipoSaida: exitType,
+            comprador: equipamento.destinatarioSaida || equipamento.comprador || '',
+            valorContabil: equipamento.valorContabilVenda,
+            resultadoPatrimonial: equipamento.resultadoPatrimonialVenda,
+          },
+          criadoEm: existingEquipment?.financeExitId ? undefined : now,
+          atualizadoEm: now,
+        };
+        equipamento.financeExitId = transactionId;
+      }
+
+      if (['permuta', 'parte_pagamento'].includes(exitType)) {
+        const reference = normalizeText(equipamento.referenciaNegociacao);
+        const finances = readStorage(STORAGE_KEYS.finances, []);
+        const existingTrade = finances.find((item) => (
+          String(item?.detalhes?.referenciaNegociacao || '') === reference
+          && ['permuta', 'parte_pagamento'].includes(String(item?.detalhes?.tipoSaida || ''))
+        ));
+        const transactionId = existingTrade?.id || `asset-trade-${reference.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${exitDate}`;
+        const equipmentValues = {
+          ...(existingTrade?.detalhes?.equipamentosValores || {}),
+          [equipamento.id]: attributedValue,
+        };
+        const equipmentIds = Array.from(new Set([
+          ...(existingTrade?.detalhes?.equipamentoIds || []),
+          equipamento.id,
+        ]));
+        const totalAssets = Object.values(equipmentValues).reduce((sum, value) => sum + Number(value || 0), 0);
+        const cashComplement = Math.max(
+          Number(equipamento.complementoDinheiro || 0),
+          Number(existingTrade?.detalhes?.complementoDinheiro || 0),
+        );
+        transaction = {
+          ...existingTrade,
+          id: transactionId,
+          descricao: equipamento.servicoRecebido || existingTrade?.descricao || 'Serviço recebido em permuta',
+          categoria: 'Serviço recebido em permuta',
+          valor: Number(equipamento.valorTotalServico || existingTrade?.valor || totalAssets + cashComplement),
+          data: exitDate,
+          dataPagamento: exitDate,
+          status: 'Pago',
+          tipo: 'variavel',
+          tipoGeral: 'Saida',
+          contaOrigem: cashComplement > 0 ? (equipamento.contaComplemento || 'empresa') : 'permuta_patrimonial',
+          formaPagamento: cashComplement > 0 ? 'Pagamento misto' : 'Permuta patrimonial',
+          observacoes: equipamento.observacoesSaida || existingTrade?.observacoes || '',
+          detalhes: {
+            ...(existingTrade?.detalhes || {}),
+            tipoSaida: exitType,
+            referenciaNegociacao: reference,
+            fornecedorServico: equipamento.fornecedorServico || '',
+            equipamentoIds,
+            equipamentosValores: equipmentValues,
+            valorPatrimonioEntregue: totalAssets,
+            complementoDinheiro: cashComplement,
+            quitacaoSemMovimentoCaixa: cashComplement <= 0,
+          },
+          criadoEm: existingTrade?.criadoEm || now,
+          atualizadoEm: now,
+        };
+        equipamento.financeExitId = transactionId;
+      }
+
+      if (transaction) {
+        saveFinancialMirror(transaction);
+        if (isSupabaseConfigured) {
+          try {
+            await upsertRow({ table: 'financas', payload: buildFinancePayload(transaction) });
+          } catch (error) {
+            console.error('Erro ao sincronizar a saída patrimonial com o Financeiro:', error);
+            alert('A saída foi salva em Equipamentos e no espelho financeiro deste navegador, mas não foi possível sincronizá-la com o Supabase.');
+          }
+        }
+        const equipmentWithFinance = nextEquipment.map((item) => (
+          String(item.id) === String(equipamento.id)
+            ? { ...item, financeExitId: equipamento.financeExitId }
+            : item
+        ));
+        saveList(equipmentWithFinance);
+      }
+    }
+
     setSelectedEquipmentId(equipamento.id);
     setIsModalOpen(false);
   };
@@ -906,7 +1169,7 @@ export default function Equipamentos() {
                           ? ` · Série ${equipment.numeroSerie}`
                           : ''}
                         {' · '}
-                        Vida útil: {depreciation.usefulLifeYears} anos
+                        Compra: {equipment.dataCompra ? formatDateBR(equipment.dataCompra) : 'não informada'} · Vida útil: {depreciation.usefulLifeYears} anos
                       </small>
                     </td>
 
@@ -926,8 +1189,11 @@ export default function Equipamentos() {
 
                     <td className="positive">
                       <strong>
-                        {formatCurrency(depreciation.currentBookValue)}
+                        {formatCurrency(['Vendido', 'Baixado'].includes(equipment.status) && equipment.valorContabilVenda != null ? equipment.valorContabilVenda : depreciation.currentBookValue)}
                       </strong>
+                      {equipment.status === 'Vendido' && (
+                        <small className="sf-muted">Resultado: {formatCurrency(equipment.resultadoPatrimonialVenda || 0)}</small>
+                      )}
                     </td>
 
                     <td>
@@ -1133,6 +1399,110 @@ export default function Equipamentos() {
                 })}
               />
             </Field>
+
+            {['Vendido', 'Baixado'].includes(formData.status) && (
+              <div className="sf-equipment-exit-panel">
+                <div className="sf-equipment-exit-heading">
+                  <strong>Registrar saída do patrimônio</strong>
+                  <small>A saída encerra a depreciação e mantém todo o histórico do item.</small>
+                </div>
+                <div className="sf-form-grid">
+                  <Field label="Tipo de saída">
+                    <select
+                      style={inputStyle}
+                      value={formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa')}
+                      onChange={(event) => {
+                        const tipoSaida = event.target.value;
+                        setFormData({
+                          ...formData,
+                          tipoSaida,
+                          status: tipoSaida === 'venda' ? 'Vendido' : 'Baixado',
+                          formaSaida: tipoSaida === 'permuta'
+                            ? 'Permuta patrimonial'
+                            : tipoSaida === 'parte_pagamento'
+                              ? 'Pagamento misto'
+                              : formData.formaSaida,
+                        });
+                      }}
+                    >
+                      {ASSET_EXIT_TYPES.map(([value, text]) => (
+                        <option key={value} value={value}>{text}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Data da saída">
+                    <input type="date" style={inputStyle} value={formData.dataSaida || formData.dataVenda || ''} onChange={(event) => setFormData({ ...formData, dataSaida: event.target.value, dataVenda: event.target.value })} />
+                  </Field>
+                  {['venda', 'permuta', 'parte_pagamento'].includes(formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa')) && (
+                    <>
+                      <Field label={(formData.tipoSaida || 'venda') === 'venda' ? 'Comprador' : 'Destinatário/fornecedor'}>
+                        <input style={inputStyle} value={formData.destinatarioSaida || formData.comprador || ''} onChange={(event) => setFormData({ ...formData, destinatarioSaida: event.target.value, comprador: event.target.value })} />
+                      </Field>
+                      <Field label="Valor atribuído ao equipamento">
+                        <input style={inputStyle} value={formData.valorAtribuidoSaida || formData.valorVenda || ''} onChange={(event) => { const value = maskCurrency(event.target.value); setFormData({ ...formData, valorAtribuidoSaida: value, valorVenda: value }); }} placeholder="R$ 0,00" />
+                      </Field>
+                    </>
+                  )}
+                  {(formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa')) === 'venda' && (
+                    <>
+                      <Field label="Forma de recebimento">
+                        <select style={inputStyle} value={formData.formaSaida || formData.formaRecebimento || ''} onChange={(event) => setFormData({ ...formData, formaSaida: event.target.value, formaRecebimento: event.target.value })}>
+                          <option value="">Selecione...</option>
+                          {EXIT_PAYMENT_METHODS.filter((item) => !['Permuta patrimonial', 'Pagamento misto'].includes(item)).map((item) => <option key={item}>{item}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Conta que recebeu o dinheiro">
+                        <select style={inputStyle} value={formData.contaDestinoVenda || 'empresa'} onChange={(event) => setFormData({ ...formData, contaDestinoVenda: event.target.value })}>
+                          <option value="empresa">Empresa</option>
+                          <option value="salario">Salário/Pessoal</option>
+                          <option value="reserva">Reserva</option>
+                        </select>
+                      </Field>
+                    </>
+                  )}
+                  {['permuta', 'parte_pagamento'].includes(formData.tipoSaida || '') && (
+                    <>
+                      <Field label="Referência da negociação">
+                        <input style={inputStyle} value={formData.referenciaNegociacao || ''} onChange={(event) => setFormData({ ...formData, referenciaNegociacao: event.target.value })} placeholder="Ex.: troca Nikon por serviço de manutenção" />
+                      </Field>
+                      <Field label="Serviço recebido">
+                        <input style={inputStyle} value={formData.servicoRecebido || ''} onChange={(event) => setFormData({ ...formData, servicoRecebido: event.target.value })} />
+                      </Field>
+                      <Field label="Fornecedor do serviço">
+                        <input style={inputStyle} value={formData.fornecedorServico || ''} onChange={(event) => setFormData({ ...formData, fornecedorServico: event.target.value })} />
+                      </Field>
+                      <Field label="Valor total do serviço">
+                        <input style={inputStyle} value={formData.valorTotalServico || ''} onChange={(event) => setFormData({ ...formData, valorTotalServico: maskCurrency(event.target.value) })} placeholder="R$ 0,00" />
+                      </Field>
+                      {(formData.tipoSaida || '') === 'parte_pagamento' && (
+                        <>
+                          <Field label="Complemento em dinheiro">
+                            <input style={inputStyle} value={formData.complementoDinheiro || ''} onChange={(event) => setFormData({ ...formData, complementoDinheiro: maskCurrency(event.target.value) })} placeholder="R$ 0,00" />
+                          </Field>
+                          <Field label="Conta do complemento">
+                            <select style={inputStyle} value={formData.contaComplemento || 'empresa'} onChange={(event) => setFormData({ ...formData, contaComplemento: event.target.value })}>
+                              <option value="empresa">Empresa</option>
+                              <option value="salario">Salário/Pessoal</option>
+                              <option value="reserva">Reserva</option>
+                            </select>
+                          </Field>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+                <Field label="Observações da saída">
+                  <textarea style={{ ...inputStyle, minHeight: 82, resize: 'vertical' }} value={formData.observacoesSaida || formData.observacoesVenda || ''} onChange={(event) => setFormData({ ...formData, observacoesSaida: event.target.value, observacoesVenda: event.target.value })} />
+                </Field>
+                {['venda', 'permuta', 'parte_pagamento'].includes(formData.tipoSaida || (formData.status === 'Vendido' ? 'venda' : 'baixa')) && (
+                  <div className="sf-equipment-sale-summary">
+                    <span>Resultado patrimonial estimado</span>
+                    <strong>{formatCurrency((parseCurrency(formData.valorAtribuidoSaida || formData.valorVenda) || 0) - (calculateDepreciation({ ...formData, valorCompra: parseCurrency(formData.valorCompra || formData.valor) }).currentBookValue || 0))}</strong>
+                    <small>Valor atribuído ao item menos o valor contábil atual. Isso não representa necessariamente entrada de caixa.</small>
+                  </div>
+                )}
+              </div>
+            )}
 
             <Field label="Vida útil em anos">
               <input

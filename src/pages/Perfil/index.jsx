@@ -4,16 +4,13 @@ import {
   Building2,
   Camera,
   CheckCircle2,
-  Globe2,
   MapPin,
   Save,
-  Settings,
   Share2,
   Sparkles,
   UserRound,
   X,
 } from 'lucide-react';
-import { formatCurrency, getTransactionDate, getTransactionValue, isIncome, parseCurrency } from '../../utils/financeEngine';
 import { capitalizeName, maskCurrency, maskPhone } from '../../utils/masks';
 import { getDbStudioData, loadProfileFromDb, saveProfileToDb, subscribeDbUpdates } from '../../utils/dbData';
 
@@ -252,11 +249,16 @@ export default function Perfil() {
     };
   }, []);
 
-  const stats = useMemo(() => {
-    return buildCompanyStats(externalData.clients, externalData.equipment, externalData.transactions);
-  }, [externalData]);
 
   const location = [formData.cidade, formData.estado].filter(Boolean).join(' - ');
+  const hasChanges = useMemo(() => JSON.stringify(formData) !== JSON.stringify(savedProfile), [formData, savedProfile]);
+  const [saveState, setSaveState] = useState('saved');
+
+  useEffect(() => {
+    if (isSaving) setSaveState('saving');
+    else if (hasChanges) setSaveState('changed');
+    else setSaveState('saved');
+  }, [hasChanges, isSaving]);
 
   const updateField = (name, rawValue) => {
     let value = rawValue;
@@ -271,13 +273,6 @@ export default function Perfil() {
 
     setFormData((current) => ({ ...current, [name]: value }));
     if (errors[name]) setErrors((current) => ({ ...current, [name]: false }));
-  };
-
-  const updateSubscription = (name, value) => {
-    setFormData((current) => ({
-      ...current,
-      assinaturas: { ...current.assinaturas, [name]: maskCurrency(value) },
-    }));
   };
 
   const updatePixType = (pixTipo) => {
@@ -328,6 +323,7 @@ export default function Perfil() {
       setErrors({});
       window.dispatchEvent(new Event('storage'));
     } catch (error) {
+      setSaveState('error');
       console.error('Erro ao salvar perfil no Supabase:', error.message);
     } finally {
       setIsSaving(false);
@@ -345,14 +341,6 @@ export default function Perfil() {
         <div>
           <h1>Perfil do Estúdio</h1>
           <p>Configurações da empresa, dados operacionais e diretrizes comerciais usadas pelo StudioFlow.</p>
-        </div>
-        <div className="sf-profile-actions">
-          <button className="sf-secondary-button" onClick={cancelChanges}>
-            <X size={17} /> Cancelar
-          </button>
-          <button className="sf-primary-button" onClick={saveProfile} disabled={isSaving}>
-            <Save size={17} /> Salvar Alterações
-          </button>
         </div>
       </div>
 
@@ -427,42 +415,23 @@ export default function Perfil() {
           <Field label="Pinterest"><input value={formData.pinterest} onChange={(event) => updateField('pinterest', event.target.value)} /></Field>
         </ProfileCard>
 
-        <ProfileCard icon={Settings} title="Configurações">
-          <Field label="Idioma"><select value={formData.idioma} onChange={(event) => updateField('idioma', event.target.value)}><option>Português</option><option>English</option><option>Espanhol</option></select></Field>
-          <Field label="Formato da Data"><select value={formData.formatoData} onChange={(event) => updateField('formatoData', event.target.value)}><option>DD/MM/AAAA</option><option>MM/DD/AAAA</option><option>AAAA-MM-DD</option></select></Field>
-          <Field label="Formato da Moeda"><select value={formData.formatoMoeda} onChange={(event) => updateField('formatoMoeda', event.target.value)}><option>BRL - Real brasileiro</option><option>USD - Dólar</option><option>EUR - Euro</option></select></Field>
-          <Field label="Fuso Horário"><select value={formData.fusoHorario} onChange={(event) => updateField('fusoHorario', event.target.value)}><option>America/Sao_Paulo</option><option>America/Bahia</option><option>America/Fortaleza</option></select></Field>
-          <Field label="Tema"><select value={formData.tema} onChange={(event) => updateField('tema', event.target.value)}><option>StudioFlow Dark</option><option>Preparado para temas futuros</option></select></Field>
-        </ProfileCard>
 
-        <ProfileCard icon={Globe2} title="Assinaturas de Softwares">
-          {[
-            ['adobe', 'Adobe Creative Cloud'],
-            ['googleDrive', 'Google Drive / Workspace'],
-            ['canva', 'Canva Pro'],
-            ['chatgpt', 'ChatGPT Plus'],
-            ['dominio', 'Domínio Web'],
-            ['hospedagem', 'Hospedagem de Site'],
-            ['outras', 'Outras Assinaturas'],
-          ].map(([key, label]) => (
-            <Field label={label} key={key}>
-              <input value={formData.assinaturas[key] || ''} onChange={(event) => updateSubscription(key, event.target.value)} inputMode="numeric" />
-            </Field>
-          ))}
-        </ProfileCard>
+
+
       </div>
 
-      <section className="sf-finance-section">
-        <div className="sf-section-header compact">
-          <div>
-            <h2>Resumo Operacional da Empresa</h2>
-            <p>Métricas consolidadas em tempo real com base nos módulos ativos do StudioFlow.</p>
-          </div>
+      <div className="sf-profile-savebar" role="status" aria-live="polite">
+        <div className={`sf-profile-save-state ${saveState}`}>
+          {saveState === 'saving' && <><span className="sf-save-spinner" /> Salvando...</>}
+          {saveState === 'saved' && <><CheckCircle2 size={16} /> Salvo</>}
+          {saveState === 'changed' && <><Sparkles size={16} /> Alterações não salvas</>}
+          {saveState === 'error' && <>Erro ao salvar. Tente novamente.</>}
         </div>
-        <div className="sf-metric-grid">
-          {stats.map((item) => <StatCard key={item.label} {...item} />)}
+        <div className="sf-profile-save-actions">
+          <button className="sf-secondary-button" onClick={cancelChanges} disabled={!hasChanges || isSaving}><X size={17} /> Descartar</button>
+          <button className="sf-primary-button" onClick={saveProfile} disabled={!hasChanges || isSaving}><Save size={17} /> Salvar alterações</button>
         </div>
-      </section>
+      </div>
 
       <datalist id="email-domains">
         {emailDomains.map((domain) => <option value={domain} key={domain} />)}
@@ -498,58 +467,4 @@ function Field({ label, children, error, helper }) {
       {helper && <small>{helper}</small>}
     </label>
   );
-}
-
-function StatCard({ icon: Icon, label, value, tone = 'neutral' }) {
-  return (
-    <div className={`sf-card metric ${tone}`}>
-      <div className="metric-label">
-        <Icon size={18} /> {label}
-      </div>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function buildCompanyStats(clients = [], equipment = [], transactions = []) {
-  const currentYear = new Date().getFullYear();
-
-  const countByType = (terms) =>
-    clients.filter((client) => {
-      const typeStr = String(client.tipo || client.tipoTrabalho || client.tipoServico || '').toLowerCase();
-      return terms.some((term) => typeStr.includes(term));
-    }).length;
-
-  const clientsBilling = clients.reduce((sum, client) => {
-    const payments = client.pagamentos || [];
-    return sum + payments.reduce((total, payment) => {
-      if (!payment.data) return total;
-      const safeDateStr = String(payment.data).replace(/-/g, '/');
-      const date = new Date(safeDateStr);
-      const year = !Number.isNaN(date.getTime()) ? date.getFullYear() : currentYear;
-      return year === currentYear ? total + parseCurrency(payment.valor) : total;
-    }, 0);
-  }, 0);
-
-  const transactionBilling = transactions
-    .filter((item) => {
-      if (!isIncome(item)) return false;
-      const tDate = getTransactionDate(item);
-      if (!tDate) return false;
-      const date = new Date(String(tDate).replace(/-/g, '/'));
-      return !Number.isNaN(date.getTime()) && date.getFullYear() === currentYear;
-    })
-    .reduce((sum, item) => sum + getTransactionValue(item), 0);
-
-  return [
-    { icon: UserRound, label: 'Total de Clientes', value: clients.length },
-    { icon: Sparkles, label: 'Total de Projetos', value: clients.length },
-    { icon: CheckCircle2, label: 'Total de Casamentos', value: countByType(['casamento']) },
-    { icon: Camera, label: 'Total de Ensaios', value: countByType(['ensaio', 'gestante', 'família', 'familia']) },
-    { icon: Building2, label: 'Total de Formaturas', value: countByType(['formatura']) },
-    { icon: Globe2, label: 'Total de Eventos', value: countByType(['evento', 'corporativo']) },
-    { icon: Settings, label: 'Equipamentos cadastrados', value: equipment.length },
-    { icon: Banknote, label: 'Faturamento do Ano', value: formatCurrency(clientsBilling + transactionBilling), tone: 'positive' },
-    { icon: Save, label: 'Tempo médio de entrega', value: '0 dias' },
-  ];
 }

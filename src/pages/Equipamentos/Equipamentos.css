@@ -316,3 +316,27 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.sf-equipment-exit-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent-color, #c99243) 35%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-color, #c99243) 4%);
+}
+
+.sf-equipment-exit-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.sf-equipment-exit-heading small {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .sf-equipment-exit-panel .sf-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

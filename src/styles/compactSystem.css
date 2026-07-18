@@ -1,0 +1,265 @@
+:root {
+  --sf-shell-gutter: clamp(10px, 1.2vw, 18px);
+  --sf-card-padding: clamp(12px, 1vw, 16px);
+  --sf-card-gap: clamp(10px, 1vw, 14px);
+  --sf-compact-radius: 12px;
+  --sf-control-height: 38px;
+  --sf-control-height-lg: 40px;
+  --sf-font-xxs: 0.69rem;
+  --sf-font-xs: 0.76rem;
+  --sf-font-sm: 0.84rem;
+  --sf-font-md: 0.92rem;
+  --sf-font-lg: 1rem;
+  --sf-font-xl: clamp(1.35rem, 1.7vw, 1.8rem);
+  --sf-font-hero: clamp(1.65rem, 2vw, 2.25rem);
+}
+
+html {
+  font-size: 15px;
+}
+
+body {
+  line-height: 1.42;
+}
+
+.content-wrapper {
+  padding: 18px 20px 24px !important;
+}
+
+.content-wrapper > * {
+  max-width: 100%;
+}
+
+h1, .page-title, .sf-page-title, .dashboard-page h1, .crm-page h1,
+.clients-page h1, .works-page h1, .equipments-page h1, .gallery-page h1,
+.file-library-page h1, .agenda-page h1, .reports-page h1 {
+  letter-spacing: -0.03em;
+}
+
+h1 { font-size: var(--sf-font-hero); line-height: 1.12; }
+h2 { font-size: var(--sf-font-xl); line-height: 1.18; }
+h3 { font-size: 1.02rem; line-height: 1.22; }
+p, li, label, input, select, textarea, button { font-size: var(--sf-font-sm); }
+small, .sf-muted, .muted, .helper-text, .field-help { font-size: var(--sf-font-xs) !important; }
+
+/* Cabeçalhos e barras */
+:is(.page-header, .sf-section-header, .crm-header, .clients-header, .trabalhos-header,
+.agenda-header, .gallery-heading, .file-library-header, .equipment-header, .sf-variable-header,
+.client-area-page-header, .sf-pricing-topbar) {
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+:is(.page-header, .sf-section-header, .crm-header, .clients-header, .agenda-header) p,
+:is(.dashboard-subtitle, .page-subtitle, .sf-page-subtitle) {
+  margin-top: 4px !important;
+  font-size: var(--sf-font-sm) !important;
+  line-height: 1.45;
+}
+
+/* Cards globais */
+:is(.glass, .sf-card, .sf-table-card, .dashboard-card, .crm-stat-card, .crm-panel,
+.client-card, .sf-project-card, .agenda-summary-card, .equipment-card, .equipment-status-card,
+.sf-report-summary-card, .sf-report-table-card, .client-portal-card, .gallery-card,
+.file-library-card, .system-state-card, .sf-login-benefit-card, .sf-pricing-card,
+.sf-inspector-card, .sf-builder-card, .sf-capacity-card, .sf-action-card) {
+  border-radius: var(--sf-compact-radius) !important;
+  padding: var(--sf-card-padding) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18) !important;
+}
+
+:is(.sf-card.metric, .dashboard-card.metric, .crm-stat-card, .agenda-summary-card, .sf-report-summary-card) {
+  min-height: auto !important;
+}
+
+:is(.sf-card, .sf-table-card, .dashboard-card, .client-card, .sf-project-card, .crm-panel,
+.equipment-card, .gallery-card, .file-library-card, .client-portal-card) > :last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Grid e espaçamentos */
+:is(.dash-container, .dash-col, .sf-finance-page, .sf-finance-section, .crm-page, .clients-page,
+.trabalhos-page, .agenda-page, .reports-page, .equipment-page, .gallery-page, .file-library-page,
+.client-area-page) {
+  gap: 14px !important;
+}
+
+:is(.sf-metric-grid, .sf-panel-grid, .sf-report-grid, .agenda-summary-grid, .dashboard-grid,
+.crm-stats-grid, .clients-grid, .works-stats-grid, .equipment-grid, .gallery-grid,
+.file-library-grid, .client-area-grid) {
+  gap: 12px !important;
+}
+
+/* Botões */
+:is(button, .sf-primary-button, .sf-secondary-button, .agenda-primary, .agenda-secondary,
+.crm-new-lead-button, .system-state-button, .sf-table-link, .page-action-button) {
+  min-height: var(--sf-control-height);
+  padding: 8px 12px !important;
+  border-radius: 10px !important;
+}
+
+:is(.sf-primary-button, .sf-secondary-button, .agenda-primary, .agenda-secondary,
+.crm-new-lead-button) svg,
+:is(button) svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sf-icon-button,
+button.sf-icon-button,
+.sf-actions button,
+.client-area-modal-close,
+.account-menu-group button {
+  min-width: 34px !important;
+  min-height: 34px !important;
+  padding: 7px !important;
+  border-radius: 10px !important;
+}
+
+/* Inputs e formulários */
+:is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  min-height: var(--sf-control-height) !important;
+  padding: 8px 11px !important;
+  border-radius: 10px !important;
+  font-size: var(--sf-font-sm) !important;
+}
+textarea { min-height: 88px !important; }
+
+:is(.sf-form-grid, .agenda-form-grid, .client-area-form-grid, .gallery-form-grid,
+.file-library-form-grid, .crm-form-grid, .clients-form-grid) {
+  gap: 12px !important;
+}
+
+/* Tabelas */
+:is(table, .sf-table, .sf-pricing-table) {
+  font-size: var(--sf-font-sm);
+}
+
+:is(table th, .sf-table th, .sf-pricing-table th) {
+  padding: 10px 12px !important;
+  font-size: var(--sf-font-xxs) !important;
+  letter-spacing: 0.08em;
+}
+
+:is(table td, .sf-table td, .sf-pricing-table td) {
+  padding: 10px 12px !important;
+  line-height: 1.38;
+}
+
+/* Dashboard / indicadores */
+.dashboard-card h3,
+.sf-card.metric h3,
+.crm-stat-card h3,
+.agenda-summary-card h3,
+.sf-report-summary-card h3 {
+  font-size: var(--sf-font-xs) !important;
+  letter-spacing: 0.06em;
+}
+
+.dashboard-card .metric-value,
+.sf-card.metric .value,
+.crm-stat-card .value,
+.agenda-summary-card .value,
+.sf-report-summary-card .value,
+.sf-kpi-value {
+  font-size: clamp(1.45rem, 1.8vw, 1.9rem) !important;
+  line-height: 1.08;
+}
+
+/* Navegações internas e filtros */
+:is(.sf-finance-nav, .sf-tab-nav, .crm-tabs, .sf-pricing-tabs, .agenda-controls, .toolbar-tabs) {
+  gap: 6px !important;
+  padding-bottom: 10px !important;
+}
+
+:is(.sf-finance-nav button, .sf-pricing-tabs button, .crm-tabs button, .toolbar-tabs button) {
+  min-height: 34px !important;
+  padding: 7px 10px !important;
+  font-size: var(--sf-font-xs) !important;
+}
+
+:is(.agenda-filters, .crm-filters, .clients-filters, .sf-toolbar, .sf-filter-bar,
+.works-filters, .equipment-filters, .gallery-filters, .file-library-filters,
+.sf-variable-search, .sf-search-row) {
+  gap: 10px !important;
+}
+
+/* Cards/listas do CRM, Clientes e Trabalhos */
+.crm-kanban-column,
+.client-card,
+.sf-project-card,
+.client-portal-card,
+.gallery-card,
+.file-library-card {
+  padding: 13px !important;
+}
+
+.sf-project-card-meta,
+.crm-lead-meta,
+.client-card-meta {
+  gap: 8px !important;
+}
+
+/* Modais */
+:is(.modal-overlay, .agenda-modal, .client-area-modal, .gallery-modal, .file-library-modal,
+.system-modal, .sf-modal, .proposal-modal) {
+  border-radius: 14px !important;
+}
+
+:is(.agenda-modal, .client-area-modal, .gallery-modal, .file-library-modal, .sf-modal, .proposal-modal) {
+  padding: 16px !important;
+}
+
+:is(.agenda-modal header, .client-area-modal-header, .gallery-modal-header, .file-library-modal-header,
+.sf-modal-header, .proposal-modal header) {
+  margin-bottom: 12px !important;
+}
+
+/* Gráficos */
+.recharts-wrapper,
+.recharts-surface {
+  font-size: 11px;
+}
+
+/* Sidebar helper widths */
+@media (min-width: 1181px) {
+  .sidebar { width: 214px !important; }
+}
+
+@media (max-width: 1180px) {
+  .content-wrapper { padding: 16px !important; }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --sf-control-height: 42px;
+    --sf-card-padding: 12px;
+  }
+
+  .content-wrapper {
+    padding: 64px 10px 18px !important;
+  }
+
+  h1 { font-size: 1.55rem; }
+  h2 { font-size: 1.2rem; }
+
+  :is(.sf-finance-nav, .sf-tab-nav, .crm-tabs, .sf-pricing-tabs, .toolbar-tabs) {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  :is(.sf-finance-nav, .sf-tab-nav, .crm-tabs, .sf-pricing-tabs, .toolbar-tabs)::-webkit-scrollbar {
+    display: none;
+  }
+
+  :is(.sf-metric-grid, .sf-panel-grid, .sf-report-grid, .agenda-summary-grid, .dashboard-grid,
+  .crm-stats-grid, .clients-grid, .works-stats-grid, .equipment-grid, .gallery-grid,
+  .file-library-grid, .client-area-grid) {
+    grid-template-columns: 1fr !important;
+  }
+
+  :is(table, .sf-table, .sf-pricing-table) th,
+  :is(table, .sf-table, .sf-pricing-table) td {
+    padding: 9px 10px !important;
+  }
+}

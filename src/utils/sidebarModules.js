@@ -11,6 +11,7 @@ import {
   Target,
   Users,
   WalletCards,
+  MessageCircle,
 } from 'lucide-react';
 
 export const SIDEBAR_MODULES = [
@@ -27,6 +28,12 @@ export const SIDEBAR_MODULES = [
     icon: Target,
   },
   {
+    id: 'conversas',
+    label: 'Conversas',
+    route: '/conversas',
+    icon: MessageCircle,
+  },
+  {
     id: 'clientes',
     label: 'Clientes',
     route: '/clientes',
@@ -40,7 +47,7 @@ export const SIDEBAR_MODULES = [
   },
   {
     id: 'biblioteca',
-    label: 'Biblioteca',
+    label: 'Arquivos',
     route: '/biblioteca',
     icon: Library,
   },

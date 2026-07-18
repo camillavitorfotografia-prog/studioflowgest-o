@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BellRing,
@@ -19,6 +19,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserRoundCheck,
   X,
 } from 'lucide-react';
@@ -53,6 +54,7 @@ import {
   useKeyboardShortcuts,
   AutoSaveIndicator,
 } from '../../components/PremiumUXKit';
+import { getRestartedCadenceDate, isLeadInTrash, markLeadAsTrashed } from '../../utils/crmLifecycle';
 import './CRM.css';
 
 const CONTACT_TYPES = [
@@ -788,32 +790,130 @@ const saveLeadToDb = async ({ id, payload }) => {
   return saveLeadRow({ id, payload });
 };
 
-const readLocalLeads = () => (
-  readStorage(STORAGE_KEYS.leads, [])
+const CRM_LEADS_BACKUP_KEY = 'studioflow_crm_leads_backup';
+const CRM_SUZANE_RECOVERY_KEY = 'studioflow_crm_suzane_recovered_v1';
+
+const normalizeLeadNameKey = (value = '') => String(value)
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toLowerCase();
+
+const readStoredLeadRows = () => {
+  const stored = readStorage(STORAGE_KEYS.leads, []);
+  const rows = Array.isArray(stored) ? stored : [];
+  const usedIds = new Set();
+  let changed = false;
+
+  const normalizedRows = rows.map((row) => {
+    const currentId = String(row?.id || '').trim();
+    let nextId = currentId;
+
+    if (!nextId || usedIds.has(nextId)) {
+      nextId = createId('lead');
+      changed = true;
+    }
+
+    usedIds.add(nextId);
+
+    return nextId === currentId
+      ? row
+      : { ...row, id: nextId };
+  });
+
+  if (changed) {
+    writeStorage(STORAGE_KEYS.leads, normalizedRows);
+  }
+
+  return normalizedRows;
+};
+
+const backupStoredLeads = (rows = readStoredLeadRows()) => {
+  try {
+    localStorage.setItem(CRM_LEADS_BACKUP_KEY, JSON.stringify({
+      createdAt: new Date().toISOString(),
+      rows,
+    }));
+  } catch (error) {
+    console.warn('Não foi possível criar o backup dos leads:', error);
+  }
+};
+
+const recoverSuzaneAndArgeuOnce = () => {
+  if (localStorage.getItem(CRM_SUZANE_RECOVERY_KEY) === 'done') return;
+
+  const rows = readStoredLeadRows();
+  const candidates = rows
+    .filter((row) => (
+      normalizeLeadNameKey(row?.nome) === 'suzane e argeu'
+      && isLeadInTrash(row)
+    ))
+    .sort((first, second) => {
+      const firstDate = new Date(first?.created_at || first?.updated_at || 0).getTime();
+      const secondDate = new Date(second?.created_at || second?.updated_at || 0).getTime();
+      return secondDate - firstDate;
+    });
+
+  if (candidates.length) {
+    const targetId = String(candidates[0].id);
+    backupStoredLeads(rows);
+
+    const restoredRows = rows.map((row) => (
+      String(row.id) === targetId
+        ? {
+          ...row,
+          deleted_at: null,
+          deletedAt: null,
+          excluidoEm: null,
+          excluido_em: null,
+          na_lixeira: false,
+          naLixeira: false,
+          updated_at: new Date().toISOString(),
+        }
+        : row
+    ));
+
+    writeStorage(STORAGE_KEYS.leads, restoredRows);
+  }
+
+  localStorage.setItem(CRM_SUZANE_RECOVERY_KEY, 'done');
+};
+
+const readLocalLeads = () => {
+  recoverSuzaneAndArgeuOnce();
+
+  return readStoredLeadRows()
     .map(mapLeadFromDb)
     .map(enrichLeadBudgetFields)
-);
+    .filter((lead) => !isLeadInTrash(lead));
+};
 
 const saveLeadLocal = ({ id, payload }) => {
-  const leads = readLocalLeads();
+  const storedRows = readStoredLeadRows();
   const now = payload.updated_at || new Date().toISOString();
+  const targetId = String(id || createId('lead'));
 
-  const nextLead = mapLeadFromDb({
-    id: id || createId('lead'),
+  const nextRow = {
+    id: targetId,
     ...payload,
     created_at: payload.created_at || now,
     updated_at: now,
-  });
+  };
 
-  const nextLeads = id
-    ? leads.map((lead) => (
-      lead.id === id ? nextLead : lead
+  const existingIndex = storedRows.findIndex(
+    (row) => String(row.id) === targetId,
+  );
+
+  const nextRows = existingIndex >= 0
+    ? storedRows.map((row, index) => (
+      index === existingIndex ? { ...row, ...nextRow } : row
     ))
-    : [nextLead, ...leads];
+    : [nextRow, ...storedRows];
 
-  writeStorage(STORAGE_KEYS.leads, nextLeads);
+  backupStoredLeads(storedRows);
+  writeStorage(STORAGE_KEYS.leads, nextRows);
 
-  return nextLead;
+  return mapLeadFromDb(nextRow);
 };
 
 const formatDisplayDate = (value) => {
@@ -2145,6 +2245,64 @@ export default function CRM() {
     }
   };
 
+  const handleTrashLead = async (lead = selectedLead) => {
+    if (!lead?.id) return;
+
+    const confirmed = window.confirm(
+      `Mover o lead ${lead.nome || ''} para a lixeira? O cliente e os trabalhos vinculados não serão alterados.`,
+    );
+    if (!confirmed) return;
+
+    setSaveStatus('saving');
+    const payload = markLeadAsTrashed(lead);
+
+    try {
+      if (isSupabaseConfigured) {
+        try {
+          await saveLeadRow({ id: lead.id, payload });
+        } catch (error) {
+          if (!isMissingRelationError(error, 'leads')) throw error;
+          console.warn('Tabela public.leads inexistente; lixeira mantida no armazenamento local.');
+        }
+      }
+
+      const stored = readStoredLeadRows();
+      const targetId = String(lead.id);
+      const matchingRows = stored.filter(
+        (item) => String(item.id) === targetId,
+      );
+
+      if (matchingRows.length !== 1) {
+        throw new Error(
+          matchingRows.length === 0
+            ? 'O lead selecionado não foi encontrado no armazenamento.'
+            : 'Foram encontrados identificadores duplicados. A exclusão foi cancelada para proteger os demais leads.',
+        );
+      }
+
+      backupStoredLeads(stored);
+      writeStorage(
+        STORAGE_KEYS.leads,
+        stored.map((item) => (
+          String(item.id) === targetId
+            ? { ...item, ...payload, id: item.id }
+            : item
+        )),
+      );
+
+      setLeads((current) => current.filter(
+        (item) => String(item.id) !== targetId,
+      ));
+      setSelectedLead(null);
+      window.dispatchEvent(new Event('sf_storage_update'));
+    } catch (error) {
+      console.error('Erro ao mover lead para a lixeira:', error);
+      alert(`Não foi possível mover o lead para a lixeira: ${error?.message || 'erro desconhecido'}`);
+    } finally {
+      setSaveStatus('saved');
+    }
+  };
+
   const handleOpenContactModal = (lead = selectedLead) => {
     if (lead) {
       setSelectedLead(lead);
@@ -2199,7 +2357,7 @@ export default function CRM() {
 
     const nextFollowupDate = contactForm.proximoFollowup
       ? inputToDate(contactForm.proximoFollowup)
-      : null;
+      : getRestartedCadenceDate(validContactDate);
 
     const historyItem = {
       id: createId('contato'),
@@ -2952,9 +3110,26 @@ export default function CRM() {
   ), [leads]);
 
   const followupGroups = useMemo(() => {
-    const activeLeads = leads.filter((lead) => (
-      !['aprovado', 'perdido', 'cancelado'].includes(lead.status)
-    ));
+    const activeLeads = leads
+      .filter((lead) => (
+        !['aprovado', 'perdido', 'cancelado'].includes(lead.status)
+      ))
+      .map((lead) => {
+        const explicitFollowup = getLeadFollowupValue(lead);
+
+        if (explicitFollowup) return lead;
+
+        const suggestion = getSmartFollowupSuggestion(lead);
+
+        if (!suggestion?.suggestedDate) return lead;
+
+        return {
+          ...lead,
+          dataProximoFollowup: suggestion.suggestedDate,
+          followupAutomatico: true,
+          followupSuggestion: suggestion,
+        };
+      });
 
     const sortByFollowupDate = (first, second) => {
       const firstDate = parseDateOnly(getLeadFollowupValue(first));
@@ -8515,6 +8690,27 @@ export default function CRM() {
                   Editar
                 </button>
 
+
+                <button
+                  type="button"
+                  onClick={() => void handleTrashLead(selectedLead)}
+                  style={{
+                    background: '#241010',
+                    color: '#fca5a5',
+                    border: '1px solid #552020',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 800,
+                    fontSize: '0.71rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Trash2 size={14} /> Lixeira
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -10897,7 +11093,9 @@ function FollowupColumn({
               >
                 <CalendarClock size={14} />
                 {getLeadFollowupValue(lead)
-                  ? formatDisplayDate(getLeadFollowupValue(lead))
+                  ? `${lead.followupAutomatico ? 'Sugestão: ' : ''}${formatDisplayDate(
+                    getLeadFollowupValue(lead),
+                  )}`
                   : 'Sem retorno agendado'}
               </div>
 

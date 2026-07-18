@@ -11,8 +11,8 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import LogoIcon from '../assets/studioflow-icon.png';
-import Logo from '../assets/studioflow-logo.png';
+import LogoFull from '../assets/studioflow-logo-official-cropped.png';
+import LogoIcon from '../assets/studioflow-icon-official-cropped.png';
 import { useAuth } from '../contexts/useAuth';
 import { loadSettings } from '../utils/settings';
 import { DEFAULT_SIDEBAR_SETTINGS, SIDEBAR_MODULES } from '../utils/sidebarModules';
@@ -82,7 +82,20 @@ export default function Sidebar() {
   ));
   const metadata = user?.user_metadata || {};
   const accountName = metadata.full_name || metadata.name || profileCompanyName || user?.email?.split('@')[0] || 'Usuário StudioFlow';
-  const accountPhoto = metadata.avatar_url || metadata.picture || profilePhoto;
+  const remoteAccountPhoto = metadata.avatar_url || metadata.picture || '';
+  const [accountPhoto, setAccountPhoto] = useState(() => remoteAccountPhoto || profilePhoto || '');
+
+  useEffect(() => {
+    setAccountPhoto(remoteAccountPhoto || profilePhoto || '');
+  }, [remoteAccountPhoto, profilePhoto]);
+
+  const handleAccountPhotoError = () => {
+    if (accountPhoto !== profilePhoto && profilePhoto) {
+      setAccountPhoto(profilePhoto);
+      return;
+    }
+    setAccountPhoto('');
+  };
 
   useEffect(() => {
     const syncProfileIdentity = (event) => {
@@ -171,14 +184,10 @@ export default function Sidebar() {
       />
       <aside className={`sidebar${isMobileOpen ? ' mobile-open' : ''}${sidebarSettings.compact ? ' compact' : ''}${sidebarSettings.showLabels ? '' : ' hide-labels'}${sidebarSettings.showAvatar ? '' : ' no-avatar'}`}>
       <div className="sidebar-main">
-        <div className="sidebar-logo">
+        <div className="sidebar-logo" aria-label="StudioFlow">
           <picture className="sidebar-logo-picture">
-            <source srcSet={LogoIcon} media="(max-width: 1180px)" />
-            <img
-              src={Logo}
-              alt="StudioFlow"
-              className="sidebar-logo-image"
-            />
+            <source srcSet={LogoIcon} media="(max-width: 1024px)" />
+            <img src={LogoFull} alt="StudioFlow" className="sidebar-logo-image" />
           </picture>
         </div>
 
@@ -205,7 +214,7 @@ export default function Sidebar() {
         >
           <span className="sidebar-user-avatar" aria-hidden="true">
             {accountPhoto
-              ? <img src={accountPhoto} alt="" />
+              ? <img src={accountPhoto} alt="" onError={handleAccountPhotoError} />
               : <span className="sidebar-user-initials">{initialsFromName(accountName)}</span>}
           </span>
           <span className="sidebar-user-copy">
@@ -218,7 +227,7 @@ export default function Sidebar() {
           <div className="account-menu" role="menu" aria-label="Menu da conta">
             <div className="account-menu-header">
               <span className="sidebar-user-avatar" aria-hidden="true">
-                {accountPhoto ? <img src={accountPhoto} alt="" /> : <span className="sidebar-user-initials">{initialsFromName(accountName)}</span>}
+                {accountPhoto ? <img src={accountPhoto} alt="" onError={handleAccountPhotoError} /> : <span className="sidebar-user-initials">{initialsFromName(accountName)}</span>}
               </span>
               <span><strong>{accountName}</strong><small>{user?.email || 'E-mail não informado'}</small></span>
             </div>

@@ -1,0 +1,222 @@
+/* StudioFlow — camada global de responsividade.
+   Mantém a identidade visual e reorganiza o conteúdo sem remover recursos. */
+:root {
+  --sf-page-gutter: clamp(10px, 2vw, 28px);
+  --sf-section-gap: clamp(12px, 1.6vw, 22px);
+  --sf-touch-size: 42px;
+  --sf-mobile-top-offset: calc(58px + env(safe-area-inset-top, 0px));
+}
+
+html, body, #root { width: 100%; min-width: 0; min-height: 100%; }
+html { overflow-x: hidden; }
+body { min-width: 320px; }
+img, svg, video, canvas { max-width: 100%; }
+button, input, select, textarea { max-width: 100%; }
+input, select, textarea { min-width: 0; }
+
+.studioflow-shell,
+.content-wrapper,
+.content-wrapper > *,
+[class$="-page"],
+[class*="-page "],
+.sf-finance-page,
+.sf-reports-page,
+.sf-projects-page,
+.crm-responsive-page,
+.clients-page,
+.dashboard-page {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.content-wrapper {
+  overflow-x: clip;
+  padding: clamp(14px, 1.8vw, 28px) !important;
+}
+
+/* Cabeçalhos e barras de ação */
+:is(.page-header, .sf-section-header, .sf-reports-header, .agenda-header, .crm-responsive-header,
+.clients-header, .sf-projects-header, .equipment-header, .gallery-admin-heading,
+.file-library-header, .client-area-page-header, .settings-header, .profile-header,
+.documents-header, .pricing-header, .migration-header) {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+:is(.sf-reports-header-actions, .agenda-controls, .crm-header-actions, .clients-header-actions,
+.sf-projects-board-toolbar, .equipment-header-actions, .gallery-heading-actions,
+.file-library-header-actions, .client-portal-card-actions, .sf-pricing-toolbar-actions,
+.document-toolbar, .migration-controls) {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* Grids fluidos */
+:is(.dashboard-metrics-grid, .dashboard-grid, .crm-stats-grid, .clients-summary-grid,
+.sf-project-summary-grid, .agenda-summary-grid, .equipment-summary-grid,
+.sf-reports-metrics, .sf-reports-summary-grid, .sf-reports-table-grid,
+.file-library-summary, .gallery-collection-grid, .client-area-summary,
+.documents-grid, .sf-pricing-kpi-grid, .migration-stats, .profile-grid,
+.settings-grid, .sf-metric-grid, .sf-panel-grid, .sf-report-grid) {
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+/* Formulários adaptativos */
+:is(.agenda-form-grid, .client-area-form-grid, .gallery-form-grid, .document-form,
+.sf-project-edit-form, .equipment-form-grid, .settings-form-grid, .profile-form-grid,
+.sf-variable-form-grid, .sf-form-grid) {
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+}
+
+:is(.wide, .full, [class*="full-width"]) { min-width: 0; }
+
+/* Abas: preserva todas as opções, com rolagem local quando necessário */
+:is(.sf-finance-nav, .sf-reports-tabs, .agenda-tabs, .crm-tabs, .clients-tabs,
+.sf-project-tabs, .settings-tabs, .gallery-workspace-nav, .editor-mobile-tabs,
+.contract-mobile-tabs) {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+:is(.sf-finance-nav, .sf-reports-tabs, .agenda-tabs, .crm-tabs, .clients-tabs,
+.sf-project-tabs, .settings-tabs) > * { flex: 0 0 auto; white-space: nowrap; }
+
+/* Tabelas: desktop completo; telas pequenas viram rolagem interna, nunca da página */
+:is(.sf-table-card, .sf-report-table-card, .table-card, .agenda-list,
+.migration-review, .sf-pricing-table-card) { min-width: 0; max-width: 100%; }
+:is(.sf-table-scroll, .sf-report-table-scroll, .table-responsive, .migration-table-wrap,
+.sf-pricing-table-wrapper) {
+  width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+table { max-width: 100%; }
+
+/* Modais e drawers seguros em qualquer tela */
+:is(.modal, .agenda-modal, .client-area-modal, .gallery-modal, .file-library-folder-modal,
+.file-library-preview-modal, .sf-modal, .equipment-modal, .project-modal) {
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(100dvh - 24px) !important;
+  overflow: auto;
+}
+:is(.modal-overlay, .agenda-overlay, .client-area-modal-backdrop, .gallery-modal-backdrop,
+.file-library-modal-backdrop, .sf-modal-overlay) {
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+
+/* Evita cortes em textos e valores */
+:is(.sf-card, .dashboard-card, .crm-stat-card, .client-card, .sf-project-card,
+.agenda-summary-card, .equipment-card, .sf-report-summary-card, .sf-report-metric,
+.client-portal-card, .gallery-collection-card, .file-library-item) { min-width: 0; }
+:is(.sf-card, .dashboard-card, .crm-stat-card, .client-card, .sf-project-card,
+.agenda-summary-card, .equipment-card, .sf-report-summary-card, .sf-report-metric) strong,
+:is(.sf-card, .dashboard-card, .crm-stat-card, .client-card, .sf-project-card,
+.agenda-summary-card, .equipment-card, .sf-report-summary-card, .sf-report-metric) span {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1180px) {
+  .content-wrapper { padding: 18px !important; }
+  :is(.sf-project-detail-layout, .sf-pricing-layout, .contract-editor-grid, .editor-body) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  :is(.dashboard-grid, .sf-reports-table-grid, .sf-panel-grid, .client-portal-grid,
+  .gallery-workspace-layout, .equipment-layout, .settings-layout) {
+    grid-template-columns: 1fr !important;
+  }
+  :is(.client-portal-card, .file-library-item, .gallery-collection-card) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  :is(.client-portal-card-actions, .file-library-item-actions, .gallery-card-actions) {
+    width: 100%; justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  :root { --sf-page-gutter: 10px; --sf-section-gap: 12px; }
+  .content-wrapper {
+    width: 100% !important;
+    margin-left: 0 !important;
+    padding: var(--sf-mobile-top-offset) 10px calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+
+  h1 { font-size: clamp(1.45rem, 7vw, 2rem) !important; line-height: 1.08; }
+  h2 { font-size: clamp(1.15rem, 5.4vw, 1.55rem); }
+
+  button, a[role="button"] { min-height: var(--sf-touch-size); }
+  input, select, textarea { font-size: 16px !important; }
+
+  :is(.dashboard-metrics-grid, .dashboard-grid, .crm-stats-grid, .clients-summary-grid,
+  .sf-project-summary-grid, .agenda-summary-grid, .equipment-summary-grid,
+  .sf-reports-metrics, .sf-reports-summary-grid, .sf-reports-table-grid,
+  .file-library-summary, .gallery-collection-grid, .client-area-summary,
+  .documents-grid, .sf-pricing-kpi-grid, .migration-stats, .profile-grid,
+  .settings-grid, .sf-metric-grid, .sf-panel-grid, .sf-report-grid) {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  :is(.agenda-form-grid, .client-area-form-grid, .gallery-form-grid, .document-form,
+  .sf-project-edit-form, .equipment-form-grid, .settings-form-grid, .profile-form-grid,
+  .sf-variable-form-grid, .sf-form-grid) { grid-template-columns: 1fr !important; }
+
+  :is(.page-header, .sf-section-header, .sf-reports-header, .agenda-header,
+  .crm-responsive-header, .clients-header, .sf-projects-header, .equipment-header,
+  .gallery-admin-heading, .file-library-header, .client-area-page-header,
+  .documents-header, .migration-header) { align-items: stretch !important; }
+
+  :is(.sf-reports-header-actions, .agenda-controls, .crm-header-actions,
+  .clients-header-actions, .sf-projects-board-toolbar, .equipment-header-actions,
+  .gallery-heading-actions, .file-library-header-actions, .sf-pricing-toolbar-actions) {
+    width: 100%;
+  }
+  :is(.sf-reports-header-actions, .agenda-controls, .crm-header-actions,
+  .clients-header-actions, .equipment-header-actions, .gallery-heading-actions,
+  .file-library-header-actions) > button,
+  :is(.sf-reports-header-actions, .agenda-controls, .crm-header-actions,
+  .clients-header-actions, .equipment-header-actions, .gallery-heading-actions,
+  .file-library-header-actions) > a { flex: 1 1 auto; }
+
+  /* Cards de lista no celular */
+  .sf-project-card { padding: 14px !important; }
+  .sf-project-card-meta { grid-template-columns: 1fr !important; gap: 8px !important; }
+  .crm-kanban { grid-auto-columns: min(86vw, 330px) !important; }
+  .crm-kanban-column { min-width: 0 !important; }
+
+  .agenda-calendar { min-height: 540px; overflow-x: auto; }
+  .rbc-calendar { min-width: 680px; }
+
+  .client-area-modal-header, .client-area-form-grid, .client-area-modal footer,
+  .gallery-modal, .file-library-preview-content { padding-left: 14px !important; padding-right: 14px !important; }
+  .client-area-section-options { grid-template-columns: 1fr !important; }
+  .client-area-modal footer { position: sticky; bottom: 0; z-index: 2; }
+
+  .migration-page { padding: 10px 0 36px !important; }
+  .migration-upload-card { padding: 16px !important; }
+
+  .account-menu { max-height: calc(100dvh - 90px) !important; }
+}
+
+@media (max-width: 480px) {
+  .content-wrapper { padding-left: 8px !important; padding-right: 8px !important; }
+  :is(.sf-card, .sf-table-card, .dashboard-card, .crm-stat-card, .client-card,
+  .sf-project-card, .agenda-summary-card, .equipment-card, .sf-report-summary-card,
+  .sf-report-table-card) { border-radius: 11px !important; }
+  :is(.sf-primary-button, .sf-secondary-button, .agenda-primary, .crm-new-lead-button) {
+    width: 100%;
+  }
+}
+
+@media (min-width: 1600px) {
+  .content-wrapper { padding: 28px 34px 36px !important; }
+  .content-wrapper > * { max-width: 1920px; margin-inline: auto; }
+}
