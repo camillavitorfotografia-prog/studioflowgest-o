@@ -1,21 +1,26 @@
 {
   "name": "studioflow-whatsapp-connector",
-  "version": "1.0.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "preinstall": "git config --global url.https://github.com/.insteadOf ssh://git@github.com/ || true",
-    "start": "node src/server.js"
+    "start": "node --env-file=.env src/server.js",
+    "check": "node --check src/server.js && node --check src/session-manager.js && node --check src/message-processor.js && node --check src/persistent-store.js && node --check src/config.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",
-    "@whiskeysockets/baileys": "^6.7.18",
+    "@whiskeysockets/baileys": "7.0.0-rc13",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4"
   },
-  "engines": {
-    "node": "22.x"
+  "allowScripts": {
+    "@whiskeysockets/baileys@7.0.0-rc13": true,
+    "protobufjs@7.6.5": true
   }
 }
