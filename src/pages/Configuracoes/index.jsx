@@ -1030,7 +1030,6 @@ export default function Configuracoes() {
                     <ul>
                       {INTEGRATION_PROVIDERS[selectedIntegration]?.capabilities.map((item) => <li key={item}>{item}</li>)}
                     </ul>
-                    <p>O WhatsApp usa webhook oficial da Meta. Após cadastrar os Secrets no Supabase e publicar as funções, mensagens de números novos criam leads automaticamente no CRM; números conhecidos são vinculados ao cadastro existente.</p>
                   </div>
                 </div>
               )}
