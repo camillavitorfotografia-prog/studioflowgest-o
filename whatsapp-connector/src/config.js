@@ -1,29 +1,34 @@
-import path from 'node:path';
+const required = [
+  'SUPABASE_URL',
+  'SUPABASE_ANON_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'WPPCONNECT_URL',
+  'WPPCONNECT_SECRET_KEY',
+  'CONNECTOR_PUBLIC_URL',
+  'WEBHOOK_SECRET',
+];
 
-const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
-const missing = required.filter((name) => !process.env[name]);
+const missing = required.filter((name) => !String(process.env[name] || '').trim());
+if (missing.length) throw new Error(`Variáveis obrigatórias ausentes: ${missing.join(', ')}`);
 
-if (missing.length) {
-  throw new Error(`Variáveis obrigatórias ausentes: ${missing.join(', ')}`);
-}
-
-const integer = (name, fallback) => {
+const positiveInteger = (name, fallback) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
 };
 
+const normalizeUrl = (value) => String(value || '').trim().replace(/\/+$/, '');
+
 export const config = Object.freeze({
-  supabaseUrl: process.env.SUPABASE_URL,
+  port: positiveInteger('PORT', 3001),
+  logLevel: process.env.LOG_LEVEL || 'info',
+  allowedOrigins: process.env.ALLOWED_ORIGIN || '*',
+  supabaseUrl: normalizeUrl(process.env.SUPABASE_URL),
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  sessionDir: path.resolve(process.env.SESSION_DIR || '/data/sessions'),
-  port: integer('PORT', 3001),
-  allowedOrigins: process.env.ALLOWED_ORIGIN || '*',
-  logLevel: process.env.LOG_LEVEL || 'info',
-  historySync: process.env.WHATSAPP_HISTORY_SYNC !== 'false',
-  historyMessageLimit: integer('WHATSAPP_HISTORY_MESSAGE_LIMIT', 10000),
-  reconnectBaseMs: integer('WHATSAPP_RECONNECT_BASE_MS', 3000),
-  reconnectMaxMs: integer('WHATSAPP_RECONNECT_MAX_MS', 60000),
-  maxMessageRetries: integer('WHATSAPP_MAX_MESSAGE_RETRIES', 5),
-  storeFlushMs: integer('WHATSAPP_STORE_FLUSH_MS', 750),
+  wppconnectUrl: normalizeUrl(process.env.WPPCONNECT_URL),
+  wppconnectSecretKey: process.env.WPPCONNECT_SECRET_KEY,
+  connectorPublicUrl: normalizeUrl(process.env.CONNECTOR_PUBLIC_URL),
+  webhookSecret: process.env.WEBHOOK_SECRET,
+  requestTimeoutMs: positiveInteger('WPPCONNECT_REQUEST_TIMEOUT_MS', 30000),
+  statusCacheMs: positiveInteger('WPPCONNECT_STATUS_CACHE_MS', 2500),
 });
