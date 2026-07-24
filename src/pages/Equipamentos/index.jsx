@@ -291,11 +291,6 @@ const getEquipmentAlert = (equipment) => {
 };
 
 
-const makeId = (prefix) => (
-  globalThis.crypto?.randomUUID
-    ? `${prefix}-${globalThis.crypto.randomUUID()}`
-    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-);
 
 const normalizeText = (value) => String(value || '').trim();
 
@@ -345,6 +340,7 @@ export default function Equipamentos() {
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [sortOrder, setSortOrder] = useState('purchase_desc');
+  const [deletingEquipmentId, setDeletingEquipmentId] = useState('');
 
   const syncEquipamentos = async () => {
     const data = await getDbStudioData();
@@ -799,7 +795,7 @@ export default function Equipamentos() {
             tipoSaida: exitType,
             referenciaNegociacao: reference,
             fornecedorServico: equipamento.fornecedorServico || '',
-            equipamentoIds,
+            equipamentoIds: equipmentIds,
             equipamentosValores: equipmentValues,
             valorPatrimonioEntregue: totalAssets,
             complementoDinheiro: cashComplement,
@@ -834,7 +830,9 @@ export default function Equipamentos() {
     setIsModalOpen(false);
   };
 
-  const removerEquipamento = (equipment) => {
+  const removerEquipamento = async (equipment) => {
+    if (!equipment?.id || deletingEquipmentId) return;
+
     const usage = equipmentUsage[equipment.id]?.quantidadeProjetos || 0;
 
     if (usage > 0) {
@@ -855,31 +853,48 @@ export default function Equipamentos() {
         ? 'Este equipamento foi criado pelo Financeiro. '
           + 'A exclusão removerá apenas o item do patrimônio; '
           + 'a despesa financeira será preservada. Continuar?'
-        : 'Deseja remover este equipamento?',
+        : `Deseja excluir definitivamente “${equipment.nome}” do patrimônio?`,
     );
 
     if (!confirmed) return;
 
+    const previousEquipment = equipamentos;
     const nextEquipment = equipamentos.filter(
       (item) => String(item.id) !== String(equipment.id),
     );
 
+    setDeletingEquipmentId(String(equipment.id));
     setEquipamentos(nextEquipment);
     localStorage.setItem(
       EQUIPMENT_STORAGE_KEY,
       JSON.stringify(nextEquipment),
     );
-    void deleteEquipmentRow(equipment.id).catch((error) => {
-      console.error('Erro ao excluir equipamento:', error);
-      alert('Não foi possível excluir o equipamento do Supabase.');
-      void syncEquipamentos();
-    });
-    emitEquipmentUpdate();
 
-    if (
-      String(selectedEquipmentId) === String(equipment.id)
-    ) {
+    if (String(selectedEquipmentId) === String(equipment.id)) {
       setSelectedEquipmentId(nextEquipment[0]?.id || '');
+    }
+
+    try {
+      const result = await deleteEquipmentRow(equipment, { preserveEquipment: nextEquipment });
+      emitEquipmentUpdate();
+      if (result?.warning) {
+        console.warn(result.warning);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir equipamento:', error);
+      setEquipamentos(previousEquipment);
+      localStorage.setItem(
+        EQUIPMENT_STORAGE_KEY,
+        JSON.stringify(previousEquipment),
+      );
+      alert(
+        error?.message
+          ? `Não foi possível excluir o equipamento: ${error.message}`
+          : 'Não foi possível concluir a exclusão no banco de dados. '
+            + 'O equipamento foi restaurado para evitar inconsistências.',
+      );
+    } finally {
+      setDeletingEquipmentId('');
     }
   };
 
@@ -1142,15 +1157,15 @@ export default function Equipamentos() {
           <table className="sf-table sf-equipment-table">
             <thead>
               <tr>
-                <th>Item</th>
-                <th>Status</th>
-                <th>Compra</th>
-                <th>Depreciação mensal</th>
-                <th>Valor atual</th>
-                <th>Garantia / revisão</th>
-                <th>Projetos</th>
-                <th>Retorno</th>
-                <th>Ações</th>
+                <th className="sf-equipment-col-item">Item</th>
+                <th className="sf-equipment-col-status">Status</th>
+                <th className="sf-equipment-col-purchase">Compra</th>
+                <th className="sf-equipment-col-depreciation">Depreciação mensal</th>
+                <th className="sf-equipment-col-current">Valor atual</th>
+                <th className="sf-equipment-col-review">Garantia / revisão</th>
+                <th className="sf-equipment-col-projects">Projetos</th>
+                <th className="sf-equipment-col-return">Retorno</th>
+                <th className="sf-equipment-col-actions">Ações</th>
               </tr>
             </thead>
 
@@ -1161,7 +1176,7 @@ export default function Equipamentos() {
 
                 return (
                   <tr key={equipment.id}>
-                    <td>
+                    <td className="sf-equipment-col-item" data-label="Item">
                       <strong>{equipment.nome}</strong>
                       <small className="sf-muted">
                         {equipment.categoria || 'Sem categoria'}
@@ -1173,21 +1188,21 @@ export default function Equipamentos() {
                       </small>
                     </td>
 
-                    <td>
+                    <td className="sf-equipment-col-status" data-label="Status">
                       <span className="sf-equipment-status">
                         {equipment.status || 'Ativo'}
                       </span>
                     </td>
 
-                    <td>
+                    <td className="sf-equipment-col-purchase" data-label="Compra">
                       {formatCurrency(depreciation.purchaseValue)}
                     </td>
 
-                    <td className="negative">
+                    <td className="negative sf-equipment-col-depreciation" data-label="Depreciação mensal">
                       -{formatCurrency(depreciation.monthlyDepreciation)}
                     </td>
 
-                    <td className="positive">
+                    <td className="positive sf-equipment-col-current" data-label="Valor atual">
                       <strong>
                         {formatCurrency(['Vendido', 'Baixado'].includes(equipment.status) && equipment.valorContabilVenda != null ? equipment.valorContabilVenda : depreciation.currentBookValue)}
                       </strong>
@@ -1196,7 +1211,7 @@ export default function Equipamentos() {
                       )}
                     </td>
 
-                    <td>
+                    <td className="sf-equipment-col-review" data-label="Garantia / revisão">
                       <span>
                         {equipment.proximaRevisao
                           ? `Revisão: ${formatDateBR(equipment.proximaRevisao)}`
@@ -1214,11 +1229,11 @@ export default function Equipamentos() {
                       )}
                     </td>
 
-                    <td>
+                    <td className="sf-equipment-col-projects" data-label="Projetos">
                       {equipmentUsage[equipment.id]?.quantidadeProjetos || 0}x
                     </td>
 
-                    <td className="positive">
+                    <td className="positive sf-equipment-col-return" data-label="Retorno">
                       <strong>
                         {formatCurrency(
                           equipmentUsage[equipment.id]?.valorRecuperado || 0,
@@ -1226,12 +1241,13 @@ export default function Equipamentos() {
                       </strong>
                     </td>
 
-                    <td>
-                      <div className="sf-actions">
+                    <td className="sf-equipment-col-actions" data-label="Ações">
+                      <div className="sf-actions sf-equipment-row-actions">
                         <button
                           type="button"
                           title="Registrar manutenção"
-                          className="sf-icon-button"
+                          className="sf-icon-button sf-equipment-action-button"
+                          aria-label={`Registrar manutenção de ${equipment.nome}`}
                           onClick={() => openMaintenance(equipment)}
                         >
                           <Wrench size={17} />
@@ -1240,7 +1256,8 @@ export default function Equipamentos() {
                         <button
                           type="button"
                           title="Editar"
-                          className="sf-icon-button"
+                          className="sf-icon-button sf-equipment-action-button"
+                          aria-label={`Editar ${equipment.nome}`}
                           onClick={() => openEditEquipment(equipment)}
                         >
                           <Edit2 size={17} />
@@ -1249,7 +1266,9 @@ export default function Equipamentos() {
                         <button
                           type="button"
                           title="Remover"
-                          className="sf-icon-button"
+                          className="sf-icon-button sf-equipment-action-button sf-equipment-delete-button"
+                          aria-label={`Excluir ${equipment.nome}`}
+                          disabled={String(deletingEquipmentId) === String(equipment.id)}
                           onClick={() => removerEquipamento(equipment)}
                         >
                           <Trash2 size={17} />

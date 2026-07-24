@@ -547,3 +547,188 @@
 
   .sf-client-delete-button span { display: inline; }
 }
+
+.sf-client-extra-photos { color: var(--accent-color, #c8a96a) !important; font-weight: 600; }
+
+.sf-client-photo-selection {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(191, 155, 86, 0.35);
+  border-radius: 14px;
+  background: rgba(191, 155, 86, 0.06);
+}
+
+.sf-client-photo-selection-heading,
+.sf-client-photo-participant-heading,
+.sf-client-photo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sf-client-photo-selection-heading > div,
+.sf-client-photo-actions > div {
+  display: grid;
+  gap: 3px;
+}
+
+.sf-client-photo-selection-heading small,
+.sf-client-photo-actions small,
+.sf-client-photo-price-note small {
+  color: #999;
+}
+
+.sf-client-photo-selection select {
+  min-width: 210px;
+  padding: 10px 12px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+}
+
+.sf-client-photo-defaults {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(260px, 1.3fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.sf-client-photo-price-note {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.sf-client-photo-participant {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #2b2b2b;
+  border-radius: 12px;
+  background: #101010;
+}
+
+.sf-client-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.sf-client-photo-actions > div {
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .sf-client-photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .sf-client-photo-selection-heading,
+  .sf-client-photo-participant-heading,
+  .sf-client-photo-actions { align-items: stretch; flex-direction: column; }
+  .sf-client-photo-selection select { width: 100%; min-width: 0; }
+  .sf-client-photo-defaults,
+  .sf-client-photo-grid { grid-template-columns: 1fr; }
+  .sf-client-photo-actions > div { text-align: left; }
+}
+
+.sf-client-photo-selection { display:grid; gap:14px; padding:16px; border:1px solid rgba(191,155,86,.35); border-radius:14px; background:rgba(191,155,86,.06); }
+.sf-client-photo-selection-heading,.sf-client-photo-participant-heading,.sf-client-photo-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.sf-client-photo-selection-heading>div,.sf-client-photo-actions>div { display:grid; gap:3px; }
+.sf-client-photo-selection-heading small,.sf-client-photo-actions small,.sf-client-photo-price-note small { color:#999; }
+.sf-client-photo-selection select { min-width:210px; padding:10px 12px; border:1px solid #333; border-radius:8px; background:#111; color:#fff; }
+.sf-client-photo-defaults { display:grid; grid-template-columns:minmax(180px,.7fr) minmax(260px,1.3fr); gap:12px; align-items:end; }
+.sf-client-photo-price-note { display:grid; gap:4px; padding:12px; border-radius:10px; background:rgba(255,255,255,.035); }
+.sf-client-photo-participant { display:grid; gap:12px; padding:14px; border:1px solid #2b2b2b; border-radius:12px; background:#101010; }
+.sf-client-photo-grid { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:12px; }
+.sf-client-photo-actions>div { text-align:right; }
+@media (max-width:900px){ .sf-client-photo-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:640px){ .sf-client-photo-selection-heading,.sf-client-photo-participant-heading,.sf-client-photo-actions{ align-items:stretch; flex-direction:column; } .sf-client-photo-selection select{ width:100%; min-width:0; } .sf-client-photo-defaults,.sf-client-photo-grid{ grid-template-columns:1fr; } .sf-client-photo-actions>div{ text-align:left; } }
+
+.sf-extra-payment-toggle { min-height: 44px; display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid #3a3a3a; border-radius:9px; background:#111; color:#bbb; cursor:pointer; transition:border-color .2s ease, background .2s ease, color .2s ease; }
+.sf-extra-payment-toggle input { width:18px; height:18px; accent-color:#bf9b56; }
+.sf-extra-payment-toggle.is-paid { border-color:rgba(65,190,150,.55); background:rgba(65,190,150,.1); color:#d7fff1; }
+
+
+/* Status de pagamento das fotos extras */
+.sf-extra-payment-select {
+  width: 100%;
+  min-width: 0 !important;
+  min-height: 38px;
+  padding: 8px 32px 8px 10px !important;
+  border: 1px solid #303030 !important;
+  border-radius: 8px !important;
+  background: #0d0e0e !important;
+  color: #b9b9b9 !important;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sf-extra-payment-select.is-paid {
+  border-color: rgba(67, 178, 133, 0.55) !important;
+  background: rgba(35, 120, 87, 0.12) !important;
+  color: #bfe7d7 !important;
+}
+
+
+/* Controle compacto do pagamento de fotos extras */
+.sf-extra-payment-toggle {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #0c0d0d;
+  border: 1px solid #2a2d2c;
+  border-radius: 9px;
+}
+
+.sf-extra-payment-option {
+  min-width: 74px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #8f9391;
+  background: transparent;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.sf-extra-payment-option:hover {
+  color: #d7dad8;
+  background: rgba(255,255,255,.045);
+}
+
+.sf-extra-payment-option.is-active {
+  color: #e5e7e6;
+  background: #242625;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.045);
+}
+
+.sf-extra-payment-option.is-paid.is-active {
+  color: #c7f4df;
+  background: rgba(29, 118, 84, .26);
+  box-shadow: inset 0 0 0 1px rgba(54, 179, 126, .34);
+}
+
+.sf-extra-payment-option:focus-visible {
+  outline: 2px solid rgba(197, 160, 89, .72);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .sf-extra-payment-toggle { width: 100%; }
+  .sf-extra-payment-option { flex: 1; min-width: 0; }
+}

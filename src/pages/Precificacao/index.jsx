@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import './Precificacao.css';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertTriangle, BriefcaseBusiness, Calculator, Check, CheckCircle2, ChevronDown, Clock3, DollarSign, Package, Percent, Plus, Save, Search, Settings, Sparkles, Video, Wallet, X } from 'lucide-react';
+import { AlertTriangle, BriefcaseBusiness, Calculator, Check, CheckCircle2, ChevronDown, Clock3, DollarSign, Package, Percent, Plus, Save, Search, Settings, Sparkles, Trash2, Video, Wallet, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   FINANCE_STORAGE_KEYS,
   buildFinanceSnapshot,
   calculateDepreciation,
   formatCurrency,
-  getTransactionDate,
-  getTransactionValue,
-  isExpense,
-  monthKey,
 } from '../../utils/financeEngine';
 import { maskCurrency } from '../../utils/masks';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
@@ -111,13 +107,7 @@ const collapsibleDefaults = {
   equipamentos: false,
   configuracoes: false,
 };
-const defaultFilmDeliveries = filmDeliveryKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {
-  filmeHighlight: true,
-  trailer: true,
-  teaserInstagram: true,
-  fullHd: true,
-  galeriaOnline: true,
-});
+const defaultFilmDeliveries = filmDeliveryKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {});
 const timeFields = [
   ['atendimento', 'Atendimento'],
   ['reunioes', 'Reunioes'],
@@ -136,6 +126,21 @@ const defaultConfig = {
   projetosMes: 4,
   valorHora: 'R$ 80,00',
   impostoPercentual: 6,
+  margemMinima: 12,
+  proLaboreMensal: 'R$ 6000,00',
+  reservaMensal: 'R$ 1000,00',
+  investimentoMensal: 'R$ 800,00',
+  capacidadePontos: 30,
+  custoAdicionaisPercentual: 55,
+  rateioVariaveisPercentual: 20,
+  faixasComerciais: {
+    Casamento: { minimo: 0.9, maximo: 1.25 },
+    Ensaio: { minimo: 0.85, maximo: 1.3 },
+    Formatura: { minimo: 0.9, maximo: 1.25 },
+    Corporativo: { minimo: 0.9, maximo: 1.3 },
+    Eventos: { minimo: 0.9, maximo: 1.25 },
+    Outro: { minimo: 0.9, maximo: 1.25 },
+  },
   baseServicos: {
     Fotografia: 'R$ 2500,00',
     Filmagem: 'R$ 2800,00',
@@ -309,53 +314,123 @@ const defaultCapacity = {
 
 const buildWorkState = (overrides = {}) => deepMerge(defaultState, overrides);
 
+
+function getServiceWeight(state) {
+  const serviceFactor = state.service === 'Fotografia + Filmagem' ? 1.45 : state.service === 'Filmagem' ? 1.2 : 1;
+  if (state.categoria === 'Casamento') {
+    const hours = Number(state.horasCobertura === 'Personalizado' ? state.horasPersonalizadas : state.horasCobertura || 8);
+    const coverageFactor = state.cobertura === 'Casamento Completo' ? 1.2 : state.cobertura === 'Cerimonia + Festa' ? 1 : 0.72;
+    return Math.max(1.6, (hours / 3) * coverageFactor * serviceFactor);
+  }
+  if (state.categoria === 'Ensaio') {
+    const duration = state.ensaioDuracao === '1 hora' ? 0.45 : state.ensaioDuracao === '2 horas' ? 0.65 : 0.9;
+    return duration * serviceFactor;
+  }
+  if (state.categoria === 'Formatura') return Math.max(1.2, Number(state.alunos || 1) / 5) * serviceFactor;
+  if (state.categoria === 'Corporativo') return Math.max(0.8, Number(state.horas || 1) / 3) * serviceFactor;
+  if (state.categoria === 'Eventos') return Math.max(1, Number(state.horas || 1) / 2.75) * serviceFactor;
+  return Math.max(0.7, Number(state.horas || 1) / 3) * serviceFactor;
+}
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
 function calculatePricingResult({ data, pricingConfig, state }) {
   const snapshot = buildFinanceSnapshot(data);
-  const projectsPerMonth = Math.max(1, Number(pricingConfig.projetosMes || 1));
-  const fixedPerProject = snapshot.fixedMonthly / projectsPerMonth;
-  const currentMonth = monthKey(new Date());
-  const variablePerProject = data.transactions
-    .filter((item) => isExpense(item) && item.tipo === 'variavel' && monthKey(getTransactionDate(item)) === currentMonth)
-    .reduce((sum, item) => sum + getTransactionValue(item), 0) / projectsPerMonth;
-  const selectedEquipment = (data.equipment || []).filter((item) => (state.selectedEquipment || []).includes(item.id));
-  const equipmentCost = selectedEquipment.reduce((sum, item) => sum + calculateDepreciation(item).monthlyDepreciation, 0) / projectsPerMonth;
   const totalHours = Object.values(state.time || {}).reduce((sum, value) => sum + Number(value || 0), 0);
   const laborCost = totalHours * moneyToNumber(pricingConfig.valorHora);
   const commercialBase = calculateCommercialBase(state, pricingConfig);
   const extrasTotal = (state.extras || []).reduce((sum, key) => sum + moneyToNumber(pricingConfig.extras[key]), 0);
   const filmDeliveriesTotal = calculateFilmDeliveriesTotal(state, pricingConfig);
-  const operationalCost = fixedPerProject + variablePerProject + equipmentCost + laborCost;
-  const subtotal = commercialBase + extrasTotal + filmDeliveriesTotal;
-  const taxes = subtotal * (Number(pricingConfig.impostoPercentual || 0) / 100);
+  const currentPrice = commercialBase + extrasTotal + filmDeliveriesTotal;
+
+  // A meta mensal completa continua visível para planejamento, mas não é despejada inteira em cada serviço.
+  // O pró-labore já é remunerado pelo custo das horas; incluí-lo novamente no rateio criava dupla cobrança.
+  // Despesas variáveis mensais entram apenas parcialmente no overhead, porque o restante deve ser lançado
+  // como custo direto do trabalho quando realmente ocorrer.
+  const monthlyBusinessNeed = snapshot.fixedMonthly
+    + snapshot.variableAverage
+    + snapshot.equipmentDepreciation
+    + moneyToNumber(pricingConfig.proLaboreMensal)
+    + moneyToNumber(pricingConfig.reservaMensal)
+    + moneyToNumber(pricingConfig.investimentoMensal);
+  const variableOverheadRate = clamp(Number(pricingConfig.rateioVariaveisPercentual || 0) / 100, 0, 1);
+  const rateableMonthlyBase = snapshot.fixedMonthly
+    + (snapshot.variableAverage * variableOverheadRate)
+    + moneyToNumber(pricingConfig.reservaMensal)
+    + moneyToNumber(pricingConfig.investimentoMensal);
+  const capacityPoints = Math.max(1, Number(pricingConfig.capacidadePontos || 1));
+  const serviceWeight = getServiceWeight(state);
+  const overheadShare = rateableMonthlyBase * (serviceWeight / capacityPoints);
+
+  const selectedEquipment = (data.equipment || []).filter((item) => (state.selectedEquipment || []).includes(item.id));
+  const equipmentMonthlyBase = selectedEquipment.length
+    ? selectedEquipment.reduce((sum, item) => sum + calculateDepreciation(item).monthlyDepreciation, 0)
+    : snapshot.equipmentDepreciation;
+  const selectedEquipmentReserve = equipmentMonthlyBase * (serviceWeight / capacityPoints);
+  const addOnProductionCost = (extrasTotal + filmDeliveriesTotal) * (Number(pricingConfig.custoAdicionaisPercentual || 0) / 100);
+  const operationalCost = overheadShare + laborCost + selectedEquipmentReserve + addOnProductionCost;
+
+  const taxRate = Number(pricingConfig.impostoPercentual || 0) / 100;
+  const targetMarginRate = Number(pricingConfig.margem || 0) / 100;
+  const minimumMarginRate = Number(pricingConfig.margemMinima || 0) / 100;
+  const minimumPrice = operationalCost / Math.max(0.05, 1 - taxRate - minimumMarginRate);
+  const technicalPrice = operationalCost / Math.max(0.05, 1 - taxRate - targetMarginRate);
+
+  const range = pricingConfig.faixasComerciais?.[state.categoria] || { minimo: 0.9, maximo: 1.25 };
+  const marketMin = currentPrice > 0 ? currentPrice * Number(range.minimo || 0.9) : minimumPrice;
+  const marketMax = currentPrice > 0 ? currentPrice * Number(range.maximo || 1.25) : technicalPrice * 1.15;
+  const commercialFloor = Math.max(minimumPrice, marketMin);
+  const commercialCeiling = Math.max(commercialFloor, marketMax);
+  const recommendedPrice = clamp(technicalPrice, commercialFloor, commercialCeiling);
+  const premiumPrice = Math.max(recommendedPrice, commercialCeiling);
+
+  const taxes = recommendedPrice * taxRate;
   const netCost = operationalCost + taxes;
-  const minimumPrice = Math.max(subtotal, netCost * 1.08);
-  const recommendedPrice = Math.max(minimumPrice, netCost / Math.max(0.01, 1 - Number(pricingConfig.margem || 0) / 100));
-  const premiumPrice = recommendedPrice * 1.25;
-  const grossProfit = recommendedPrice - subtotal;
   const netProfit = recommendedPrice - netCost;
+  const grossProfit = recommendedPrice - operationalCost;
   const margin = recommendedPrice > 0 ? (netProfit / recommendedPrice) * 100 : 0;
-  const displacementShare = recommendedPrice > 0 ? (moneyToNumber(pricingConfig.extras.deslocamento) / recommendedPrice) * 100 : 0;
-  const depreciationShare = recommendedPrice > 0 ? (equipmentCost / recommendedPrice) * 100 : 0;
+  const currentTaxes = currentPrice * taxRate;
+  const currentNetProfit = currentPrice - operationalCost - currentTaxes;
+  const currentMargin = currentPrice > 0 ? (currentNetProfit / currentPrice) * 100 : 0;
+  const variationPercent = currentPrice > 0 ? ((recommendedPrice - currentPrice) / currentPrice) * 100 : 0;
+  const coherence = technicalPrice > marketMax * 1.2 ? 'revisar-custos' : technicalPrice < marketMin * 0.8 ? 'mercado-acima' : 'coerente';
+  const displacementValue = (state.extras || []).includes('deslocamento') ? moneyToNumber(pricingConfig.extras.deslocamento) : 0;
+  const displacementShare = recommendedPrice > 0 ? (displacementValue / recommendedPrice) * 100 : 0;
+  const depreciationShare = recommendedPrice > 0 ? (selectedEquipmentReserve / recommendedPrice) * 100 : 0;
 
   return {
-    fixedPerProject,
-    variablePerProject,
-    equipmentCost,
+    fixedPerProject: overheadShare,
+    variablePerProject: 0,
+    equipmentCost: selectedEquipmentReserve,
     totalHours,
     laborCost,
     operationalCost,
     commercialBase,
     extrasTotal,
     filmDeliveriesTotal,
-    subtotal,
+    subtotal: currentPrice,
+    currentPrice,
+    monthlyBusinessNeed,
+    rateableMonthlyBase,
+    variableOverheadRate,
+    capacityPoints,
+    serviceWeight,
+    overheadShare,
+    addOnProductionCost,
     taxes,
     netCost,
     minimumPrice,
+    technicalPrice,
+    marketMin,
+    marketMax,
     recommendedPrice,
     premiumPrice,
     grossProfit,
     netProfit,
     margin,
+    currentMargin,
+    variationPercent,
+    coherence,
     hourValue: totalHours ? recommendedPrice / totalHours : 0,
     displacementShare,
     depreciationShare,
@@ -434,9 +509,9 @@ function buildOverviewRows(pricingConfig, data) {
     return {
       ...item,
       result,
-      currentPrice: result.recommendedPrice,
-      operationalCost: result.fixedPerProject + result.variablePerProject + result.equipmentCost,
-      directCost: result.taxes + result.extrasTotal + result.filmDeliveriesTotal,
+      currentPrice: result.currentPrice,
+      operationalCost: result.operationalCost,
+      directCost: result.laborCost + result.addOnProductionCost + result.equipmentCost,
     };
   });
 }
@@ -500,13 +575,6 @@ export default function Precificacao() {
   const insights = useMemo(() => buildInsights(result), [result]);
   const overviewRows = useMemo(() => buildOverviewRows(pricingConfig, data), [pricingConfig, data]);
 
-  useEffect(() => {
-    if (!overviewRows.length) return;
-    if (!overviewRows.some((item) => item.id === selectedRowId)) {
-      setSelectedRowId(overviewRows[0].id);
-    }
-  }, [overviewRows, selectedRowId]);
-
   const selectedOverviewRow = overviewRows.find((item) => item.id === selectedRowId) || overviewRows[0] || null;
   const selectedLead = data.leads.find((lead) => String(lead.id) === selectedLeadId) || leadContext;
   const filteredLeads = data.leads.filter((lead) => String(lead.nome || lead.name || '').toLowerCase().includes(leadSearch.toLowerCase()));
@@ -516,24 +584,25 @@ export default function Precificacao() {
       ? 'proposta-formatura-individual-2026'
       : 'proposta-casal-2026';
 
-  const companyMonthlyCost = snapshot.fixedMonthly + snapshot.variableAverage + snapshot.equipmentDepreciation;
+  const companyMonthlyCost = snapshot.fixedMonthly + snapshot.variableAverage + snapshot.equipmentDepreciation + moneyToNumber(pricingConfig.proLaboreMensal) + moneyToNumber(pricingConfig.reservaMensal) + moneyToNumber(pricingConfig.investimentoMensal);
   const projectsPerMonth = Math.max(1, Number(pricingConfig.projetosMes || 1));
-  const targetRevenue = companyMonthlyCost / Math.max(0.05, 1 - Number(pricingConfig.margem || 0) / 100);
+  const targetRevenue = companyMonthlyCost / Math.max(0.05, 1 - Number(pricingConfig.impostoPercentual || 0) / 100 - Number(pricingConfig.margem || 0) / 100);
   const targetTicket = targetRevenue / projectsPerMonth;
   const capacityTotal = Number(capacity.casamentos || 0) + Number(capacity.ensaios || 0) + Number(capacity.gestantes || 0) + Number(capacity.filmagensAvulsas || 0);
   const capacityGap = capacityTotal - projectsPerMonth;
 
   const costChart = [
-    { name: 'Fixos', value: result.fixedPerProject, color: '#c5a059' },
-    { name: 'Variáveis', value: result.variablePerProject, color: '#ef4444' },
-    { name: 'Equipamentos', value: result.equipmentCost, color: '#2563eb' },
+    { name: 'Rateio mensal', value: result.overheadShare, color: '#c5a059' },
     { name: 'Tempo', value: result.laborCost, color: '#10b981' },
+    { name: 'Produção adicional', value: result.addOnProductionCost, color: '#ef4444' },
+    { name: 'Equipamentos selecionados', value: result.equipmentCost, color: '#2563eb' },
     { name: 'Impostos', value: result.taxes, color: '#f59e0b' },
   ].filter((item) => item.value > 0);
   const priceChart = [
+    { name: 'Atual', valor: result.currentPrice },
     { name: 'Mínimo', valor: result.minimumPrice },
+    { name: 'Técnico', valor: result.technicalPrice },
     { name: 'Recomendado', valor: result.recommendedPrice },
-    { name: 'Premium', valor: result.premiumPrice },
   ];
 
   const saveAll = () => {
@@ -583,6 +652,14 @@ export default function Precificacao() {
     const next = savedOptions.filter((option) => option.id !== optionId);
     setSavedOptions(next);
     localStorage.setItem('cv_studio_pricing_options', JSON.stringify(next));
+  };
+
+  const clearSavedOptions = () => {
+    if (!savedOptions.length) return;
+    const confirmed = window.confirm('Apagar todas as simulações salvas? Esta ação não pode ser desfeita.');
+    if (!confirmed) return;
+    setSavedOptions([]);
+    localStorage.removeItem('cv_studio_pricing_options');
   };
 
   const startNewSimulation = () => {
@@ -653,7 +730,7 @@ export default function Precificacao() {
             result={result}
           />
         )
-        : <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />;
+        : <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />;
 
   return (
     <div className="sf-finance-section sf-pricing-screen">
@@ -742,7 +819,7 @@ export default function Precificacao() {
                         <th>Preço mínimo</th>
                         <th>Preço recomendado</th>
                         <th>Preço atual</th>
-                        <th>Margem atual</th>
+                        <th>Margem no recomendado</th>
                         <th />
                       </tr>
                     </thead>
@@ -831,7 +908,10 @@ export default function Precificacao() {
                       <h3>Pacotes salvos</h3>
                       <p>Salve variações antes de gerar o orçamento final.</p>
                     </div>
-                    <button type="button" className="sf-secondary-button" onClick={saveCurrentOption}><Save size={16} /> Salvar opção</button>
+                    <div className="sf-saved-option-actions">
+                      {savedOptions.length > 0 && <button type="button" className="sf-table-link danger" onClick={clearSavedOptions}><Trash2 size={15} /> Apagar todas</button>}
+                      <button type="button" className="sf-secondary-button" onClick={saveCurrentOption}><Save size={16} /> Salvar opção</button>
+                    </div>
                   </div>
                   <div className="sf-saved-options-list">
                     {!savedOptions.length && <p className="sf-muted">Nenhuma opção salva até agora.</p>}
@@ -867,7 +947,25 @@ export default function Precificacao() {
                     <p>Analise a escada de preço, a composição de custos e a margem antes de seguir para a proposta.</p>
                   </div>
                 </div>
-                <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} state={state} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />
+                <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />
+              </div>
+              <div className="sf-card">
+                <div className="sf-pricing-section-head">
+                  <div><h3>Simulações salvas</h3><p>Carregue uma alternativa ou apague as simulações que não deseja mais manter.</p></div>
+                  {savedOptions.length > 0 && <button type="button" className="sf-table-link danger" onClick={clearSavedOptions}><Trash2 size={15} /> Apagar todas</button>}
+                </div>
+                <div className="sf-saved-options-list">
+                  {!savedOptions.length && <p className="sf-muted">Nenhuma simulação salva.</p>}
+                  {savedOptions.map((option) => (
+                    <div key={option.id} className="sf-saved-option-item">
+                      <div><strong>{option.name}</strong><small>{new Date(option.createdAt).toLocaleDateString('pt-BR')} · {formatCurrency(option.result?.recommendedPrice || 0)}</small></div>
+                      <div className="sf-saved-option-actions">
+                        <button type="button" className="sf-table-link" onClick={() => loadOption(option)}>Carregar</button>
+                        <button type="button" className="sf-table-link danger" onClick={() => removeOption(option.id)}><Trash2 size={14} /> Apagar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -895,14 +993,15 @@ export default function Precificacao() {
               </div>
             </div>
             <div className="sf-inspector-section">
-              <div className="sf-inspector-block-title">2. Custos diretos <strong>Total: {formatCurrency(detailContext.result.taxes + detailContext.result.extrasTotal + detailContext.result.filmDeliveriesTotal)}</strong></div>
-              <div className="formula-row"><span>Adicionais</span><strong>{formatCurrency(detailContext.result.extrasTotal)}</strong></div>
-              <div className="formula-row"><span>Entregas</span><strong>{formatCurrency(detailContext.result.filmDeliveriesTotal)}</strong></div>
-              <div className="formula-row"><span>Impostos</span><strong>{formatCurrency(detailContext.result.taxes)}</strong></div>
+              <div className="sf-inspector-block-title">2. Custos diretos <strong>Total: {formatCurrency(detailContext.result.laborCost + detailContext.result.equipmentCost + detailContext.result.addOnProductionCost)}</strong></div>
+              <div className="formula-row"><span>Tempo de produção</span><strong>{formatCurrency(detailContext.result.laborCost)}</strong></div>
+              <div className="formula-row"><span>Equipamentos</span><strong>{formatCurrency(detailContext.result.equipmentCost)}</strong></div>
+              <div className="formula-row"><span>Produção dos adicionais</span><strong>{formatCurrency(detailContext.result.addOnProductionCost)}</strong></div>
+              <div className="formula-row"><span>Impostos no preço recomendado</span><strong>{formatCurrency(detailContext.result.taxes)}</strong></div>
             </div>
             <div className="sf-inspector-section">
               <div className="sf-inspector-block-title">3. Distribuição do valor <strong>Preço atual: {formatCurrency(detailContext.currentPrice)}</strong></div>
-              <div className="formula-row"><span>Custos diretos</span><strong>{formatCurrency(detailContext.result.taxes + detailContext.result.extrasTotal + detailContext.result.filmDeliveriesTotal)}</strong></div>
+              <div className="formula-row"><span>Custos diretos</span><strong>{formatCurrency(detailContext.result.laborCost + detailContext.result.equipmentCost + detailContext.result.addOnProductionCost)}</strong></div>
               <div className="formula-row"><span>Custos operacionais</span><strong>{formatCurrency(detailContext.result.operationalCost)}</strong></div>
               <div className="formula-row"><span>Lucro líquido</span><strong>{formatCurrency(detailContext.result.netProfit)}</strong></div>
               <div className="formula-row"><span>Reserva / margem</span><strong>{detailContext.result.margin.toFixed(1)}%</strong></div>
@@ -979,12 +1078,24 @@ function calculateFilmDeliveriesTotal(state, config) {
 
 function buildInsights(result) {
   const output = [];
-  if (result.recommendedPrice < result.netCost) output.push({ tone: 'bad', text: 'Esse orcamento esta abaixo do custo.' });
-  if (result.margin < 20) output.push({ tone: 'bad', text: 'A margem esta muito baixa.' });
-  if (result.margin >= 35) output.push({ tone: 'good', text: 'Este preco e recomendado.' });
-  output.push({ tone: result.netProfit > 0 ? 'good' : 'bad', text: `O lucro liquido previsto e ${formatCurrency(result.netProfit)}.` });
-  output.push({ tone: result.displacementShare > 8 ? 'bad' : 'good', text: `O custo do deslocamento representa ${result.displacementShare.toFixed(1)}% do orcamento.` });
-  output.push({ tone: result.depreciationShare > 10 ? 'bad' : 'good', text: `A depreciacao dos equipamentos representa ${result.depreciationShare.toFixed(1)}%.` });
+  if (result.currentPrice < result.minimumPrice) {
+    output.push({ tone: 'bad', text: `O preço atual está ${formatCurrency(result.minimumPrice - result.currentPrice)} abaixo do mínimo sustentável.` });
+  } else {
+    output.push({ tone: 'good', text: `O preço atual cobre o mínimo sustentável e gera margem estimada de ${result.currentMargin.toFixed(1)}%.` });
+  }
+  if (Math.abs(result.variationPercent) <= 20) {
+    output.push({ tone: 'good', text: `O reajuste sugerido é de ${result.variationPercent.toFixed(1)}%, dentro de uma faixa comercial moderada.` });
+  } else {
+    output.push({ tone: 'bad', text: `A diferença de ${result.variationPercent.toFixed(1)}% exige revisão antes de alterar o preço.` });
+  }
+  if (result.coherence === 'revisar-custos') {
+    output.push({ tone: 'bad', text: 'O preço técnico ficou muito acima da faixa comercial. Revise capacidade, pró-labore, horas e rateios para evitar superfaturamento.' });
+  } else if (result.coherence === 'mercado-acima') {
+    output.push({ tone: 'good', text: 'Seu preço comercial está acima do cálculo técnico; isso pode refletir posicionamento, experiência e valor percebido.' });
+  } else {
+    output.push({ tone: 'good', text: 'Custos, margem e faixa comercial estão coerentes entre si.' });
+  }
+  output.push({ tone: result.netProfit > 0 ? 'good' : 'bad', text: `Lucro líquido estimado no preço recomendado: ${formatCurrency(result.netProfit)}.` });
   return output;
 }
 
@@ -1273,16 +1384,16 @@ function CostStep({ state, setState, config, setConfig, toggleExtra, toggleEquip
   );
 }
 
-function ResultStep({ result, insights, costChart, priceChart, state, savedOptions, onSaveOption, onCreateAnother, onContinue }) {
+function ResultStep({ result, insights, costChart, priceChart, savedOptions, onSaveOption, onCreateAnother, onContinue }) {
   return (
     <section className="sf-finance-section">
       <div className="sf-metric-grid">
-        <Metric icon={DollarSign} label="Preco minimo" value={result.minimumPrice} />
-        <Metric icon={Wallet} label="Preco recomendado" value={result.recommendedPrice} tone="positive" />
-        <Metric icon={Sparkles} label="Preco Premium" value={result.premiumPrice} />
-        <Metric icon={Percent} label="Margem de lucro" value={`${result.margin.toFixed(1)}%`} />
-        <Metric icon={Clock3} label="Valor da hora" value={result.hourValue} />
-        <Metric icon={Calculator} label="Custo operacional" value={result.operationalCost} />
+        <Metric icon={BriefcaseBusiness} label="Preço atual" value={result.currentPrice} />
+        <Metric icon={DollarSign} label="Mínimo sustentável" value={result.minimumPrice} />
+        <Metric icon={Calculator} label="Preço técnico" value={result.technicalPrice} />
+        <Metric icon={Wallet} label="Preço recomendado" value={result.recommendedPrice} tone="positive" />
+        <Metric icon={Percent} label="Margem recomendada" value={`${result.margin.toFixed(1)}%`} />
+        <Metric icon={Clock3} label="Peso operacional" value={`${result.serviceWeight.toFixed(1)} pts`} />
       </div>
       <div className="sf-panel-grid">
         <div className="sf-card">
@@ -1314,13 +1425,14 @@ function ResultStep({ result, insights, costChart, priceChart, state, savedOptio
         <table className="sf-table">
           <thead><tr><th>Indicador</th><th>Valor</th><th>Origem</th></tr></thead>
           <tbody>
-            <tr><td>Valor total do projeto</td><td>{formatCurrency(result.recommendedPrice)}</td><td>{state.categoria}</td></tr>
-            <tr><td>Lucro bruto</td><td>{formatCurrency(result.grossProfit)}</td><td>Preco recomendado - subtotal comercial</td></tr>
-            <tr><td>Lucro liquido</td><td>{formatCurrency(result.netProfit)}</td><td>Preco recomendado - custos reais</td></tr>
-            <tr><td>Custos fixos</td><td>{formatCurrency(result.fixedPerProject)}</td><td>Financeiro</td></tr>
-            <tr><td>Custos variaveis</td><td>{formatCurrency(result.variablePerProject)}</td><td>Financeiro</td></tr>
-            <tr><td>Depreciacao</td><td>{formatCurrency(result.equipmentCost)}</td><td>Equipamentos</td></tr>
-            <tr><td>Tempo estimado</td><td>{result.totalHours.toFixed(1)}h</td><td>Tempo de trabalho</td></tr>
+            <tr><td>Preço atual configurado</td><td>{formatCurrency(result.currentPrice)}</td><td>Pacote e adicionais selecionados</td></tr>
+            <tr><td>Faixa comercial</td><td>{formatCurrency(result.marketMin)} a {formatCurrency(result.marketMax)}</td><td>Limites por categoria</td></tr>
+            <tr><td>Preço recomendado</td><td>{formatCurrency(result.recommendedPrice)}</td><td>Equilíbrio técnico e comercial</td></tr>
+            <tr><td>Lucro líquido estimado</td><td>{formatCurrency(result.netProfit)}</td><td>Após custos e impostos</td></tr>
+            <tr><td>Meta mensal completa</td><td>{formatCurrency(result.monthlyBusinessNeed)}</td><td>Visão gerencial; não é rateada integralmente</td></tr>
+            <tr><td>Base mensal rateável</td><td>{formatCurrency(result.rateableMonthlyBase)}</td><td>Fixos + {Math.round(result.variableOverheadRate * 100)}% dos variáveis + reservas</td></tr>
+            <tr><td>Rateio deste serviço</td><td>{formatCurrency(result.overheadShare)}</td><td>{result.serviceWeight.toFixed(2)} de {result.capacityPoints} pontos mensais</td></tr>
+            <tr><td>Tempo estimado</td><td>{result.totalHours.toFixed(1)}h</td><td>{formatCurrency(result.laborCost)} em mão de obra</td></tr>
           </tbody>
         </table>
       </div>
@@ -1345,11 +1457,31 @@ function ConfigPanel({ config, updateConfig }) {
       <div className="sf-settings-stack">
         <DetailsGroup title="Geral" open>
           <div className="sf-config-grid">
-            <Field label="Projetos por mes"><input type="number" style={inputStyle} value={config.projetosMes} onChange={(event) => updateConfig('projetosMes', event.target.value)} /></Field>
+            <Field label="Projetos por mês (referência)"><input type="number" style={inputStyle} value={config.projetosMes} onChange={(event) => updateConfig('projetosMes', event.target.value)} /></Field>
+            <Field label="Capacidade mensal em pontos"><input type="number" min="1" style={inputStyle} value={config.capacidadePontos} onChange={(event) => updateConfig('capacidadePontos', event.target.value)} /></Field>
             <Field label="Margem desejada (%)"><input type="number" style={inputStyle} value={config.margem} onChange={(event) => updateConfig('margem', event.target.value)} /></Field>
+            <Field label="Margem mínima (%)"><input type="number" style={inputStyle} value={config.margemMinima} onChange={(event) => updateConfig('margemMinima', event.target.value)} /></Field>
             <Field label="Impostos (%)"><input type="number" style={inputStyle} value={config.impostoPercentual} onChange={(event) => updateConfig('impostoPercentual', event.target.value)} /></Field>
-            <Field label="Valor da hora"><input style={inputStyle} value={config.valorHora} onChange={(event) => updateConfig('valorHora', maskCurrency(event.target.value))} /></Field>
+            <Field label="Pró-labore mensal"><input style={inputStyle} value={config.proLaboreMensal} onChange={(event) => updateConfig('proLaboreMensal', maskCurrency(event.target.value))} /></Field>
+            <Field label="Reserva mensal"><input style={inputStyle} value={config.reservaMensal} onChange={(event) => updateConfig('reservaMensal', maskCurrency(event.target.value))} /></Field>
+            <Field label="Investimento mensal"><input style={inputStyle} value={config.investimentoMensal} onChange={(event) => updateConfig('investimentoMensal', maskCurrency(event.target.value))} /></Field>
+            <Field label="Custo estimado dos adicionais (%)"><input type="number" min="0" max="100" style={inputStyle} value={config.custoAdicionaisPercentual} onChange={(event) => updateConfig('custoAdicionaisPercentual', event.target.value)} /></Field>
+            <Field label="Despesas variáveis no rateio mensal (%)"><input type="number" min="0" max="100" style={inputStyle} value={config.rateioVariaveisPercentual} onChange={(event) => updateConfig('rateioVariaveisPercentual', event.target.value)} /></Field>
+            <Field label="Valor da hora (custo interno)"><input style={inputStyle} value={config.valorHora} onChange={(event) => updateConfig('valorHora', maskCurrency(event.target.value))} /></Field>
             <Field label="Hora extra de cobertura"><input style={inputStyle} value={config.valorHoraCobertura} onChange={(event) => updateConfig('valorHoraCobertura', maskCurrency(event.target.value))} /></Field>
+          </div>
+        </DetailsGroup>
+        <DetailsGroup title="Faixas comerciais por categoria">
+          <div className="sf-config-grid">
+            {categories.map((category) => (
+              <div className="sf-card" key={category} style={{ padding: 14 }}>
+                <strong>{category}</strong>
+                <div className="sf-config-grid" style={{ marginTop: 10 }}>
+                  <Field label="Mínimo x preço atual"><input type="number" step="0.05" style={inputStyle} value={config.faixasComerciais[category]?.minimo} onChange={(event) => updateConfig(`faixasComerciais.${category}.minimo`, event.target.value)} /></Field>
+                  <Field label="Máximo x preço atual"><input type="number" step="0.05" style={inputStyle} value={config.faixasComerciais[category]?.maximo} onChange={(event) => updateConfig(`faixasComerciais.${category}.maximo`, event.target.value)} /></Field>
+                </div>
+              </div>
+            ))}
           </div>
         </DetailsGroup>
         <DetailsGroup title="Bases e coberturas">

@@ -1,6 +1,7 @@
 import { calculateProjectAmounts } from '../../utils/dbData';
 import { buildOfficialProjectRegistry } from '../../utils/officialProjects';
 import { consolidateClients, consolidateProjects, resolveClientForImportedName } from '../../utils/dataIntegrity';
+import { buildExtraPhotoFinancialRows, getProjectExtraPhotosSummary } from '../../utils/extraPhotos';
 
 export const REPORT_MONTH_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
@@ -72,6 +73,9 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const clientsById = new Map(base.clients.map((c) => [String(c.id), c]));
   const projectsById = new Map(base.projects.map((p) => [String(p.id), p]));
   const rows = Array.isArray(studio.canonicalFinanceRows) ? studio.canonicalFinanceRows : [];
+  const persistedFinanceIds = new Set(rows.map((row) => String(row.id || row.source_id || row.sourceId || '')));
+  const extraPhotoRows = buildExtraPhotoFinancialRows(base.projects)
+    .filter((row) => !persistedFinanceIds.has(String(row.id || '')));
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const annualRows = rows.filter((r) => yearOf(rowDate(r)) === year);
@@ -95,6 +99,23 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
     const g = groups.get(id) || { id, date: r.effective_date, amount: 0, projectId: r.project_id, clientId: r.client_id, rows: [] };
     g.amount += rowAmount(r); g.rows.push(r); groups.set(id, g);
   });
+  const paidExtraPhotoReceipts = extraPhotoRows
+    .filter((row) => row.isPaid && yearOf(row.date) === year)
+    .filter((row) => {
+      const key = parseReportDate(row.date)?.toISOString().slice(0, 10) || '';
+      return Boolean(key && key <= todayKey);
+    })
+    .map((row) => ({
+      date: row.date,
+      amount: money(row.amount),
+      projectId: row.projectId,
+      clientName: row.clientName,
+      description: row.description,
+      source: 'fotos_extras',
+      account: 'Não informada',
+      method: row.method || 'Não informada',
+      category: 'Venda de fotos extras',
+    }));
   const receipts = [
     ...[...groups.values()].map((g) => {
       const project = projectsById.get(String(g.projectId || ''));
@@ -102,6 +123,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
       return { date: g.date, amount: money(g.amount), projectId: g.projectId, clientName: projectClientName(project || {}, client || {}), description: project ? projectService(project) : 'Recebimento de cliente', source: 'cliente', account: 'Distribuído entre contas', method: 'Distribuição automática' };
     }),
     ...standalone.map((r) => ({ date: r.effective_date, amount: rowAmount(r), projectId: r.project_id, clientName: rowDescription(r), description: rowDescription(r), source: 'financeiro', account: accountLabel(r.account_code), method: rowMethod(r) })),
+    ...paidExtraPhotoReceipts,
   ];
 
   const annualRevenue = money(receipts.reduce((s,r) => s + r.amount, 0));
@@ -111,6 +133,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const accountTotals = { empresa: 0, salario: 0, reserva: 0, nao_informada: 0 };
   allocations.forEach((r) => { accountTotals[r.account_code || 'nao_informada'] += rowAmount(r); });
   standalone.forEach((r) => { accountTotals[r.account_code || 'nao_informada'] += rowAmount(r); });
+  paidExtraPhotoReceipts.forEach((r) => { accountTotals.nao_informada += rowAmount(r); });
 
   const annualProjects = buildOfficialProjectRegistry({
     projects: studio.projects || [], clients: studio.clients || [], year,
@@ -120,7 +143,8 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const projectRows = annualProjects.map((project) => {
     const client = clientsById.get(projectClientId(project)) || project.cliente || {};
     const amounts = calculateProjectAmounts(project);
-    return { id: project.id, date: projectDate(project), clientName: projectClientName(project, client), service: projectService(project), status: project.statusProducao || project.status || 'Não informado', contracted: money(amounts.total), receivedTotal: money(amounts.paid), receivedInYear: money(receipts.filter((r) => String(r.projectId || '') === String(project.id)).reduce((s,r) => s+r.amount,0)), remaining: money(Math.max(0, amounts.total - amounts.paid)) };
+    const extras = getProjectExtraPhotosSummary(project);
+    return { id: project.id, date: projectDate(project), clientName: projectClientName(project, client), service: projectService(project), status: project.statusProducao || project.status || 'Não informado', contracted: money(amounts.total + extras.total), receivedTotal: money(amounts.paid + extras.received), receivedInYear: money(receipts.filter((r) => String(r.projectId || '') === String(project.id)).reduce((s,r) => s+r.amount,0)), remaining: money(Math.max(0, amounts.total - amounts.paid) + extras.pending), extraPhotosTotal: money(extras.total), extraPhotosReceived: money(extras.received), extraPhotosPending: money(extras.pending) };
   });
   const annualClientIds = new Set(annualProjects.map(projectClientId).filter(Boolean));
   const contracted = money(projectRows.reduce((s,r) => s+r.contracted,0));
@@ -140,12 +164,13 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
 
   const byService={}, byEssay={}, byCity={}, byOrigin={}, byClient={};
   annualProjects.forEach((p) => {
-    const client=clientsById.get(projectClientId(p))||p.cliente||{}; const amounts=calculateProjectAmounts(p); const service=projectService(p); const name=projectClientName(p,client);
-    byService[service]=(byService[service]||0)+Number(amounts.total||0);
-    if (/ensaio|gestante|familia|família/i.test(service)) { byEssay[service]=byEssay[service]||{count:0,value:0}; byEssay[service].count+=1; byEssay[service].value+=Number(amounts.total||0); }
+    const client=clientsById.get(projectClientId(p))||p.cliente||{}; const amounts=calculateProjectAmounts(p); const extras=getProjectExtraPhotosSummary(p); const service=projectService(p); const name=projectClientName(p,client);
+    const projectRevenue=Number(amounts.total||0)+Number(extras.total||0);
+    byService[service]=(byService[service]||0)+projectRevenue;
+    if (/ensaio|gestante|familia|família/i.test(service)) { byEssay[service]=byEssay[service]||{count:0,value:0}; byEssay[service].count+=1; byEssay[service].value+=projectRevenue; }
     const city=client.cidade||p.cidade||p.local||'Não informado'; byCity[city]=(byCity[city]||0)+Number(amounts.total||0);
     const origin=client.origem||p.origem||'Não informado'; byOrigin[origin]=(byOrigin[origin]||0)+1;
-    byClient[name]=(byClient[name]||0)+Number(amounts.total||0);
+    byClient[name]=(byClient[name]||0)+projectRevenue;
   });
 
   const currentYearContractReceipts = money(receipts.filter((r) => yearOf(projectDate(projectsById.get(String(r.projectId||''))||{})) === year).reduce((s,r)=>s+r.amount,0));
@@ -169,6 +194,9 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
       nonOperationalEntries: annualNonOperational, totalCashInflows: money(annualRevenue+annualNonOperational),
       currentYearContractReceipts, previousYearContractReceipts, futureYearContractReceipts, unlinkedReceipts,
       weddings: annualProjects.filter((p)=>normalizeReportText(projectService(p)).includes('casamento')).length,
+      extraPhotosSold: money(projectRows.reduce((sum,row)=>sum+Number(row.extraPhotosTotal||0),0)),
+      extraPhotosReceived: money(paidExtraPhotoReceipts.reduce((sum,row)=>sum+Number(row.amount||0),0)),
+      extraPhotosPending: money(projectRows.reduce((sum,row)=>sum+Number(row.extraPhotosPending||0),0)),
     },
     monthly, projects: annualProjects, projectRows, receipts,
     expenses: expenses.map((r)=>({date:r.effective_date,description:rowDescription(r),category:rowCategory(r),amount:rowAmount(r)})),
@@ -182,7 +210,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
     receiptMethodRows:Object.entries(receiptsByMethod).sort((a,b)=>b[1]-a[1]).map(([method,amount])=>({method,amount:money(amount)})),
     receiptAccountRows:Object.entries(receiptsByAccount).filter(([,amount])=>amount>0).map(([account,amount])=>({account,amount})),
     ledgerStats: {
-      receipts: groups.size + standalone.length, expenses: expenses.length, financeReceipts: standalone.length, projectReceipts: groups.size,
+      receipts: groups.size + standalone.length + paidExtraPhotoReceipts.length, expenses: expenses.length, financeReceipts: standalone.length, projectReceipts: groups.size + paidExtraPhotoReceipts.length,
       ignoredFinanceContractReceipts: ignoredMirrors.length, nonOperationalEntries: nonOperationalEntries.length,
       sourceProjects:(studio.projects||[]).length, clientBackedProjects:base.projects.length, orphanedProjects:base.orphanedProjects.length, consolidatedProjects:base.projects.length,
       annualProjects:projectRows.length, allAnnualProjects:projectRows.length, annualClients:annualClientIds.size,

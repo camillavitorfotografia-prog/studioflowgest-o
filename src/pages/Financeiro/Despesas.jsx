@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import VariableExpenses from './VariableExpenses';
-import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { getDbStudioData, isEquipmentMarkedDeleted, subscribeDbUpdates } from '../../utils/dbData';
 import { isSupabaseConfigured, supabase } from '../../utils/supabase';
 import {
   dateToInput,
@@ -96,8 +96,11 @@ const buildDueDateForMonth = (
   monthReference,
   day,
 ) => {
-  const reference = monthReference
+  const candidate = monthReference
     ? new Date(`${monthReference}T12:00:00`)
+    : null;
+  const reference = candidate && !Number.isNaN(candidate.getTime())
+    ? candidate
     : new Date();
 
   const year = reference.getFullYear();
@@ -197,16 +200,54 @@ export default function Despesas({ area = 'fixa' }) {
 
   const loadLocalData = () => {
     const rawTransactions = readStorage(STORAGE_KEYS.finances, []);
-    const rawRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
+    const storedRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
+    const databaseRecurrences = rawTransactions
+      .filter((item) => item.tipo === 'configuracao_recorrencia')
+      .map((item) => item.detalhes || item.details || {})
+      .filter((item) => item && item.id);
+
+    const recurrenceById = new Map();
+    [...storedRecurrences, ...databaseRecurrences].forEach((item) => {
+      if (!item?.id) return;
+      const current = recurrenceById.get(String(item.id));
+      const currentUpdated = String(current?.atualizadoEm || current?.updated_at || current?.criadoEm || '');
+      const incomingUpdated = String(item.atualizadoEm || item.updated_at || item.criadoEm || '');
+      if (!current || incomingUpdated >= currentUpdated) recurrenceById.set(String(item.id), item);
+    });
+
+    // Evita configurações criadas repetidamente por cliques/salvamentos duplicados.
+    // Mantém a versão mais recente de cada regra operacional equivalente.
+    const recurrenceBySignature = new Map();
+    [...recurrenceById.values()]
+      .sort((a, b) => String(b.atualizadoEm || b.criadoEm || '').localeCompare(String(a.atualizadoEm || a.criadoEm || '')))
+      .forEach((item) => {
+        const signature = [
+          String(item.descricao || '').trim().toLowerCase(),
+          String(item.categoria || '').trim().toLowerCase(),
+          Number(item.valor || 0).toFixed(2),
+          Number(item.diaVencimento || 1),
+          String(item.frequencia || 'mensal'),
+          String(item.contaOrigem || 'empresa'),
+        ].join('|');
+        if (!recurrenceBySignature.has(signature)) recurrenceBySignature.set(signature, item);
+      });
+
+    const rawRecurrences = [...recurrenceBySignature.values()];
+    writeStorage(STORAGE_KEYS.recurrences, rawRecurrences);
     const projects = readStorage(STORAGE_KEYS.projects, []);
     const clients = readStorage(STORAGE_KEYS.clients, []);
     const contracts = readStorage(STORAGE_KEYS.contracts, []);
 
     // Geração idempotente de competências recorrentes
-    const newRecurrents = generateRecurrentExpenses(rawRecurrences, rawTransactions, new Date());
-    let currentTransactions = rawTransactions;
+    const newRecurrents = generateRecurrentExpenses(
+      rawRecurrences,
+      rawTransactions.filter((item) => item.tipo !== 'configuracao_recorrencia'),
+      new Date(),
+    );
+    const operationalTransactions = rawTransactions.filter((item) => item.tipo !== 'configuracao_recorrencia');
+    let currentTransactions = operationalTransactions;
     if (newRecurrents.length > 0) {
-      currentTransactions = [...rawTransactions, ...newRecurrents];
+      currentTransactions = [...operationalTransactions, ...newRecurrents];
       writeStorage(STORAGE_KEYS.finances, currentTransactions);
       
       if (isSupabaseConfigured) {
@@ -282,13 +323,54 @@ export default function Despesas({ area = 'fixa' }) {
   }, []);
 
   const despesas = useMemo(() => {
-    return transacoes
+    const operational = transacoes
       .filter((item) => item.tipoGeral === 'Saida' && item.tipo === area)
       .map((item) => ({
         ...item,
         statusDerivado: deriveFinancialStatus(item),
       }));
-  }, [area, transacoes]);
+
+    if (area !== 'fixa') return operational;
+
+    // Despesas fixas representam regras mensais. A lista principal mostra
+    // uma única linha por recorrência, e não uma linha para cada competência
+    // futura gerada internamente.
+    return recorrencias
+      .filter((recurrence) => recurrence?.ativo !== false)
+      .map((recurrence) => {
+        const items = operational
+          .filter((item) => String(item.recorrenciaId || item.recurrenceId || '') === String(recurrence.id))
+          .sort((a, b) => String(a.vencimento || '').localeCompare(String(b.vencimento || '')));
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        const representative = items.find((item) => (
+          String(item.vencimento || '').slice(0, 7) === currentMonth
+          && item.statusDerivado !== 'cancelada'
+        )) || items.find((item) => (
+          String(item.vencimento || '').slice(0, 7) >= currentMonth
+          && item.statusDerivado !== 'paga'
+          && item.statusDerivado !== 'cancelada'
+        )) || items.at(-1) || {};
+
+        const dueDate = representative.vencimento
+          || buildDueDateForMonth(`${currentMonth}-01`, Number(recurrence.diaVencimento || 1));
+
+        return {
+          ...representative,
+          id: representative.id || `recurrence-summary-${recurrence.id}`,
+          recorrenciaId: recurrence.id,
+          descricao: recurrence.descricao,
+          categoria: recurrence.categoria || 'Geral',
+          valor: Number(recurrence.valor || representative.valor || 0),
+          formaPagamento: recurrence.formaPagamento || representative.formaPagamento,
+          contaOrigem: recurrence.contaOrigem || representative.contaOrigem,
+          fornecedor: recurrence.fornecedor || representative.fornecedor,
+          observacoes: recurrence.observacoes || representative.observacoes,
+          vencimento: dueDate,
+          statusDerivado: representative.statusDerivado || 'pendente',
+          isRecurrenceSummary: true,
+        };
+      });
+  }, [area, recorrencias, transacoes]);
 
   const filteredDespesas = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -397,12 +479,11 @@ export default function Despesas({ area = 'fixa' }) {
     return { byCategory, byMonth, bySupplier, byEvent };
   }, [area, despesas, studio.projects]);
 
-  const totalMensalFixo = useMemo(() => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    return despesas
-      .filter((item) => item.statusDerivado !== 'cancelada' && item.vencimento && item.vencimento.slice(0, 7) === currentMonth)
-      .reduce((sum, item) => sum + (item.valor || 0), 0);
-  }, [despesas]);
+  const totalMensalFixo = useMemo(() => (
+    recorrencias
+      .filter((item) => item?.ativo !== false)
+      .reduce((sum, item) => sum + Number(item.valor || 0), 0)
+  ), [recorrencias]);
 
   const totalAtual = despesas.filter((d) => d.statusDerivado !== 'cancelada').reduce((sum, item) => sum + (item.valor || 0), 0);
 
@@ -489,11 +570,18 @@ export default function Despesas({ area = 'fixa' }) {
       ? equipment[existingIndex]
       : {};
 
+    const candidateId = existingEquipment.id || `equipamento-financeiro-${expense.id}`;
+    if (isEquipmentMarkedDeleted({
+      id: candidateId,
+      financeExpenseId: expense.id,
+      origemFinanceiraId: expense.id,
+    })) {
+      return;
+    }
+
     const equipmentRecord = {
       ...existingEquipment,
-      id:
-        existingEquipment.id
-        || `equipamento-financeiro-${expense.id}`,
+      id: candidateId,
       nome:
         expense.descricao
         || existingEquipment.nome
@@ -580,16 +668,24 @@ export default function Despesas({ area = 'fixa' }) {
       return;
     }
 
-    const venc = area === 'fixa'
-      ? buildDueDateForMonth(
-        editingId && formData.dataVencimento
-          ? `${formData.dataVencimento.slice(0, 7)}-01`
-          : null,
-        fixedDueDay,
-      )
-      : formData.data;
+    const existingFixedDate = String(
+      formData.dataVencimento
+      || formData.data
+      || formData.vencimento
+      || '',
+    );
+    const fixedMonthReference = /^\d{4}-\d{2}-\d{2}$/.test(existingFixedDate)
+      ? `${existingFixedDate.slice(0, 7)}-01`
+      : null;
 
-    if (!venc || !/^\d{4}-\d{2}-\d{2}$/.test(venc)) {
+    // Despesas fixas armazenam a regra mensal pelo dia do vencimento.
+    // A data ISO é apenas uma competência calculada internamente para
+    // relatórios, status e sincronização, nunca uma entrada obrigatória.
+    const venc = area === 'fixa'
+      ? buildDueDateForMonth(fixedMonthReference, fixedDueDay)
+      : String(formData.data || formData.dataVencimento || '');
+
+    if (area !== 'fixa' && (!venc || !/^\d{4}-\d{2}-\d{2}$/.test(venc))) {
       alert('Vencimento válido obrigatório.');
       return;
     }
@@ -597,33 +693,67 @@ export default function Despesas({ area = 'fixa' }) {
     const competence = venc.slice(0, 7);
 
     // Se houver recorrência (despesas fixas)
-    if (area === 'fixa' && formData.frequencia !== 'sem_recorrencia') {
+    if (area === 'fixa') {
       const targetDay = fixedDueDay;
+      const existingRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
+      const equivalentRecurrence = !formData.recorrenciaId
+        ? existingRecurrences.find((item) => (
+          item.ativo !== false
+          && String(item.descricao || '').trim().toLowerCase() === String(description || '').trim().toLowerCase()
+          && String(item.categoria || '').trim().toLowerCase() === String(formData.categoria || 'Aluguel').trim().toLowerCase()
+          && Number(item.valor || 0) === Number(value || 0)
+          && Number(item.diaVencimento || 1) === Number(targetDay)
+          && String(item.contaOrigem || 'empresa') === String(formData.contaOrigem || 'empresa')
+        ))
+        : null;
+      const recurrenceId = formData.recorrenciaId || equivalentRecurrence?.id || `recorrencia-${Date.now()}`;
       const baseRecurrence = {
-        id: formData.recorrenciaId || `recorrencia-${Date.now()}`,
+        ...(equivalentRecurrence || {}),
+        id: recurrenceId,
         descricao: description,
         categoria: formData.categoria || 'Aluguel',
         valor: value,
-        frequencia: formData.frequencia,
+        frequencia: 'mensal',
         diaVencimento: targetDay,
         fornecedor: formData.fornecedor || '',
         formaPagamento: formData.formaPagamento || 'Pix',
         observacoes: formData.observacoes || '',
-        ativo: formData.ativo !== false,
+        ativo: !['cancelada', 'cancelado', 'inativo'].includes(
+          String(formData.status || '').trim().toLowerCase(),
+        ),
         contaOrigem: formData.contaOrigem || 'empresa',
         criadoEm: formData.criadoEm || new Date().toISOString(),
         atualizadoEm: new Date().toISOString(),
       };
 
-      const recurrences = readStorage(STORAGE_KEYS.recurrences, []);
+      const recurrences = existingRecurrences;
       let nextRecurrences;
-      if (formData.recorrenciaId) {
-        nextRecurrences = recurrences.map((r) => r.id === baseRecurrence.id ? baseRecurrence : r);
-        
-        // Atualizar despesas futuras não pagas vinculadas a esta recorrência
+      if (formData.recorrenciaId || equivalentRecurrence) {
+        const recurrenceExists = recurrences.some((r) => r.id === baseRecurrence.id);
+        nextRecurrences = recurrenceExists
+          ? recurrences.map((r) => r.id === baseRecurrence.id ? baseRecurrence : r)
+          : [baseRecurrence, ...recurrences];
+
+        // Atualizar todas as competências não pagas da recorrência. Ao reativar
+        // uma conta cancelada, a competência editada volta para Pendente e as
+        // futuras canceladas também são reabertas sem alterar itens já pagos.
         const transactions = readStorage(STORAGE_KEYS.finances, []);
+        const normalizedRequestedStatus = String(formData.status || 'Pendente').trim().toLowerCase();
+        const requestedStatus = normalizedRequestedStatus === 'pago' || normalizedRequestedStatus === 'paga'
+          ? 'Pago'
+          : normalizedRequestedStatus === 'cancelada' || normalizedRequestedStatus === 'cancelado'
+            ? 'Cancelada'
+            : 'Pendente';
         const nextTransactions = transactions.map((t) => {
-          if (t.recorrenciaId === baseRecurrence.id && t.status !== 'Pago' && t.status !== 'paga') {
+          const belongsToRecurrence = t.recorrenciaId === baseRecurrence.id;
+          const paid = ['pago', 'paga', 'recebida'].includes(String(t.status || '').trim().toLowerCase());
+          if (belongsToRecurrence && !paid) {
+            const nextDueDate = replaceDueDay(
+              t.vencimento || t.dataVencimento || t.data || venc,
+              baseRecurrence.diaVencimento,
+            );
+            const isEditedCompetence = String(t.id) === String(editingId);
+            const wasCancelled = ['cancelada', 'cancelado'].includes(String(t.status || '').trim().toLowerCase());
             return {
               ...t,
               descricao: baseRecurrence.descricao,
@@ -633,24 +763,13 @@ export default function Despesas({ area = 'fixa' }) {
               fornecedor: baseRecurrence.fornecedor,
               observacoes: baseRecurrence.observacoes,
               contaOrigem: baseRecurrence.contaOrigem,
-              vencimento: replaceDueDay(
-                t.vencimento,
-                baseRecurrence.diaVencimento,
-              ),
-              data: replaceDueDay(
-                t.data || t.vencimento,
-                baseRecurrence.diaVencimento,
-              ),
-              dataVencimento: replaceDueDay(
-                t.dataVencimento || t.vencimento,
-                baseRecurrence.diaVencimento,
-              ),
-              competencia: String(
-                replaceDueDay(
-                  t.vencimento,
-                  baseRecurrence.diaVencimento,
-                ),
-              ).slice(0, 7),
+              status: isEditedCompetence
+                ? requestedStatus
+                : (baseRecurrence.ativo && wasCancelled ? 'Pendente' : t.status),
+              vencimento: nextDueDate,
+              data: nextDueDate,
+              dataVencimento: nextDueDate,
+              competencia: nextDueDate.slice(0, 7),
               atualizadoEm: new Date().toISOString(),
             };
           }
@@ -844,109 +963,87 @@ export default function Despesas({ area = 'fixa' }) {
       return;
     }
 
-    let removeSeries = false;
+    const recurrenceId = expense.recorrenciaId || expense.recurrenceId || '';
 
-    if (expense.recorrenciaId) {
-      removeSeries = window.confirm(
-        'Esta despesa pertence a uma recorrência.\n\n'
-        + 'OK: excluir esta competência e encerrar os lançamentos futuros.\n'
-        + 'Cancelar: excluir somente esta competência.',
-      );
-    } else {
+    if (area === 'fixa' && recurrenceId) {
       const confirmed = window.confirm(
-        'Deseja excluir permanentemente este lançamento?',
+        'Excluir esta despesa fixa?\n\n'
+        + 'A recorrência e os lançamentos futuros não pagos serão removidos. '
+        + 'Pagamentos já registrados permanecerão no histórico.',
       );
-
       if (!confirmed) return;
-    }
 
-    const transactions = readStorage(STORAGE_KEYS.finances, []);
-    const removedItems = [];
-
-    const nextTransactions = transactions.filter((item) => {
-      const sameItem = String(item.id) === String(expense.id);
-
-      const futureFromSeries = (
-        removeSeries
-        && expense.recorrenciaId
-        && item.recorrenciaId === expense.recorrenciaId
+      const transactions = readStorage(STORAGE_KEYS.finances, []);
+      const removedItems = transactions.filter((item) => (
+        String(item.recorrenciaId || item.recurrenceId || '') === String(recurrenceId)
         && deriveFinancialStatus(item) !== 'paga'
-        && getTransactionCompetence(item)
-          >= getTransactionCompetence(expense)
-      );
+      ));
+      const nextTransactions = transactions.filter((item) => !removedItems.some((removed) => String(removed.id) === String(item.id)));
+      writeStorage(STORAGE_KEYS.finances, nextTransactions);
 
-      if (sameItem || futureFromSeries) {
-        removedItems.push(item);
-        return false;
+      const currentRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
+      const nextRecurrences = currentRecurrences.filter((item) => String(item.id) !== String(recurrenceId));
+      writeStorage(STORAGE_KEYS.recurrences, nextRecurrences);
+
+      if (isSupabaseConfigured) {
+        try {
+          const ids = removedItems.map((item) => String(item.id));
+          if (ids.length > 0) {
+            const { error: rowsError } = await supabase.from('financas').delete().in('id', ids);
+            if (rowsError) throw rowsError;
+          }
+          const { error: ruleError } = await supabase
+            .from('financas')
+            .delete()
+            .eq('id', `recurrence-row-${recurrenceId}`);
+          if (ruleError) throw ruleError;
+        } catch (error) {
+          console.error(error);
+          alert(`Não foi possível excluir a despesa fixa: ${error.message || error}`);
+          loadLocalData();
+          return;
+        }
       }
 
-      return true;
-    });
+      appendFinancialAudit({
+        action: 'recurrence_deleted',
+        entity: 'recurrence',
+        entityId: recurrenceId,
+        before: { recurrenceId, transactions: removedItems },
+        after: null,
+        details: { removedCount: removedItems.length },
+      });
 
+      loadLocalData();
+      return;
+    }
+
+    const confirmed = window.confirm('Deseja excluir permanentemente este lançamento?');
+    if (!confirmed) return;
+
+    const transactions = readStorage(STORAGE_KEYS.finances, []);
+    const removedItems = transactions.filter((item) => String(item.id) === String(expense.id));
+    const nextTransactions = transactions.filter((item) => String(item.id) !== String(expense.id));
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
-
-    if (removeSeries && expense.recorrenciaId) {
-      const currentRecurrences = readStorage(
-        STORAGE_KEYS.recurrences,
-        [],
-      );
-
-      writeStorage(
-        STORAGE_KEYS.recurrences,
-        currentRecurrences.map((item) => (
-          item.id === expense.recorrenciaId
-            ? {
-              ...item,
-              ativo: false,
-              atualizadoEm: new Date().toISOString(),
-            }
-            : item
-        )),
-      );
-    }
-
-    const equipment = readStorage(STORAGE_KEYS.equipment, []);
-    const removedIds = new Set(
-      removedItems.map((item) => String(item.id)),
-    );
-
-    const nextEquipment = equipment.filter((item) => (
-      !removedIds.has(String(
-        item.financeExpenseId
-        || item.origemFinanceiraId
-        || '',
-      ))
-    ));
-
-    if (nextEquipment.length !== equipment.length) {
-      writeStorage(STORAGE_KEYS.equipment, nextEquipment);
-    }
 
     if (isSupabaseConfigured) {
       try {
-        for (const item of removedItems) {
-          await supabase
-            .from('financas')
-            .delete()
-            .eq('id', String(item.id));
-        }
+        const { error } = await supabase.from('financas').delete().eq('id', String(expense.id));
+        if (error) throw error;
       } catch (error) {
         console.error(error);
+        alert(`Não foi possível excluir o lançamento: ${error.message || error}`);
+        loadLocalData();
+        return;
       }
     }
 
     appendFinancialAudit({
-      action: removeSeries
-        ? 'expense_series_deleted'
-        : 'expense_deleted',
+      action: 'expense_deleted',
       entity: 'expense',
       entityId: expense.id,
       before: removedItems,
       after: null,
-      details: {
-        recurrenceId: expense.recorrenciaId || '',
-        removedCount: removedItems.length,
-      },
     });
 
     loadLocalData();
@@ -1415,14 +1512,15 @@ export default function Despesas({ area = 'fixa' }) {
             }}
           >
               <Field label="Frequência / Recorrência">
-                <select style={inputStyle} value={formData.frequencia} onChange={(event) => setFormData({ ...formData, frequencia: event.target.value })}>
-                  <option value="sem_recorrencia">Sem recorrência</option>
-                  <option value="mensal">Mensal</option>
-                  <option value="bimestral">Bimestral</option>
-                  <option value="trimestral">Trimestral</option>
-                  <option value="semestral">Semestral</option>
-                  <option value="anual">Anual</option>
-                </select>
+                <div
+                  style={{
+                    ...inputStyle,
+                    opacity: 0.8,
+                    cursor: 'default',
+                  }}
+                >
+                  Mensal, no mesmo dia
+                </div>
               </Field>
               <Field label="Status">
                 <select style={inputStyle} value={formData.status} onChange={(event) => setFormData({ ...formData, status: event.target.value })}>

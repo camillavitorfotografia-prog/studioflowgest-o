@@ -2,6 +2,7 @@ import { parseCurrency, parseDate } from '../../../utils/formatters';
 import { calculateProjectAmounts } from '../../../utils/dbData';
 import { parseLedgerDate } from '../../../utils/financialLedger';
 import { buildFinancialAccounting } from '../../../utils/financialAccounting';
+import { buildExtraPhotoFinancialRows } from '../../../utils/extraPhotos';
 
 const ACTIVE_LEAD_STATUSES = new Set(['novo', 'orcamento_enviado', 'aguardando_retorno', 'em_negociacao']);
 const WON_LEAD_STATUSES = new Set(['aprovado', 'finalizado', 'ganho', 'contrato_assinado']);
@@ -34,6 +35,19 @@ export function buildDashboardMetrics({
   weekEnd.setHours(23, 59, 59, 999);
 
   const accounting = buildFinancialAccounting({ transactions, canonicalRows, equipment, referenceDate: now });
+  const persistedFinanceIds = new Set(
+    [...transactions, ...canonicalRows].map((row) => String(row.id || row.source_id || row.sourceId || '')),
+  );
+  const extraPhotoRows = buildExtraPhotoFinancialRows(projects)
+    .filter((row) => !persistedFinanceIds.has(String(row.id || '')));
+  const paidExtraPhotoRows = extraPhotoRows.filter((row) => row.isPaid && rowDate(row) && rowDate(row) <= now);
+  const pendingExtraPhotoRows = extraPhotoRows.filter((row) => !row.isPaid);
+  const monthlyExtraPhotos = paidExtraPhotoRows
+    .filter((row) => {
+      const date = rowDate(row);
+      return date && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    })
+    .reduce((total, row) => total + amount(row), 0);
   const officialYearProjects = projects.filter((project) => isOfficialProject(project) && isCurrentYearProject(project, currentYear));
   const activeProjectRows = officialYearProjects.filter((project) => !FINISHED_PROJECT_STATUSES.has(projectStatus(project)));
   const overdueProjects = activeProjectRows.filter((project) => {
@@ -61,7 +75,12 @@ export function buildDashboardMetrics({
     return date >= weekStart && date <= weekEnd;
   });
 
-  const receivable = officialYearProjects.reduce((total, project) => total + calculateProjectAmounts(project).remaining, 0);
+  const officialProjectIds = new Set(officialYearProjects.map((project) => String(project.id || '')));
+  const pendingExtraPhotos = pendingExtraPhotoRows
+    .filter((row) => officialProjectIds.has(String(row.projectId || '')))
+    .reduce((total, row) => total + amount(row), 0);
+  const receivable = officialYearProjects.reduce((total, project) => total + calculateProjectAmounts(project).remaining, 0)
+    + pendingExtraPhotos;
   const activeLeads = leads.filter((lead) => ACTIVE_LEAD_STATUSES.has(normalizeStatus(lead.status)));
   const wonLeads = leads.filter((lead) => WON_LEAD_STATUSES.has(normalizeStatus(lead.status)));
   const conversionRate = leads.length ? Math.round((wonLeads.length / leads.length) * 100) : 0;
@@ -76,6 +95,12 @@ export function buildDashboardMetrics({
     return { month: date.getMonth(), year: date.getFullYear(), mes: monthNames[date.getMonth()], receitas: 0, despesas: 0, eventos: 0 };
   });
   accounting.operationalReceipts.forEach((receipt) => {
+    const date = rowDate(receipt);
+    if (!date || date > now) return;
+    const item = monthlyChart.find((month) => month.month === date.getMonth() && month.year === date.getFullYear());
+    if (item) item.receitas += amount(receipt);
+  });
+  paidExtraPhotoRows.forEach((receipt) => {
     const date = rowDate(receipt);
     if (!date || date > now) return;
     const item = monthlyChart.find((month) => month.month === date.getMonth() && month.year === date.getFullYear());
@@ -113,10 +138,10 @@ export function buildDashboardMetrics({
     activeProjects: activeProjectRows.length,
     overdueProjects: overdueProjects.length,
     weeklyEvents: weeklyEvents.length,
-    monthlyRevenue: accounting.operationalReceivedMonth,
+    monthlyRevenue: accounting.operationalReceivedMonth + monthlyExtraPhotos,
     monthlyExpenses: accounting.paidExpensesMonth,
-    netProfit: accounting.accountingResult,
-    operationalCashResult: accounting.operationalCashResult,
+    netProfit: accounting.accountingResult + monthlyExtraPhotos,
+    operationalCashResult: accounting.operationalCashResult + monthlyExtraPhotos,
     monthlyDepreciation: accounting.monthlyDepreciation,
     cashBalance: accounting.totalCashBalance,
     receivable,
@@ -126,7 +151,7 @@ export function buildDashboardMetrics({
     pendingProposals: pendingProposals.length,
     pendingContracts: pendingContracts.length,
     monthlyGoal,
-    goalProgress: monthlyGoal > 0 ? Math.min(100, Math.round((accounting.operationalReceivedMonth / monthlyGoal) * 1000) / 10) : 0,
+    goalProgress: monthlyGoal > 0 ? Math.min(100, Math.round(((accounting.operationalReceivedMonth + monthlyExtraPhotos) / monthlyGoal) * 1000) / 10) : 0,
     futureEvents,
     nextWedding: futureEvents.find((event) => normalizeStatus(event.tipo).includes('casamento')) || null,
     monthlyChart,

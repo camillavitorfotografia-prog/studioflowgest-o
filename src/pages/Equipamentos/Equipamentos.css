@@ -340,3 +340,172 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Mantém as ações acessíveis sem exigir ampliação da janela. */
+.sf-equipment-table-card {
+  position: relative;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+
+.sf-equipment-table {
+  min-width: 760px;
+}
+
+.sf-equipment-col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  width: 112px;
+  min-width: 112px;
+  background: var(--bg-card, #111);
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.28);
+}
+
+.sf-equipment-table thead .sf-equipment-col-actions {
+  z-index: 5;
+}
+
+.sf-equipment-row-actions {
+  display: grid !important;
+  grid-template-columns: repeat(3, 30px);
+  justify-content: end;
+  gap: 5px !important;
+}
+
+.sf-equipment-action-button {
+  width: 30px;
+  height: 30px;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  padding: 0 !important;
+  border-radius: 7px;
+}
+
+.sf-equipment-delete-button {
+  color: var(--color-danger, #ef6666);
+  border-color: rgba(239, 102, 102, 0.25);
+}
+
+.sf-equipment-delete-button:hover:not(:disabled) {
+  background: rgba(239, 102, 102, 0.1);
+  border-color: rgba(239, 102, 102, 0.5);
+}
+
+.sf-equipment-action-button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+@media (max-width: 1360px) {
+  .sf-equipment-table {
+    min-width: 660px;
+  }
+
+  .sf-equipment-col-depreciation,
+  .sf-equipment-col-return {
+    display: none;
+  }
+}
+
+@media (max-width: 1120px) {
+  .sf-equipment-table {
+    min-width: 570px;
+  }
+
+  .sf-equipment-col-purchase,
+  .sf-equipment-col-review {
+    display: none;
+  }
+
+  .sf-equipment-col-item {
+    min-width: 210px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .sf-equipment-table-card {
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .sf-equipment-table,
+  .sf-equipment-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sf-equipment-table thead {
+    display: none;
+  }
+
+  .sf-equipment-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 14px;
+    margin-bottom: 10px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-card, #111);
+  }
+
+  .sf-equipment-table td,
+  .sf-equipment-table td:first-child {
+    display: block;
+    min-width: 0 !important;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+
+  .sf-equipment-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 5px;
+    color: var(--text-secondary);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .sf-equipment-table .sf-equipment-col-item {
+    grid-column: 1 / -1;
+  }
+
+  .sf-equipment-table .sf-equipment-col-purchase,
+  .sf-equipment-table .sf-equipment-col-depreciation,
+  .sf-equipment-table .sf-equipment-col-review,
+  .sf-equipment-table .sf-equipment-col-return {
+    display: none;
+  }
+
+  .sf-equipment-col-actions {
+    position: static;
+    grid-column: 1 / -1;
+    width: auto;
+    min-width: 0;
+    padding-top: 4px !important;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .sf-equipment-row-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .sf-equipment-action-button {
+    width: 100%;
+    min-width: 0 !important;
+    height: 38px;
+  }
+
+  .sf-equipment-table tr:has(.empty) {
+    display: block;
+  }
+}

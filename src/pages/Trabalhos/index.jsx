@@ -119,6 +119,13 @@ import {
 } from '../../utils/checklistEngine';
 import { loadSettings } from '../../utils/settings';
 import { syncSingleProjectToGoogle } from '../../services/googleCalendarIntegration';
+import {
+  createPhotoParticipant,
+  normalizePhotoSelection,
+  preparePhotoSelectionForSave,
+  summarizeExtraPhotos,
+  syncExtraPhotoTransactions,
+} from '../../utils/extraPhotos';
 import './Trabalhos.css';
 
 const colunas = OPERATIONAL_PIPELINE;
@@ -494,6 +501,12 @@ const projectToDraft = (project = {}) => {
     },
     valorContratado: maskCurrency(
       project.valorContratado ?? 0,
+    ),
+    photoSelection: normalizePhotoSelection(
+      project.photoSelection
+      || project.selecaoFotos
+      || project.financeiro?.projectData?.photoSelection
+      || {},
     ),
     status: operationalStatus,
   };
@@ -1170,6 +1183,7 @@ export default function Trabalhos() {
           source.observacoesOperacionais
           || source.observacoes_operacionais
           || '',
+        photoSelection: normalizePhotoSelection(source.photoSelection || {}),
         equipeProjeto: normalizeProjectTeam(
           source.equipeProjeto
           || source.equipe
@@ -2690,6 +2704,7 @@ export default function Trabalhos() {
       workflowStatus: operationalStatus,
       statusProducao: operationalStatus,
       updatedAt: new Date().toISOString(),
+      photoSelection: preparePhotoSelectionForSave(projectDraft.photoSelection || {}, new Date().toISOString()),
     };
 
     const projectId =
@@ -2795,6 +2810,7 @@ export default function Trabalhos() {
         editedProject.arquivado,
       checklist:
         editedProject.checklist,
+      photoSelection: preparePhotoSelectionForSave(editedProject.photoSelection || {}, financeiro.updatedAt),
     };
 
     setActionError('');
@@ -2894,6 +2910,13 @@ export default function Trabalhos() {
           isNew: !editingProject.id,
         },
       );
+
+      await syncExtraPhotoTransactions({
+        project: editedProject,
+        selection: financeiro.photoSelection,
+        clientId: editedProject.clienteId || editedProject.cliente_id || '',
+        clientName: editedProject.clienteNome || selectedClient?.nome || '',
+      });
 
       closeEdit();
       await load();
@@ -12634,6 +12657,187 @@ export default function Trabalhos() {
                 />
               </label>
             </div>
+
+
+
+            <section className="sf-photo-selection-editor">
+              <div className="sf-photo-selection-heading">
+                <div>
+                  <strong>Seleção e fotos extras</strong>
+                  <small>Use somente em pacotes com quantidade limitada de fotos.</small>
+                </div>
+                <select
+                  value={projectDraft.photoSelection?.deliveryType || 'all'}
+                  onChange={(event) => setProjectDraft((draft) => ({
+                    ...draft,
+                    photoSelection: {
+                      ...normalizePhotoSelection(draft.photoSelection),
+                      deliveryType: event.target.value,
+                    },
+                  }))}
+                >
+                  <option value="all">Todas as fotos incluídas</option>
+                  <option value="limited">Quantidade limitada</option>
+                </select>
+              </div>
+
+              {projectDraft.photoSelection?.deliveryType === 'limited' && (
+                <>
+                  <div className="sf-project-form-row">
+                    <label>
+                      Fotos incluídas por padrão
+                      <input
+                        type="number"
+                        min="0"
+                        value={projectDraft.photoSelection.defaultIncludedPhotos}
+                        onChange={(event) => setProjectDraft((draft) => ({
+                          ...draft,
+                          photoSelection: {
+                            ...normalizePhotoSelection(draft.photoSelection),
+                            defaultIncludedPhotos: Math.max(0, Number(event.target.value || 0)),
+                          },
+                        }))}
+                      />
+                    </label>
+                    <div className="sf-photo-pricing-note">
+                      <strong>Faixas sugeridas</strong>
+                      <span>1 a 10: R$ 20,00 · 11 a 49: R$ 15,00 · 50 ou mais: R$ 10,00</span>
+                      <small>O valor unitário pode ser alterado individualmente, como R$ 13,00.</small>
+                    </div>
+                  </div>
+
+                  <div className="sf-photo-participants">
+                    {projectDraft.photoSelection.participants.map((participant, index) => {
+                      const calculated = normalizePhotoSelection(projectDraft.photoSelection).participants[index];
+                      return (
+                        <article className="sf-photo-participant" key={participant.id || index}>
+                          <div className="sf-photo-participant-top">
+                            <strong>{participant.name || `Participante ${index + 1}`}</strong>
+                            <button
+                              type="button"
+                              className="sf-client-delete-button"
+                              onClick={() => setProjectDraft((draft) => ({
+                                ...draft,
+                                photoSelection: {
+                                  ...normalizePhotoSelection(draft.photoSelection),
+                                  participants: normalizePhotoSelection(draft.photoSelection).participants.filter((_, itemIndex) => itemIndex !== index),
+                                },
+                              }))}
+                            >
+                              <Trash2 size={14} /> Remover
+                            </button>
+                          </div>
+                          <div className="sf-photo-participant-grid">
+                            <label>
+                              Cliente/participante
+                              <input
+                                value={participant.name || ''}
+                                onChange={(event) => setProjectDraft((draft) => {
+                                  const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                                  photoSelection.participants[index] = { ...photoSelection.participants[index], name: capitalizeName(event.target.value) };
+                                  return { ...draft, photoSelection };
+                                })}
+                              />
+                            </label>
+                            <label>
+                              Incluídas
+                              <input type="number" min="0" value={participant.includedPhotos} onChange={(event) => setProjectDraft((draft) => {
+                                const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                                photoSelection.participants[index] = { ...photoSelection.participants[index], includedPhotos: Math.max(0, Number(event.target.value || 0)) };
+                                return { ...draft, photoSelection };
+                              })} />
+                            </label>
+                            <label>
+                              Selecionadas
+                              <input type="number" min="0" value={participant.selectedPhotos} onChange={(event) => setProjectDraft((draft) => {
+                                const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                                photoSelection.participants[index] = { ...photoSelection.participants[index], selectedPhotos: Math.max(0, Number(event.target.value || 0)) };
+                                return { ...draft, photoSelection };
+                              })} />
+                            </label>
+                            <label>
+                              Extras
+                              <input value={calculated.extraPhotos} readOnly />
+                            </label>
+                            <label>
+                              Valor unitário
+                              <input type="number" min="0" step="0.01" placeholder={String(calculated.suggestedUnitPrice)} value={participant.manualUnitPrice ?? ''} onChange={(event) => setProjectDraft((draft) => {
+                                const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                                photoSelection.participants[index] = { ...photoSelection.participants[index], manualUnitPrice: event.target.value };
+                                return { ...draft, photoSelection };
+                              })} />
+                            </label>
+                            <label>
+                              Total
+                              <input value={formatMoney(calculated.total)} readOnly />
+                            </label>
+                            <label>
+                              Pagamento
+                              <select value={participant.paymentStatus || 'Pendente'} onChange={(event) => setProjectDraft((draft) => {
+                                const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                                const nextStatus = event.target.value;
+                                photoSelection.participants[index] = {
+                                  ...photoSelection.participants[index],
+                                  paymentStatus: nextStatus,
+                                  paymentDate: nextStatus === 'Pago'
+                                    ? (photoSelection.participants[index].paymentDate || new Date().toISOString().slice(0, 10))
+                                    : photoSelection.participants[index].paymentDate,
+                                };
+                                return { ...draft, photoSelection };
+                              })}>
+                                <option>Pendente</option>
+                                <option>Pago</option>
+                                <option>Parcial</option>
+                                <option>Cancelado</option>
+                              </select>
+                            </label>
+                            <label>
+                              Data do pagamento
+                              <input type="date" value={participant.paymentDate || ''} onChange={(event) => setProjectDraft((draft) => {
+                                const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                                photoSelection.participants[index] = { ...photoSelection.participants[index], paymentDate: event.target.value };
+                                return { ...draft, photoSelection };
+                              })} />
+                            </label>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+
+                  <div className="sf-photo-selection-actions">
+                    <button
+                      type="button"
+                      className="sf-secondary-button"
+                      onClick={() => setProjectDraft((draft) => {
+                        const photoSelection = normalizePhotoSelection(draft.photoSelection);
+                        return {
+                          ...draft,
+                          photoSelection: {
+                            ...photoSelection,
+                            participants: [
+                              ...photoSelection.participants,
+                              createPhotoParticipant({
+                                clientId: draft.clienteId || '',
+                                name: photoSelection.participants.length ? '' : draft.clienteNome,
+                                includedPhotos: photoSelection.defaultIncludedPhotos,
+                                selectedPhotos: photoSelection.defaultIncludedPhotos,
+                              }),
+                            ],
+                          },
+                        };
+                      })}
+                    >
+                      <Plus size={15} /> Adicionar participante
+                    </button>
+                    <div>
+                      <strong>{formatMoney(summarizeExtraPhotos(projectDraft.photoSelection).total)}</strong>
+                      <small>Total em fotos extras</small>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
 
             <div className="sf-project-form-row">
               <label>

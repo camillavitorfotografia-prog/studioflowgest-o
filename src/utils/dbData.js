@@ -7,6 +7,45 @@ import { normalizeProductionStatus } from './projectEngine.js';
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFILE_TABLE = 'perfil';
 const PROFILE_ID = 'studio-profile';
+const EQUIPMENT_DELETION_KEY = 'cv_studio_equipamentos_excluidos';
+
+const readEquipmentTombstones = () => {
+  try {
+    const value = JSON.parse(localStorage.getItem(EQUIPMENT_DELETION_KEY) || '[]');
+    return new Set(Array.isArray(value) ? value.map(String) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const writeEquipmentTombstones = (ids) => {
+  localStorage.setItem(EQUIPMENT_DELETION_KEY, JSON.stringify([...ids]));
+};
+
+// Compatibilidade com o módulo Financeiro: impede que uma despesa recrie um
+// equipamento que já foi explicitamente excluído.
+export const isEquipmentMarkedDeleted = (equipmentOrId) => {
+  const equipment = equipmentOrId && typeof equipmentOrId === 'object'
+    ? equipmentOrId
+    : { id: equipmentOrId };
+
+  const tombstones = readEquipmentTombstones();
+  const candidates = [
+    equipment.id,
+    equipment.financeExpenseId,
+    equipment.origemFinanceiraId,
+    equipment.finance_expense_id,
+    equipment.origem_financeira_id,
+  ]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
+
+  return candidates.some((value) => (
+    tombstones.has(value)
+    || tombstones.has(`id:${value}`)
+    || tombstones.has(`finance:${value}`)
+  ));
+};
 
 export const assertSupabaseConfigured = () => {
   if (!isSupabaseConfigured) {
@@ -476,7 +515,23 @@ export const mapTransactionFromDb = (transaction = {}) => ({
   recurrenceId:
     transaction.recurrence_id
     || transaction.recurrenceId
+    || transaction.recorrenciaId
     || '',
+  recorrenciaId:
+    transaction.recurrence_id
+    || transaction.recurrenceId
+    || transaction.recorrenciaId
+    || '',
+  competencia:
+    transaction.competencia
+    || transaction.detalhes?.competencia
+    || transaction.details?.competencia
+    || String(
+      transaction.data_vencimento
+      || transaction.dataVencimento
+      || transaction.data
+      || '',
+    ).slice(0, 7),
   recurrenceIndex:
     transaction.recurrence_index
     ?? transaction.recurrenceIndex
@@ -1011,7 +1066,15 @@ export const upsertRow = async ({
 
 
 export const syncEquipmentList = async (items = []) => {
-  const list = Array.isArray(items) ? items : [];
+  const tombstones = readEquipmentTombstones();
+  const list = (Array.isArray(items) ? items : []).filter((item) => (
+    !tombstones.has(String(item?.id || ''))
+  ));
+
+  // Registros explicitamente excluídos nunca devem ser reativados por uma
+  // cópia antiga do estado, por outro evento de sincronização ou por um espelho
+  // desatualizado do localStorage. A remoção do tombstone só deve acontecer em
+  // uma futura ação explícita de restauração, que o módulo ainda não oferece.
   localStorage.setItem('cv_studio_equipamentos', JSON.stringify(list));
   if (!isSupabaseConfigured || unavailableTables.has('equipamentos')) return list;
 
@@ -1108,16 +1171,14 @@ export const syncEquipmentList = async (items = []) => {
 
 export const deleteEquipmentRow = async (equipmentId) => {
   const id = String(equipmentId || '').trim();
-  if (!id) return;
+  if (!id) return { deleted: false, reason: 'invalid-id' };
 
-  if (isSupabaseConfigured && !unavailableTables.has('equipamentos')) {
-    const { error } = await supabase
-      .from('equipamentos')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-  }
+  // O tombstone é gravado antes da chamada remota para impedir que qualquer
+  // atualização concorrente recoloque o item na interface enquanto a exclusão
+  // ainda está em andamento.
+  const tombstones = readEquipmentTombstones();
+  tombstones.add(id);
+  writeEquipmentTombstones(tombstones);
 
   const local = (() => {
     try { return JSON.parse(localStorage.getItem('cv_studio_equipamentos') || '[]'); } catch { return []; }
@@ -1126,7 +1187,39 @@ export const deleteEquipmentRow = async (equipmentId) => {
     ? local.filter((item) => String(item?.id) !== id)
     : [];
   safeMirrorWrite('cv_studio_equipamentos', next);
-  emitDbUpdate();
+
+  if (isSupabaseConfigured && !unavailableTables.has('equipamentos')) {
+    // A política RLS do Supabase já limita os registros que o usuário pode
+    // excluir. O filtro adicional por user_id fazia registros antigos afetarem
+    // zero linhas sem que o PostgREST retornasse erro.
+    const { data: deletedRows, error } = await supabase
+      .from('equipamentos')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
+    if (error) throw error;
+
+    // Só considere a operação concluída quando a linha realmente não existir.
+    if (!Array.isArray(deletedRows) || deletedRows.length === 0) {
+      const verification = await supabase
+        .from('equipamentos')
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (verification.error) throw verification.error;
+      if (verification.data) {
+        throw new Error(
+          'O Supabase não autorizou a exclusão deste equipamento. '
+          + 'Verifique a política RLS da tabela equipamentos.',
+        );
+      }
+    }
+  }
+
+  emitDbUpdate({ entity: 'equipamentos', action: 'delete', id });
+  return { deleted: true, id };
 };
 
 const safeMirrorWrite = (key, value, { maxBytes = 700_000 } = {}) => {
@@ -1181,34 +1274,22 @@ export const getDbStudioData = async () => {
   const localEquipment = (() => {
     try { return JSON.parse(localStorage.getItem('cv_studio_equipamentos') || '[]'); } catch { return []; }
   })();
-  const remoteEquipment = rawEquipment.map(mapEquipmentFromDb);
-  const localEquipmentList = Array.isArray(localEquipment) ? localEquipment : [];
-  const equipmentMap = new Map();
+  const tombstones = readEquipmentTombstones();
+  const remoteEquipment = rawEquipment
+    .map(mapEquipmentFromDb)
+    .filter((item) => !tombstones.has(String(item.id)));
+  const localEquipmentList = (Array.isArray(localEquipment) ? localEquipment : [])
+    .filter((item) => !tombstones.has(String(item?.id || '')));
 
-  remoteEquipment.forEach((item) => {
-    equipmentMap.set(String(item.id), item);
-  });
-
-  localEquipmentList.forEach((item) => {
-    const key = String(item?.id || '');
-    if (!key) return;
-    const remote = equipmentMap.get(key);
-    equipmentMap.set(key, remote ? { ...remote, ...item } : item);
-  });
-
-  const equipment = [...equipmentMap.values()];
-
-  if (equipment.length && isSupabaseConfigured) {
-    const hasLocalOnlyItems = localEquipmentList.some((item) => (
-      !remoteEquipment.some((remote) => String(remote.id) === String(item?.id))
-    ));
-
-    if (!rawEquipment.length || hasLocalOnlyItems) {
-      void syncEquipmentList(equipment).catch((error) => {
-        console.warn('Não foi possível sincronizar o patrimônio local com o Supabase:', error);
-      });
-    }
-  }
+  // O Supabase é a fonte oficial do patrimônio. Antes, registros existentes
+  // apenas no localStorage eram mesclados e enviados novamente ao banco durante
+  // o carregamento. Isso recriava equipamentos já excluídos. O espelho local só
+  // é usado quando o Supabase não está disponível ou a tabela não existe.
+  const equipment = (
+    isSupabaseConfigured && !unavailableTables.has('equipamentos')
+      ? remoteEquipment
+      : localEquipmentList
+  );
 
   const projects = rawProjects.map((project) => (
     mapProjectFromDb(

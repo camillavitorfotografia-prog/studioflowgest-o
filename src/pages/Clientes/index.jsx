@@ -25,6 +25,7 @@ import { CONTRACT_MODELS, suggestContractModel } from '../../data/contractModels
 import ContractWizard from '../../components/ContractWizard';
 import { loadSettings } from '../../utils/settings';
 import { saveDocument } from '../../features/documents/storage/documentStorageAdapter';
+import { createPhotoParticipant, normalizePhotoSelection, summarizeExtraPhotos, syncExtraPhotoTransactions } from '../../utils/extraPhotos';
 
 const emptyForm = {
   id: null,
@@ -46,6 +47,7 @@ const emptyForm = {
   pagamentos: [],
   divisaoSalarios: { ...DEFAULT_SALARY_SPLIT },
   retiradasSalariais: [],
+  photoSelection: normalizePhotoSelection({}),
 };
 
 const emptyWithdrawal = { pessoa: 'camilla', valor: '', data: '', observacao: '' };
@@ -248,6 +250,21 @@ const mapClientRow = (client, projects) => {
     return rightDate.localeCompare(leftDate);
   })[0] || null;
 
+  const extraPhotosSummary = relatedProjects.reduce((summary, item) => {
+    const current = summarizeExtraPhotos(
+      item.photoSelection
+      || item.selecaoFotos
+      || item.financeiro?.projectData?.photoSelection
+      || item.financeiro?.photoSelection
+      || {},
+    );
+    summary.total += current.total;
+    summary.received += current.received;
+    summary.pending += current.pending;
+    summary.extraPhotos += current.extraPhotos;
+    return summary;
+  }, { total: 0, received: 0, pending: 0, extraPhotos: 0 });
+
   const projectSummaries = relatedProjects.map((item) => {
     const pagamentos = readProjectPayments(item);
     const total = Number(item.valorContratado ?? item.valor_contratado ?? 0);
@@ -321,6 +338,7 @@ const mapClientRow = (client, projects) => {
     divisaoSalarios,
     retiradasSalariais,
     resumoSalarios,
+    extraPhotosSummary,
   };
 };
 
@@ -402,6 +420,12 @@ const formFromClient = (client) => {
     project?.financeiro?.divisaoSalarios
     || project?.financeiro?.divisao_salarios
     || DEFAULT_SALARY_SPLIT,
+  ),
+  photoSelection: normalizePhotoSelection(
+    project?.photoSelection
+    || project?.financeiro?.photoSelection
+    || project?.financeiro?.projectData?.photoSelection
+    || {},
   ),
   retiradasSalariais: (
     project?.financeiro?.retiradasSalariais
@@ -1183,6 +1207,22 @@ export default function Clientes() {
     setWithdrawalDraft(emptyWithdrawal);
   };
 
+  const syncExtraPhotoFinanceEntries = async ({ project, client }) => {
+    if (!project?.id) return;
+
+    await syncExtraPhotoTransactions({
+      project,
+      selection: project.photoSelection
+        || project.financeiro?.photoSelection
+        || project.financeiro?.projectData?.photoSelection
+        || {},
+      clientId: client?.id || '',
+      clientName: client?.nome || '',
+    });
+
+    emitDbUpdate({ source: 'extra-photos-finance', projectId: String(project.id) });
+  };
+
   const saveClient = async (event) => {
     event.preventDefault();
     if (isSaving || isDeleting) return;
@@ -1457,6 +1497,7 @@ export default function Clientes() {
         },
         financeiro: {
           ...financialState.financeiro,
+          photoSelection: normalizePhotoSelection(formData.photoSelection || {}),
           updatedAt: now,
         },
       };
@@ -1566,6 +1607,10 @@ export default function Clientes() {
           clientName: savedClient.nome || clientLocalPayload.nome,
         });
         await upsertAgendaEvent(savedProject, savedClient);
+      }
+
+      if (savedProject) {
+        await syncExtraPhotoFinanceEntries({ project: savedProject, client: savedClient });
       }
 
       const nextClients = effectiveClientId
@@ -1953,6 +1998,9 @@ export default function Clientes() {
                 <div data-label="Valor contratado">
                   <strong>{formatMoney(client.valorTotal)}</strong>
                   <small>Último trabalho · recebido {formatMoney(client.valorRecebido)}</small>
+                  {client.extraPhotosSummary.total > 0 && (
+                    <small className="sf-client-extra-photos">Fotos extras: {formatMoney(client.extraPhotosSummary.total)} · {client.extraPhotosSummary.extraPhotos} foto(s)</small>
+                  )}
                 </div>
                 <div data-label="Status"><span className={`sf-client-status ${client.valorRestante <= 0 && client.valorTotal > 0 ? 'is-paid' : ''}`}>{client.status || '-'}</span></div>
                 <div className="sf-client-row-actions">
@@ -2194,6 +2242,104 @@ export default function Clientes() {
             </div>
             <div className="sf-client-withdrawal-list">{formData.historicoContatos.map((contact) => <div key={contact.id}><span>{displayDate(contact.data)} · {contact.tipo} · {contact.observacao}</span><button type="button" onClick={() => setContactDraft({ ...contact, data: normalizeDate(contact.data) })}><Pencil size={14} /></button><button type="button" onClick={() => removeContact(contact.id)}><Trash2 size={14} /></button></div>)}</div>
           </section>
+
+          {formData.projectId && (
+            <section className="sf-client-photo-selection">
+              <div className="sf-client-photo-selection-heading">
+                <div>
+                  <strong>Seleção e fotos extras</strong>
+                  <small>Informações vinculadas ao trabalho selecionado deste cliente.</small>
+                </div>
+                <select
+                  value={formData.photoSelection?.deliveryType || 'all'}
+                  onChange={(event) => setFormData((current) => ({
+                    ...current,
+                    photoSelection: {
+                      ...normalizePhotoSelection(current.photoSelection),
+                      deliveryType: event.target.value,
+                    },
+                  }))}
+                >
+                  <option value="all">Todas as fotos incluídas</option>
+                  <option value="limited">Quantidade limitada</option>
+                </select>
+              </div>
+
+              {formData.photoSelection?.deliveryType === 'limited' && (
+                <>
+                  <div className="sf-client-photo-defaults">
+                    <Field label="Fotos incluídas no pacote">
+                      <input type="number" min="0" style={inputStyle} value={formData.photoSelection.defaultIncludedPhotos || 0} onChange={(event) => setFormData((current) => ({ ...current, photoSelection: { ...normalizePhotoSelection(current.photoSelection), defaultIncludedPhotos: Math.max(0, Number(event.target.value || 0)) } }))} />
+                    </Field>
+                    <div className="sf-client-photo-price-note">
+                      <strong>Preço sugerido</strong>
+                      <span>1 a 10: R$ 20,00 · 11 a 49: R$ 15,00 · 50 ou mais: R$ 10,00</span>
+                      <small>Você pode informar manualmente R$ 13,00 ou outro valor.</small>
+                    </div>
+                  </div>
+
+                  {(formData.photoSelection.participants || []).map((participant, index) => {
+                    const calculated = normalizePhotoSelection(formData.photoSelection).participants[index];
+                    return (
+                      <article className="sf-client-photo-participant" key={participant.id || index}>
+                        <div className="sf-client-photo-participant-heading">
+                          <strong>{participant.name || formData.nome || `Participante ${index + 1}`}</strong>
+                          <button type="button" className="sf-client-delete-button" onClick={() => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); return { ...current, photoSelection: { ...photoSelection, participants: photoSelection.participants.filter((_, itemIndex) => itemIndex !== index) } }; })}>
+                            <Trash2 size={14} /> Remover
+                          </button>
+                        </div>
+                        <div className="sf-client-photo-grid">
+                          <Field label="Cliente/participante"><input style={inputStyle} value={participant.name || ''} onChange={(event) => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); photoSelection.participants[index] = { ...photoSelection.participants[index], name: capitalizeName(event.target.value) }; return { ...current, photoSelection }; })} /></Field>
+                          <Field label="Fotos incluídas"><input type="number" min="0" style={inputStyle} value={participant.includedPhotos || 0} onChange={(event) => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); photoSelection.participants[index] = { ...photoSelection.participants[index], includedPhotos: Math.max(0, Number(event.target.value || 0)) }; return { ...current, photoSelection }; })} /></Field>
+                          <Field label="Fotos selecionadas"><input type="number" min="0" style={inputStyle} value={participant.selectedPhotos || 0} onChange={(event) => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); photoSelection.participants[index] = { ...photoSelection.participants[index], selectedPhotos: Math.max(0, Number(event.target.value || 0)) }; return { ...current, photoSelection }; })} /></Field>
+                          <Field label="Fotos extras"><input style={inputStyle} value={calculated.extraPhotos} readOnly /></Field>
+                          <Field label="Valor por foto extra"><input type="number" min="0" step="0.01" style={inputStyle} placeholder={String(calculated.suggestedUnitPrice)} value={participant.manualUnitPrice ?? ''} onChange={(event) => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); photoSelection.participants[index] = { ...photoSelection.participants[index], manualUnitPrice: event.target.value }; return { ...current, photoSelection }; })} /></Field>
+                          <Field label="Total das fotos extras"><input style={inputStyle} value={formatMoney(calculated.total)} readOnly /></Field>
+                          <Field label="Pagamento das fotos extras">
+                            <div className="sf-extra-payment-toggle" role="group" aria-label="Status do pagamento das fotos extras">
+                              {['Pendente', 'Pago'].map((status) => {
+                                const isActive = String(participant.paymentStatus || '').toLowerCase() === status.toLowerCase();
+                                return (
+                                  <button
+                                    key={status}
+                                    type="button"
+                                    className={`sf-extra-payment-option ${isActive ? 'is-active' : ''} ${status === 'Pago' ? 'is-paid' : ''}`}
+                                    aria-pressed={isActive}
+                                    onClick={() => setFormData((current) => {
+                                      const photoSelection = normalizePhotoSelection(current.photoSelection);
+                                      photoSelection.participants[index] = {
+                                        ...photoSelection.participants[index],
+                                        paymentStatus: status,
+                                        paymentDate: status === 'Pago'
+                                          ? (photoSelection.participants[index].paymentDate || new Date().toISOString().slice(0, 10))
+                                          : '',
+                                      };
+                                      return { ...current, photoSelection };
+                                    })}
+                                  >
+                                    {status === 'Pago' ? 'Recebido' : 'Pendente'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </Field>
+                          <Field label="Data do pagamento"><input type="date" style={inputStyle} disabled={String(participant.paymentStatus || '').toLowerCase() !== 'pago'} value={participant.paymentDate || ''} onChange={(event) => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); photoSelection.participants[index] = { ...photoSelection.participants[index], paymentDate: event.target.value }; return { ...current, photoSelection }; })} /></Field>
+                          <Field label="Forma de pagamento"><select style={inputStyle} disabled={String(participant.paymentStatus || '').toLowerCase() !== 'pago'} value={participant.paymentMethod || 'Pix'} onChange={(event) => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); photoSelection.participants[index] = { ...photoSelection.participants[index], paymentMethod: event.target.value }; return { ...current, photoSelection }; })}><option>Pix</option><option>Dinheiro</option><option>Cartão de crédito</option><option>Cartão de débito</option><option>Transferência</option><option>Outro</option></select></Field>
+                        </div>
+                      </article>
+                    );
+                  })}
+
+                  <div className="sf-client-photo-actions">
+                    <button type="button" className="sf-secondary-button" onClick={() => setFormData((current) => { const photoSelection = normalizePhotoSelection(current.photoSelection); return { ...current, photoSelection: { ...photoSelection, participants: [...photoSelection.participants, createPhotoParticipant({ clientId: current.id || '', name: photoSelection.participants.length ? '' : current.nome, includedPhotos: photoSelection.defaultIncludedPhotos, selectedPhotos: photoSelection.defaultIncludedPhotos })] } }; })}>
+                      <Plus size={15} /> Adicionar participante
+                    </button>
+                    <div><strong>{formatMoney(summarizeExtraPhotos(formData.photoSelection).total)}</strong><small>Total em fotos extras</small></div>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
 
           {operationError && <div className="sf-client-operation-error" role="alert">{operationError}</div>}
 

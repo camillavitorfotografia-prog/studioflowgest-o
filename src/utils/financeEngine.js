@@ -996,13 +996,24 @@ export const generateRecurrentExpenses = (recurrences = [], transactions = [], r
   const generated = [];
   const existingSet = new Set(
     transactions
-      .filter((t) => t.recorrenciaId && t.competencia)
-      .map((t) => `${t.recorrenciaId}-${t.competencia}`)
+      .map((transaction) => {
+        const recurrenceId = transaction.recorrenciaId || transaction.recurrenceId || transaction.recurrence_id || '';
+        const competence = transaction.competencia
+          || String(transaction.vencimento || transaction.dataVencimento || transaction.data_vencimento || transaction.data || '').slice(0, 7);
+        return recurrenceId && competence ? `${recurrenceId}-${competence}` : '';
+      })
+      .filter(Boolean)
   );
 
   recurrences.forEach((recurrence) => {
     if (!recurrence.ativo) return;
+    const excludedCompetences = new Set(
+      Array.isArray(recurrence.competenciasExcluidas)
+        ? recurrence.competenciasExcluidas
+        : (Array.isArray(recurrence.excludedCompetences) ? recurrence.excludedCompetences : [])
+    );
     competences.forEach((competence) => {
+      if (excludedCompetences.has(competence)) return;
       if (shouldRecurOnCompetence(recurrence, competence)) {
         const key = `${recurrence.id}-${competence}`;
         if (!existingSet.has(key)) {
