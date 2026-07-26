@@ -63,8 +63,11 @@ import {
 import Despesas from './Despesas';
 import {
   OPERATIONAL_INCOME_CATEGORIES,
+  PERSONAL_EXTERNAL_INCOME_CATEGORIES,
   NON_OPERATIONAL_INCOME_CATEGORIES,
+  IR_CLASSIFICATIONS,
   isNonOperationalIncome,
+  isPersonalExternalIncome,
   getIncomeNatureLabel,
 } from '../../utils/incomeClassification';
 import {
@@ -503,6 +506,70 @@ function MonthInput({
   );
 }
 
+
+const normalizeRecurrenceSignaturePart = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toLowerCase();
+
+const recurrenceTimestamp = (recurrence) => {
+  const value = recurrence?.atualizadoEm
+    || recurrence?.updatedAt
+    || recurrence?.criadoEm
+    || recurrence?.createdAt
+    || '';
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const consolidateRecurringConfigurations = (recurrences = []) => {
+  const activeBySignature = new Map();
+  const inactiveIds = new Set();
+
+  (Array.isArray(recurrences) ? recurrences : []).forEach((recurrence) => {
+    const id = String(recurrence?.id || '').trim();
+    if (!id) return;
+
+    if (recurrence?.ativo === false) {
+      inactiveIds.add(id);
+      return;
+    }
+
+    const signature = [
+      normalizeRecurrenceSignaturePart(recurrence?.descricao),
+      normalizeRecurrenceSignaturePart(recurrence?.categoria),
+      Number(recurrence?.valor || 0).toFixed(2),
+      Number(recurrence?.diaVencimento || 1),
+      normalizeRecurrenceSignaturePart(recurrence?.frequencia || 'mensal'),
+    ].join('|');
+
+    const current = activeBySignature.get(signature);
+    if (!current || recurrenceTimestamp(recurrence) >= recurrenceTimestamp(current)) {
+      if (current?.id) inactiveIds.add(String(current.id));
+      activeBySignature.set(signature, recurrence);
+    } else {
+      inactiveIds.add(id);
+    }
+  });
+
+  return {
+    active: Array.from(activeBySignature.values()),
+    activeIds: new Set(
+      Array.from(activeBySignature.values())
+        .map((item) => String(item?.id || '').trim())
+        .filter(Boolean),
+    ),
+    inactiveIds,
+  };
+};
+
+const isSettledFinancialRow = (item) => {
+  const status = String(item?.status || '').trim().toLowerCase();
+  return Boolean(item?.dataPagamento || item?.data_pagamento)
+    || ['pago', 'paga', 'recebido', 'recebida', 'confirmado', 'confirmada', 'quitado', 'quitada'].includes(status);
+};
+
 function useFinanceData() {
   const [loading, setLoading] = useState(true);
   const [financasConfig, setFinancasConfig] = useState(() =>
@@ -560,9 +627,32 @@ function useFinanceData() {
       ? remoteStudio.equipment
       : localEquipment;
 
-    // Geração idempotente de competências recorrentes
-    const newRecurrents = generateRecurrentExpenses(rawRecurrences, rawTransactions, new Date());
-    let currentTransactions = rawTransactions;
+    // Consolida configurações recorrentes antes de gerar competências.
+    // Apenas a configuração ativa mais recente de cada despesa pode gerar meses futuros.
+    const recurrenceState = consolidateRecurringConfigurations(rawRecurrences);
+    const filteredTransactions = rawTransactions.filter((transaction) => {
+      const recurrenceId = String(
+        transaction?.recorrenciaId
+        || transaction?.recurrenceId
+        || transaction?.recurrence_id
+        || '',
+      ).trim();
+
+      if (!recurrenceId || isSettledFinancialRow(transaction)) return true;
+
+      const isRecurringExpense = Boolean(transaction?.recorrente)
+        || String(transaction?.tipo || '').toLowerCase() === 'fixa';
+
+      if (!isRecurringExpense) return true;
+      return recurrenceState.activeIds.has(recurrenceId);
+    });
+
+    const newRecurrents = generateRecurrentExpenses(
+      recurrenceState.active,
+      filteredTransactions,
+      new Date(),
+    );
+    let currentTransactions = filteredTransactions;
     if (newRecurrents.length > 0) {
       currentTransactions = [...rawTransactions, ...newRecurrents];
       writeStorage(STORAGE_KEYS.finances, currentTransactions);
@@ -2051,6 +2141,10 @@ const emptyAvulsaForm = {
   origemRecursos: '',
   patrimonioId: '',
   documentoReferencia: '',
+  classificacaoIr: 'nao_classificado',
+  fontePagadora: '',
+  cpfCnpjFonte: '',
+  incluirRelatorioIr: true,
 };
 
 function Receitas({ data }) {
@@ -2094,7 +2188,8 @@ function Receitas({ data }) {
 
         if (typeFilter === 'avulsa' && revenue.tipo === 'receita_contrato') return false;
         if (typeFilter === 'operacional' && isNonOperationalIncome(revenue)) return false;
-        if (typeFilter === 'nao_operacional' && !isNonOperationalIncome(revenue)) return false;
+        if (typeFilter === 'pessoal_externa' && !isPersonalExternalIncome(revenue)) return false;
+        if (typeFilter === 'nao_operacional' && (!isNonOperationalIncome(revenue) || isPersonalExternalIncome(revenue))) return false;
 
         if (
           clientFilter
@@ -2357,7 +2452,7 @@ function Receitas({ data }) {
     setModalOpen(true);
   };
 
-  const saveReceita = () => {
+  const saveReceita = async () => {
     const val = parseCurrency(formData.valor);
     if (!formData.descricao || String(formData.descricao).trim() === '') {
       alert('Descrição obrigatória.');
@@ -2372,71 +2467,99 @@ function Receitas({ data }) {
       return;
     }
 
-    const baseReceita = {
-      id: editingId || `receita-avulsa-${Date.now()}`,
-      descricao: formData.descricao,
-      categoria: formData.categoria || 'Serviço adicional',
-      naturezaFinanceira: formData.naturezaFinanceira || 'operacional',
-      valor: val,
-      vencimento: formData.vencimento,
-      dataRecebimento: formData.status === 'recebida' ? formData.dataRecebimento || formData.vencimento : '',
-      status: formData.status || 'prevista',
-      clienteId: formData.clienteId || '',
-      trabalhoId: formData.trabalhoId || '',
-      formaPagamento: formData.formaPagamento || 'Pix',
-      observacoes: formData.observacoes || '',
+    const naturezaFinanceira = formData.naturezaFinanceira || 'operacional';
+    const isPersonal = naturezaFinanceira === 'pessoal_externa';
+    const isReceived = formData.status === 'recebida';
+    const paymentDate = isReceived
+      ? (formData.dataRecebimento || formData.vencimento)
+      : null;
+
+    const details = {
+      naturezaFinanceira,
       origemRecursos: formData.origemRecursos || '',
       patrimonioId: formData.patrimonioId || '',
       documentoReferencia: formData.documentoReferencia || '',
+      ...(isPersonal ? {
+        classificacaoIr: formData.classificacaoIr || 'nao_classificado',
+        fontePagadora: formData.fontePagadora || '',
+        cpfCnpjFonte: formData.cpfCnpjFonte || '',
+        incluirRelatorioIr: formData.incluirRelatorioIr !== false,
+      } : {}),
+    };
+
+    const baseReceita = {
+      id: editingId || `receita-avulsa-${Date.now()}`,
+      descricao: formData.descricao.trim(),
+      categoria: formData.categoria || 'Serviço adicional',
+      naturezaFinanceira,
+      valor: val,
+      vencimento: formData.vencimento,
+      dataRecebimento: paymentDate || '',
+      dataPagamento: paymentDate || '',
+      status: formData.status || 'prevista',
+      clienteId: naturezaFinanceira === 'operacional' ? (formData.clienteId || '') : '',
+      trabalhoId: naturezaFinanceira === 'operacional' ? (formData.trabalhoId || '') : '',
+      formaPagamento: formData.formaPagamento || 'Pix',
+      observacoes: formData.observacoes || '',
+      contaOrigem: formData.contaOrigem || 'empresa',
+      detalhes: details,
+      ...details,
       tipo: 'receita_avulsa',
       tipoGeral: 'Entrada',
-      contaOrigem: formData.contaOrigem || 'empresa',
       criadoEm: formData.criadoEm || new Date().toISOString(),
       atualizadoEm: new Date().toISOString(),
     };
 
-    const transactions = readStorage(STORAGE_KEYS.finances, []);
-    let nextTransactions;
-    if (editingId) {
-      nextTransactions = transactions.map((t) => String(t.id) === String(editingId) ? baseReceita : t);
-    } else {
-      nextTransactions = [baseReceita, ...transactions];
-    }
+    try {
+      if (isSupabaseConfigured) {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        const userId = authData?.user?.id;
+        if (!userId) throw new Error('Sessão não encontrada. Entre novamente no StudioFlow.');
 
-    writeStorage(STORAGE_KEYS.finances, nextTransactions);
-
-    if (isSupabaseConfigured) {
-      try {
-        const toDbPayload = (r) => ({
-          id: String(r.id),
-          project_id: r.trabalhoId || null,
-          cliente_id: r.clienteId || null,
-          descricao: r.descricao,
-          nome: r.descricao,
-          categoria: r.categoria,
-          natureza_financeira: r.naturezaFinanceira,
-          valor: r.valor,
-          data: r.vencimento,
-          data_vencimento: r.vencimento,
-          tipo: r.tipo,
-          tipo_geral: r.tipoGeral,
-          status: r.status,
-          forma_pagamento: r.formaPagamento,
-          conta_origem: r.contaOrigem,
-          observacoes: r.observacoes,
-          origem_recursos: r.origemRecursos || null,
-          patrimonio_id: r.patrimonioId || null,
-          documento_referencia: r.documentoReferencia || null,
+        const payload = {
+          id: String(baseReceita.id),
+          user_id: userId,
+          project_id: baseReceita.trabalhoId || null,
+          client_id: baseReceita.clienteId || null,
+          descricao: baseReceita.descricao,
+          nome: baseReceita.descricao,
+          categoria: baseReceita.categoria,
+          valor: baseReceita.valor,
+          data: baseReceita.vencimento,
+          data_vencimento: baseReceita.vencimento,
+          data_pagamento: paymentDate ? `${paymentDate}T12:00:00` : null,
+          tipo: baseReceita.tipo,
+          tipo_geral: baseReceita.tipoGeral,
+          status: baseReceita.status,
+          forma_pagamento: baseReceita.formaPagamento,
+          conta_origem: baseReceita.contaOrigem,
+          observacoes: baseReceita.observacoes,
+          detalhes: details,
           updated_at: new Date().toISOString(),
-        });
-        void supabase.from('financas').upsert([toDbPayload(baseReceita)]);
-      } catch (e) {
-        console.error(e);
-      }
-    }
+        };
 
-    setModalOpen(false);
-    data.loadAll();
+        const { data: savedRows, error } = await supabase
+          .from('financas')
+          .upsert(payload, { onConflict: 'id' })
+          .select('id');
+        if (error) throw error;
+        if (!savedRows?.length) throw new Error('O banco não confirmou o salvamento da receita.');
+      }
+
+      const transactions = readStorage(STORAGE_KEYS.finances, []);
+      const nextTransactions = editingId
+        ? transactions.map((transaction) => String(transaction.id) === String(editingId) ? baseReceita : transaction)
+        : [baseReceita, ...transactions.filter((transaction) => String(transaction.id) !== String(baseReceita.id))];
+      writeStorage(STORAGE_KEYS.finances, nextTransactions);
+
+      setModalOpen(false);
+      await data.loadAll();
+      alert('Receita salva com sucesso.');
+    } catch (error) {
+      console.error('Erro ao salvar receita:', error);
+      alert(`Não foi possível salvar a receita: ${error?.message || 'erro desconhecido'}`);
+    }
   };
 
   const removeReceita = async (r) => {
@@ -2779,7 +2902,8 @@ function Receitas({ data }) {
         >
           <option value="">Todos os tipos</option>
           <option value="contratual">Contratuais</option>
-          <option value="operacional">Receitas operacionais</option>
+          <option value="operacional">Receitas da empresa</option>
+          <option value="pessoal_externa">Receitas pessoais externas</option>
           <option value="nao_operacional">Entradas não operacionais</option>
           <option value="avulsa">Todas as avulsas</option>
         </select>
@@ -2987,24 +3111,27 @@ function Receitas({ data }) {
                 value={formData.naturezaFinanceira}
                 onChange={(event) => {
                   const naturezaFinanceira = event.target.value;
-                  const categories = naturezaFinanceira === 'nao_operacional'
-                    ? NON_OPERATIONAL_INCOME_CATEGORIES
-                    : OPERATIONAL_INCOME_CATEGORIES;
+                  const categories = naturezaFinanceira === 'pessoal_externa'
+                    ? PERSONAL_EXTERNAL_INCOME_CATEGORIES
+                    : naturezaFinanceira === 'nao_operacional'
+                      ? NON_OPERATIONAL_INCOME_CATEGORIES
+                      : OPERATIONAL_INCOME_CATEGORIES;
                   setFormData({
                     ...formData,
                     naturezaFinanceira,
                     categoria: categories[0],
-                    clienteId: naturezaFinanceira === 'nao_operacional' ? '' : formData.clienteId,
-                    trabalhoId: naturezaFinanceira === 'nao_operacional' ? '' : formData.trabalhoId,
+                    clienteId: naturezaFinanceira === 'operacional' ? formData.clienteId : '',
+                    trabalhoId: naturezaFinanceira === 'operacional' ? formData.trabalhoId : '',
                   });
                 }}
               >
-                <option value="operacional">Receita operacional de fotografia</option>
-                <option value="nao_operacional">Entrada não operacional</option>
+                <option value="operacional">Receita da empresa</option>
+                <option value="pessoal_externa">Receita pessoal externa</option>
+                <option value="nao_operacional">Entrada não operacional da empresa</option>
               </select>
             </Field>
             <small className="sf-muted" style={{ display: 'block', marginTop: '8px', lineHeight: 1.45 }}>
-              Entradas não operacionais aumentam o saldo da conta, mas não entram no faturamento, nos contratos ou nos valores de clientes.
+              Receitas pessoais e entradas não operacionais aumentam o saldo da conta escolhida, mas não entram no faturamento da empresa.
             </small>
           </div>
 
@@ -3029,9 +3156,11 @@ function Receitas({ data }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <Field label="Categoria">
               <select style={inputStyle} value={formData.categoria} onChange={(event) => setFormData({ ...formData, categoria: event.target.value })}>
-                {(formData.naturezaFinanceira === 'nao_operacional'
-                  ? NON_OPERATIONAL_INCOME_CATEGORIES
-                  : OPERATIONAL_INCOME_CATEGORIES).map((category) => (
+                {(formData.naturezaFinanceira === 'pessoal_externa'
+                  ? PERSONAL_EXTERNAL_INCOME_CATEGORIES
+                  : formData.naturezaFinanceira === 'nao_operacional'
+                    ? NON_OPERATIONAL_INCOME_CATEGORIES
+                    : OPERATIONAL_INCOME_CATEGORIES).map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -3089,6 +3218,33 @@ function Receitas({ data }) {
               </select>
             </Field>
           </div>
+          )}
+
+          {formData.naturezaFinanceira === 'pessoal_externa' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.025)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <Field label="Classificação para conferência do IR">
+                  <select style={inputStyle} value={formData.classificacaoIr} onChange={(event) => setFormData({ ...formData, classificacaoIr: event.target.value })}>
+                    {IR_CLASSIFICATIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Fonte pagadora">
+                  <input style={inputStyle} value={formData.fontePagadora} onChange={(event) => setFormData({ ...formData, fontePagadora: event.target.value })} placeholder="Pessoa, empresa ou instituição" />
+                </Field>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <Field label="CPF ou CNPJ da fonte pagadora">
+                  <input style={inputStyle} value={formData.cpfCnpjFonte} onChange={(event) => setFormData({ ...formData, cpfCnpjFonte: event.target.value })} placeholder="Opcional" />
+                </Field>
+                <Field label="Documento ou referência">
+                  <input style={inputStyle} value={formData.documentoReferencia} onChange={(event) => setFormData({ ...formData, documentoReferencia: event.target.value })} placeholder="Recibo, contrato ou informe" />
+                </Field>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={formData.incluirRelatorioIr !== false} onChange={(event) => setFormData({ ...formData, incluirRelatorioIr: event.target.checked })} />
+                <span>Incluir no PDF anual para conferência do Imposto de Renda</span>
+              </label>
+            </div>
           )}
 
           {formData.naturezaFinanceira === 'nao_operacional' && (
@@ -3591,7 +3747,37 @@ function AgendaFinanceira({ data }) {
         status: deriveFinancialStatus(item),
       }));
 
-    return [...revenues, ...expenses].sort(
+    const uniqueItems = new Map();
+
+    [...revenues, ...expenses].forEach((item) => {
+      const key = [
+        item.type,
+        String(item.description || '').trim().toLowerCase(),
+        item.date,
+        Math.abs(Number(item.value || 0)).toFixed(2),
+      ].join('|');
+
+      const existing = uniqueItems.get(key);
+      if (!existing) {
+        uniqueItems.set(key, item);
+        return;
+      }
+
+      const statusPriority = {
+        recebida: 4,
+        paga: 4,
+        confirmada: 4,
+        confirmado: 4,
+        pendente: 2,
+        prevista: 1,
+        vencida: 1,
+      };
+      const currentPriority = statusPriority[String(item.status || '').toLowerCase()] || 0;
+      const existingPriority = statusPriority[String(existing.status || '').toLowerCase()] || 0;
+      if (currentPriority > existingPriority) uniqueItems.set(key, item);
+    });
+
+    return Array.from(uniqueItems.values()).sort(
       (first, second) => first.date.localeCompare(second.date),
     );
   }, [

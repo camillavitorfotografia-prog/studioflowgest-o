@@ -938,19 +938,30 @@ export const adaptInstallmentToIncome = (installment, contract = {}, clientName 
 };
 
 export const deriveFinancialStatus = (item, today = new Date().toISOString().slice(0, 10)) => {
-  if (item.status === 'cancelada' || item.status === 'cancelado') return 'cancelada';
-  
-  const isIncome = item.tipoGeral === 'Entrada' || item.tipo === 'receita_avulsa' || item.tipo === 'receita_contrato' || item.tipo === 'avulsa';
-  
+  const status = normalizeStatus(item?.status);
+  const tipoGeral = normalizeStatus(item?.tipoGeral || item?.tipo_geral);
+  const tipo = normalizeStatus(item?.tipo);
+
+  if (status === 'cancelada' || status === 'cancelado') return 'cancelada';
+
+  const isIncome = tipoGeral === 'entrada'
+    || tipo === 'receita_avulsa'
+    || tipo === 'receita_contrato'
+    || tipo === 'avulsa';
+
   if (isIncome) {
-    if (item.dataRecebimento || item.status === 'recebida' || item.status === 'recebido') return 'recebida';
-    if (item.vencimento && item.vencimento < today) return 'vencida';
-    return item.status === 'prevista' ? 'prevista' : 'pendente';
-  } else {
-    if (item.dataPagamento || item.status === 'paga' || item.status === 'pago') return 'paga';
-    if (item.vencimento && item.vencimento < today) return 'vencida';
-    return item.status === 'prevista' ? 'prevista' : 'pendente';
+    if (item?.dataRecebimento || item?.data_recebimento || CONFIRMED_PAYMENT_STATUSES.has(status)) {
+      return 'recebida';
+    }
+    if (item?.vencimento && item.vencimento < today) return 'vencida';
+    return status === 'prevista' ? 'prevista' : 'pendente';
   }
+
+  if (item?.dataPagamento || item?.data_pagamento || CONFIRMED_PAYMENT_STATUSES.has(status)) {
+    return 'paga';
+  }
+  if (item?.vencimento && item.vencimento < today) return 'vencida';
+  return status === 'prevista' ? 'prevista' : 'pendente';
 };
 
 const monthDiff = (date1, date2) => {

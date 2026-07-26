@@ -27,6 +27,8 @@ import {
   Save,
   Send,
   Settings2,
+  Sun,
+  Moon,
   ShieldCheck,
   Trash2,
   Upload,
@@ -65,7 +67,7 @@ const DEFAULT_LEGAL = 'Estas imagens são disponibilizadas exclusivamente para s
 
 const DEFAULT_SETTINGS = {
   purpose: 'selection', eventDate: '', description: '', coverPhotoId: '', coverLayout: 'editorial',
-  coverHeight: 'large', coverPosition: 'center', coverOverlay: 42, theme: 'dark', typography: 'editorial',
+  coverHeight: 'large', coverPosition: 'center', coverOverlay: 42, coverTitle: '', coverTextPosition: 'left-center', theme: 'dark', typography: 'editorial',
   gridStyle: 'masonry', gridSize: 'regular', gridSpacing: 'regular', showFileNames: false,
   naming: { mode: 'original', prefix: 'Foto', pad: 3 }, allowComments: true, allowAdditional: true,
   downloadMode: 'selected', downloadExpiresDays: 30, downloadLimit: 0,
@@ -73,8 +75,8 @@ const DEFAULT_SETTINGS = {
 
 const initialForm = {
   clientId: '', projectId: '', name: '', includedPhotos: 13, additionalPrice: '',
-  selectionDeadline: '', expiresAt: '', watermarkText: 'PROTEGIDO', watermarkOpacity: 0.3,
-  showClient: false, legalNotice: DEFAULT_LEGAL, settings: DEFAULT_SETTINGS,
+  selectionDeadline: '', expiresAt: '', watermarkText: 'PROVA PARA SELEÇÃO', watermarkOpacity: 0.38,
+  showClient: true, legalNotice: DEFAULT_LEGAL, settings: DEFAULT_SETTINGS,
 };
 
 const STATUS_LABELS = {
@@ -93,7 +95,7 @@ const normalizeEditorGallery = (gallery) => ({
   includedPhotos: Number(gallery.includedPhotos || 0),
   additionalPrice: Number(gallery.additionalPrice || 0),
   settings: { ...DEFAULT_SETTINGS, ...(gallery.settings || {}), naming: { ...DEFAULT_SETTINGS.naming, ...(gallery.settings?.naming || {}) } },
-  watermarkSettings: { text: 'PROTEGIDO', opacity: 0.3, spacing: 170, angle: -28, grid: true, showClient: false, previewMaxWidth: 1280, previewQuality: 0.68, ...(gallery.watermarkSettings || {}) },
+  watermarkSettings: { text: 'PROVA PARA SELEÇÃO', opacity: 0.38, spacing: 150, angle: -28, grid: true, showClient: true, previewMaxWidth: 1600, previewQuality: 0.66, ...(gallery.watermarkSettings || {}) },
 });
 
 function useAdminPhotoUrl(photo, kind = 'preview') {
@@ -208,7 +210,25 @@ export default function Galerias() {
     });
     setDirty(true);
   };
-  const updateSettings = (changes) => updateEditorGallery({ settings: { ...editor.gallery.settings, ...changes } });
+  const updateSettings = (changes) => {
+    changeVersionRef.current += 1;
+    setEditor((current) => {
+      if (!current) return current;
+      const next = {
+        ...current,
+        gallery: {
+          ...current.gallery,
+          settings: {
+            ...current.gallery.settings,
+            ...changes,
+          },
+        },
+      };
+      editorRef.current = next;
+      return next;
+    });
+    setDirty(true);
+  };
 
   const saveEditor = useCallback(async ({ quiet = false } = {}) => {
     const currentEditor = editorRef.current;
@@ -311,7 +331,7 @@ export default function Galerias() {
     event.preventDefault(); setSaving(true); setMessage('');
     try {
       const gallery = await createGallery({ ...form, additionalPrice: parseCurrency(form.additionalPrice), status: 'draft',
-        watermarkSettings: { text: form.watermarkText || 'PROTEGIDO', opacity: Number(form.watermarkOpacity || 0.3), spacing: 170, angle: -28, grid: true, showBrand: true, showClient: form.showClient, previewMaxWidth: 1800 },
+        watermarkSettings: { text: form.watermarkText || 'PROVA PARA SELEÇÃO', opacity: Number(form.watermarkOpacity || 0.38), spacing: 150, angle: -28, grid: true, showBrand: true, showClient: form.showClient !== false, previewMaxWidth: 1600, previewQuality: 0.66 },
         legalNotice: form.legalNotice || DEFAULT_LEGAL, settings: form.settings });
       setModalOpen(false); setForm(initialForm); await load(); await openEditor(gallery.id);
     } catch (error) { setMessage(error?.message || 'Não foi possível criar a galeria.'); }
@@ -391,7 +411,15 @@ export default function Galerias() {
     }
     setSaving(true);
     try {
-      const result = await publishGallery(editor.gallery.id, editor.gallery.settings.purpose === 'delivery' ? 'delivery' : 'selection');
+      const result = await publishGallery(editor.gallery.id, editor.gallery.settings.purpose === 'delivery' ? 'delivery' : 'selection', {
+        watermarkSettings: editor.gallery.watermarkSettings,
+        clientName,
+        onProgress: (row) => setProtectionProgress((current) => {
+          const next = [...current];
+          next[row.index] = row;
+          return next;
+        }),
+      });
       setEditor((current) => ({ ...current, gallery: normalizeEditorGallery(result.gallery) }));
       setMessage('Galeria publicada. O link do cliente está ativo.'); await load();
     } catch (error) { setMessage(error?.message || 'Não foi possível publicar.'); }
@@ -508,10 +536,62 @@ function OverviewCard({icon:Icon,title,value,text,action,onClick}){return <artic
 function PhotosTab({editor,selectedPhotoIds,setSelectedPhotoIds,menuId,setMenuId,onUpload,onCover,onMove,onDelete}) { return <div className="workspace-tab"><div className="tab-heading"><div><span>FOTOGRAFIAS</span><h2>Gerenciador de fotos</h2><p>Envie, organize, defina a capa e acompanhe o processamento.</p></div><button onClick={onUpload}><Upload/>Adicionar fotos</button></div>{editor.photos.length?<div className="gallery-photo-manager">{editor.photos.map((photo,index)=><PhotoCard key={photo.id} photo={photo} index={index} total={editor.photos.length} selected={selectedPhotoIds.includes(photo.id)} isCover={editor.gallery.settings.coverPhotoId===photo.id} menuOpen={menuId===photo.id} onSelect={()=>setSelectedPhotoIds((current)=>current.includes(photo.id)?current.filter(id=>id!==photo.id):[...current,photo.id])} onMenu={()=>setMenuId(menuId===photo.id?'':photo.id)} onCover={()=>onCover(photo.id)} onMove={onMove} onDelete={()=>onDelete(photo)}/>)}</div>:<div className="gallery-empty-panel"><Images/><h3>Envie as primeiras fotografias</h3><p>Os originais ficam privados e as provas protegidas são geradas automaticamente.</p><button onClick={onUpload}><Upload/>Selecionar fotografias</button></div>}</div> }
 function PhotoCard({photo,index,total,selected,isCover,menuOpen,onSelect,onMenu,onCover,onMove,onDelete}){const {url,error}=useAdminPhotoUrl(photo);return <article className={`manager-photo-card ${selected?'selected':''} ${error?'failed':''}`}><button className="photo-checkbox" onClick={onSelect}>{selected?<Check/>:null}</button><button className="photo-menu-button" onClick={onMenu}><MoreHorizontal/></button>{menuOpen&&<div className="photo-menu"><button onClick={onCover}><ImageIcon/>Definir como capa</button><button disabled={index===0} onClick={()=>onMove(photo.id,-1)}><ArrowUp/>Mover antes</button><button disabled={index===total-1} onClick={()=>onMove(photo.id,1)}><ArrowDown/>Mover depois</button><button className="danger" onClick={onDelete}><Trash2/>Excluir</button></div>}<div className="manager-photo-media">{url?<img src={url} alt={photo.displayName}/>:error?<div className="photo-failure"><RefreshCw/><span>Falha na prova</span></div>:<LoaderCircle className="spin"/>}</div><footer><div><strong>{photo.displayName}</strong><small>{photo.width&&photo.height?`${photo.width} × ${photo.height}`:'Processando'}</small></div>{isCover&&<span className="cover-chip">CAPA</span>}</footer></article>}
 
-function CoverTab({editor,updateSettings,onChoose}){const cover=editor.photos.find(p=>p.id===editor.gallery.settings.coverPhotoId)||null;return <div className="workspace-tab"><div className="tab-heading"><div><span>CAPA</span><h2>Primeiro impacto da galeria</h2><p>Escolha uma fotografia e ajuste a composição para desktop e celular.</p></div></div><div className="cover-editor-grid"><div className="cover-controls"><button onClick={onChoose}><ImageIcon/>{cover?'Trocar fotografia':'Escolher fotografia'}</button>{cover&&<button className="secondary" onClick={()=>updateSettings({coverPhotoId:''})}><X/>Remover capa</button>}<label>Modelo<select value={editor.gallery.settings.coverLayout} onChange={e=>updateSettings({coverLayout:e.target.value})}><option value="editorial">Editorial</option><option value="full">Imagem completa</option><option value="split">Dividida</option><option value="minimal">Minimalista</option><option value="none">Sem capa</option></select></label><label>Posição<select value={editor.gallery.settings.coverPosition} onChange={e=>updateSettings({coverPosition:e.target.value})}><option value="center">Centro</option><option value="top">Topo</option><option value="bottom">Base</option><option value="left">Esquerda</option><option value="right">Direita</option></select></label><label>Escurecimento<input type="range" min="0" max="75" value={Number(editor.gallery.settings.coverOverlay||42)} onChange={e=>updateSettings({coverOverlay:Number(e.target.value)})}/><small>{editor.gallery.settings.coverOverlay||42}%</small></label><label>Descrição<textarea rows="4" value={editor.gallery.settings.description||''} onChange={e=>updateSettings({description:e.target.value})}/></label></div><CoverLivePreview gallery={editor.gallery} photo={cover}/></div></div>}
-function CoverLivePreview({gallery,photo}){const {url}=useAdminPhotoUrl(photo||{id:'none',previewPath:''});return <div className={`cover-live-preview layout-${gallery.settings.coverLayout}`} style={{'--overlay':Number(gallery.settings.coverOverlay||42)/100}}>{url&&<img className={`position-${gallery.settings.coverPosition}`} src={url} alt=""/>}<div className="cover-live-shade"/><div className="cover-live-copy"><small>PRÉ-VISUALIZAÇÃO</small><h3>{capitalizeName(gallery.name)}</h3><p>{gallery.settings.description||'Uma experiência criada especialmente para você.'}</p></div></div>}
+function CoverTab({editor,updateSettings,onChoose}){const cover=editor.photos.find(p=>p.id===editor.gallery.settings.coverPhotoId)||null;return <div className="workspace-tab"><div className="tab-heading"><div><span>CAPA</span><h2>Primeiro impacto da galeria</h2><p>Escolha uma fotografia e ajuste a composição para desktop e celular.</p></div></div><div className="cover-editor-grid"><div className="cover-controls"><button onClick={onChoose}><ImageIcon/>{cover?'Trocar fotografia':'Escolher fotografia'}</button>{cover&&<button className="secondary" onClick={()=>updateSettings({coverPhotoId:''})}><X/>Remover capa</button>}<label>Modelo<select value={editor.gallery.settings.coverLayout} onChange={e=>updateSettings({coverLayout:e.target.value})}><option value="editorial">Editorial</option><option value="full">Imagem completa</option><option value="split">Dividida</option><option value="minimal">Minimalista</option><option value="none">Sem capa</option></select></label><label>Posição da fotografia<select value={editor.gallery.settings.coverPosition} onChange={e=>updateSettings({coverPosition:e.target.value})}><option value="center">Centro</option><option value="top">Topo</option><option value="bottom">Base</option><option value="left">Esquerda</option><option value="right">Direita</option></select></label><label>Título exibido na capa<input value={editor.gallery.settings.coverTitle||''} placeholder="Nome do casal ou cliente" onChange={e=>updateSettings({coverTitle:capitalizeName(e.target.value)})}/></label><label>Posição dos textos<select value={editor.gallery.settings.coverTextPosition||'left-center'} onChange={e=>updateSettings({coverTextPosition:e.target.value})}><option value="left-top">Esquerda — topo</option><option value="center-top">Centro — topo</option><option value="right-top">Direita — topo</option><option value="left-center">Esquerda — centro</option><option value="center-center">Centro</option><option value="right-center">Direita — centro</option><option value="left-bottom">Esquerda — base</option><option value="center-bottom">Centro — base</option><option value="right-bottom">Direita — base</option></select></label><label>Escurecimento<input type="range" min="0" max="75" value={Number(editor.gallery.settings.coverOverlay||42)} onChange={e=>updateSettings({coverOverlay:Number(e.target.value)})}/><small>{editor.gallery.settings.coverOverlay||42}%</small></label><label>Descrição<textarea rows="4" value={editor.gallery.settings.description||''} onChange={e=>updateSettings({description:e.target.value})}/></label></div><CoverLivePreview gallery={editor.gallery} photo={cover}/></div></div>}
+function CoverLivePreview({gallery,photo}){const {url}=useAdminPhotoUrl(photo||{id:'none',previewPath:''});return <div className={`cover-live-preview layout-${gallery.settings.coverLayout}`} style={{'--overlay':Number(gallery.settings.coverOverlay||42)/100}}>{url&&<img className={`position-${gallery.settings.coverPosition}`} src={url} alt=""/>}<div className="cover-live-shade"/><div className={`cover-live-copy text-${gallery.settings.coverTextPosition||'left-center'}`}><small>PRÉ-VISUALIZAÇÃO</small><h3>{capitalizeName(gallery.settings.coverTitle||gallery.name)}</h3><p>{gallery.settings.description||'Uma experiência criada especialmente para você.'}</p></div></div>}
 
-function AppearanceTab({gallery,updateSettings}){return <div className="workspace-tab"><div className="tab-heading"><div><span>APARÊNCIA</span><h2>Identidade visual</h2><p>Veja as mudanças enquanto configura a experiência.</p></div></div><div className="appearance-editor"><div className="gallery-form-grid"><label>Tema<select value={gallery.settings.theme} onChange={e=>updateSettings({theme:e.target.value})}><option value="dark">Escuro</option><option value="light">Claro</option><option value="warm">Quente</option></select></label><label>Tipografia<select value={gallery.settings.typography} onChange={e=>updateSettings({typography:e.target.value})}><option value="editorial">Editorial</option><option value="classic">Clássica</option><option value="modern">Moderna</option><option value="romantic">Romântica</option></select></label><label>Grade<select value={gallery.settings.gridStyle} onChange={e=>updateSettings({gridStyle:e.target.value})}><option value="masonry">Mosaico editorial</option><option value="uniform">Uniforme</option><option value="large">Fotografias grandes</option></select></label><label>Espaçamento<select value={gallery.settings.gridSpacing} onChange={e=>updateSettings({gridSpacing:e.target.value})}><option value="compact">Compacto</option><option value="regular">Regular</option><option value="wide">Amplo</option></select></label><label>Nomes<select value={gallery.settings.naming.mode} onChange={e=>updateSettings({naming:{...gallery.settings.naming,mode:e.target.value}})}><option value="original">Nome original</option><option value="sequence">Prefixo + sequência</option><option value="number">Somente número</option><option value="progress">Prefixo (1 de 200)</option></select></label><label>Prefixo<input value={gallery.settings.naming.prefix} onChange={e=>updateSettings({naming:{...gallery.settings.naming,prefix:capitalizeName(e.target.value)}})}/></label><label className="check full"><input type="checkbox" checked={gallery.settings.showFileNames} onChange={e=>updateSettings({showFileNames:e.target.checked})}/>Exibir nomes das fotografias</label></div><AppearancePreview gallery={gallery}/></div></div>}
+function AppearanceTab({ gallery, updateSettings }) {
+  const theme = gallery.settings.theme === 'light' ? 'light' : 'dark';
+  return (
+    <div className="workspace-tab">
+      <div className="tab-heading">
+        <div>
+          <span>APARÊNCIA</span>
+          <h2>Identidade visual</h2>
+          <p>Escolha como a galeria será exibida para o cliente.</p>
+        </div>
+      </div>
+      <div className="appearance-editor">
+        <div className="gallery-form-grid">
+          <div className="gallery-theme-field full">
+            <span className="gallery-theme-label">Tema da galeria</span>
+            <p>Essa escolha fica salva na galeria. O cliente não poderá alterá-la.</p>
+            <div className="gallery-theme-segmented" role="radiogroup" aria-label="Tema da galeria">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === 'light'}
+                className={theme === 'light' ? 'active' : ''}
+                onClick={() => updateSettings({ theme: 'light' })}
+              >
+                <Sun />
+                <span><strong>Claro</strong><small>Leve e editorial</small></span>
+                {theme === 'light' && <Check />}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === 'dark'}
+                className={theme === 'dark' ? 'active' : ''}
+                onClick={() => updateSettings({ theme: 'dark' })}
+              >
+                <Moon />
+                <span><strong>Escuro</strong><small>Cinematográfico</small></span>
+                {theme === 'dark' && <Check />}
+              </button>
+            </div>
+          </div>
+          <label>Tipografia<select value={gallery.settings.typography} onChange={e=>updateSettings({typography:e.target.value})}><option value="editorial">Editorial</option><option value="classic">Clássica</option><option value="modern">Moderna</option><option value="romantic">Romântica</option></select></label>
+          <label>Grade<select value={gallery.settings.gridStyle} onChange={e=>updateSettings({gridStyle:e.target.value})}><option value="masonry">Mosaico editorial</option><option value="uniform">Uniforme</option><option value="large">Fotografias grandes</option></select></label>
+          <label>Espaçamento<select value={gallery.settings.gridSpacing} onChange={e=>updateSettings({gridSpacing:e.target.value})}><option value="compact">Compacto</option><option value="regular">Regular</option><option value="wide">Amplo</option></select></label>
+          <label>Nomes<select value={gallery.settings.naming.mode} onChange={e=>updateSettings({naming:{...gallery.settings.naming,mode:e.target.value}})}><option value="original">Nome original</option><option value="sequence">Prefixo + sequência</option><option value="number">Somente número</option><option value="progress">Prefixo (1 de 200)</option></select></label>
+          <label>Prefixo<input value={gallery.settings.naming.prefix} onChange={e=>updateSettings({naming:{...gallery.settings.naming,prefix:capitalizeName(e.target.value)}})}/></label>
+          <label className="check full"><input type="checkbox" checked={gallery.settings.showFileNames} onChange={e=>updateSettings({showFileNames:e.target.checked})}/>Exibir nomes das fotografias</label>
+        </div>
+        <AppearancePreview gallery={gallery}/>
+      </div>
+    </div>
+  );
+}
 function AppearancePreview({gallery}){return <div className={`appearance-preview theme-${gallery.settings.theme} type-${gallery.settings.typography}`}><header><small>PRÉVIA</small><h3>{capitalizeName(gallery.name)}</h3></header><div className={`preview-grid ${gallery.settings.gridStyle} ${gallery.settings.gridSpacing}`}>{[1,2,3,4,5].map((n)=><span key={n}/>)}</div></div>}
 
 function SelectionTab({ gallery, updateGallery, updateSettings }) {

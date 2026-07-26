@@ -288,6 +288,7 @@ export default function ProposalTemplateEditor() {
     if (!template) return;
     setSaving(true);
     try {
+      setMessage('Salvando páginas, elementos e imagens…');
       const nextTemplate = {
         ...template,
         status: 'draft',
@@ -297,10 +298,13 @@ export default function ProposalTemplateEditor() {
       setTemplate(saved);
       setIsDirty(false);
       setMessage('Modelo salvo com sucesso.');
-      window.setTimeout(() => setMessage(''), 3000);
+      window.setTimeout(() => setMessage(''), 4000);
       if (!template.id && saved.id) {
         navigate(`/configuracoes/modelos-propostas/${saved.id}`);
       }
+    } catch (error) {
+      console.error('Falha ao salvar modelo de proposta:', error);
+      setMessage(`Não foi possível salvar: ${error?.message || 'erro desconhecido'}`);
     } finally {
       setSaving(false);
     }
@@ -310,15 +314,22 @@ export default function ProposalTemplateEditor() {
     if (!template) return;
     setPublishing(true);
     try {
-      const maybeSaved = template.id ? template : await saveTemplate(template);
-      const published = await publishNewVersion(maybeSaved);
+      setMessage('Salvando conteúdo e publicando a nova versão…');
+      const savedCurrent = await saveTemplate({
+        ...template,
+        updatedAt: new Date().toISOString(),
+      });
+      const published = await publishNewVersion(savedCurrent);
       setTemplate(published);
       setIsDirty(false);
-      setMessage('Nova versão publicada com sucesso.');
-      window.setTimeout(() => setMessage(''), 3000);
+      setMessage(`Versão ${published.version || ''} publicada com sucesso.`.trim());
+      window.setTimeout(() => setMessage(''), 4000);
       if (published.id) {
         navigate(`/configuracoes/modelos-propostas/${published.id}`);
       }
+    } catch (error) {
+      console.error('Falha ao publicar modelo de proposta:', error);
+      setMessage(`Não foi possível publicar: ${error?.message || 'erro desconhecido'}`);
     } finally {
       setPublishing(false);
     }

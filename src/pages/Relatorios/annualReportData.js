@@ -31,6 +31,15 @@ const rowAmount = (r = {}) => money(r.amount ?? r.valor ?? 0);
 const rowDescription = (r = {}) => r.descricao || r.description || 'Sem descrição';
 const rowCategory = (r = {}) => r.categoria || r.category || 'Não informada';
 const rowMethod = (r = {}) => r.forma_pagamento || r.method || 'Não informada';
+const rowDetails = (r = {}) => (r.detalhes && typeof r.detalhes === 'object' ? r.detalhes : {});
+const rowNature = (r = {}) => normalizeReportText(r.natureza_financeira || r.naturezaFinanceira || rowDetails(r).naturezaFinanceira || '');
+const isPersonalExternalRow = (r = {}) => ['pessoal externa', 'pessoal_externa', 'receita pessoal externa'].includes(rowNature(r));
+const irClassificationLabel = (value = '') => ({
+  tributavel: 'Tributável',
+  isento: 'Isento ou não tributável',
+  exclusivo: 'Tributação exclusiva/definitiva',
+  nao_classificado: 'Não classificado',
+}[String(value || '').trim()] || 'Não classificado');
 const accountLabel = (code) => code === 'empresa' ? 'Empresa / CNPJ' : code === 'salario' ? 'Conta pessoal / CPF' : code === 'reserva' ? 'Reserva' : 'Não informada';
 const topEntry = (object, selector = (v) => Number(v || 0)) => Object.entries(object).sort((a,b) => selector(b[1]) - selector(a[1]))[0] || null;
 
@@ -86,10 +95,12 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const realizedAnnualRows = annualRows.filter(isRealized);
   const futureAnnualRows = annualRows.filter((r) => !isRealized(r));
   const allocations = realizedAnnualRows.filter((r) => r.entry_kind === 'operational_allocation');
-  const standalone = realizedAnnualRows.filter((r) => r.entry_kind === 'operational_income');
+  const personalExternalEntries = realizedAnnualRows.filter(isPersonalExternalRow);
+  const standalone = realizedAnnualRows.filter((r) => r.entry_kind === 'operational_income' && !isPersonalExternalRow(r));
   const expenses = realizedAnnualRows.filter((r) => r.entry_kind === 'expense_paid');
   const pendingExpenses = annualRows.filter((r) => r.entry_kind === 'expense_pending');
-  const nonOperationalEntries = realizedAnnualRows.filter((r) => r.entry_kind === 'non_operational_income');
+  const nonOperationalRows = realizedAnnualRows.filter((r) => ['non_operational_income', 'personal_external_income'].includes(r.entry_kind));
+  const nonOperationalEntries = nonOperationalRows.filter((r) => !isPersonalExternalRow(r));
   const ignoredMirrors = annualRows.filter((r) => r.entry_kind === 'ignored_mirror');
   const futureIncomeRows = futureAnnualRows.filter((r) => ['operational_allocation','operational_income'].includes(r.entry_kind));
 
@@ -129,6 +140,12 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const annualRevenue = money(receipts.reduce((s,r) => s + r.amount, 0));
   const annualExpenses = money(expenses.reduce((s,r) => s + rowAmount(r), 0));
   const annualNonOperational = money(nonOperationalEntries.reduce((s,r) => s + rowAmount(r), 0));
+  const annualPersonalExternal = money(personalExternalEntries.reduce((s,r) => s + rowAmount(r), 0));
+  const personalExternalByIr = personalExternalEntries.reduce((summary, row) => {
+    const label = irClassificationLabel(rowDetails(row).classificacaoIr);
+    summary[label] = money((summary[label] || 0) + rowAmount(row));
+    return summary;
+  }, {});
 
   const accountTotals = { empresa: 0, salario: 0, reserva: 0, nao_informada: 0 };
   allocations.forEach((r) => { accountTotals[r.account_code || 'nao_informada'] += rowAmount(r); });
@@ -191,7 +208,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
       annualReceived: annualRevenue, companyReceived: money(accountTotals.empresa), personalReceived: money(accountTotals.salario), reserveReceived: money(accountTotals.reserva), unclassifiedAccountReceived: money(accountTotals.nao_informada),
       annualExpenses, annualResult: money(annualRevenue-annualExpenses), companyResult: money(accountTotals.empresa-annualExpenses),
       taxCashBasisRevenue: annualRevenue, taxCashBasisExpenses: annualExpenses, taxCashBasisResult: money(annualRevenue-annualExpenses),
-      nonOperationalEntries: annualNonOperational, totalCashInflows: money(annualRevenue+annualNonOperational),
+      nonOperationalEntries: annualNonOperational, personalExternalIncome: annualPersonalExternal, totalCashInflows: money(annualRevenue+annualNonOperational+annualPersonalExternal),
       currentYearContractReceipts, previousYearContractReceipts, futureYearContractReceipts, unlinkedReceipts,
       weddings: annualProjects.filter((p)=>normalizeReportText(projectService(p)).includes('casamento')).length,
       extraPhotosSold: money(projectRows.reduce((sum,row)=>sum+Number(row.extraPhotosTotal||0),0)),
@@ -201,17 +218,42 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
     monthly, projects: annualProjects, projectRows, receipts,
     expenses: expenses.map((r)=>({date:r.effective_date,description:rowDescription(r),category:rowCategory(r),amount:rowAmount(r)})),
     nonOperationalEntries: nonOperationalEntries.map((r)=>({date:r.effective_date,description:rowDescription(r),category:rowCategory(r),account:accountLabel(r.account_code),amount:rowAmount(r)})),
+    personalExternalEntries: personalExternalEntries
+      .filter((r) => rowDetails(r).incluirRelatorioIr !== false)
+      .map((r)=>({
+        date:r.effective_date,
+        description:rowDescription(r),
+        category:rowCategory(r),
+        account:accountLabel(r.account_code),
+        amount:rowAmount(r),
+        irClassification: irClassificationLabel(rowDetails(r).classificacaoIr),
+        payer: rowDetails(r).fontePagadora || rowDetails(r).origemRecursos || '',
+        payerDocument: rowDetails(r).documentoFontePagadora || '',
+        reference: rowDetails(r).documentoReferencia || '',
+      })),
     pendingExpenses: pendingExpenses.map((r)=>({date:r.due_date||r.effective_date,description:rowDescription(r),category:rowCategory(r),amount:rowAmount(r)})),
     undatedExpenses, reconciliation, projectsWithoutDateRows, orphanAnnualProjectRows,
     profitabilityRows: projectRows.map((r)=>({clientName:r.clientName,service:r.service,received:r.receivedInYear,expenses:0,profit:r.receivedInYear})).sort((a,b)=>b.profit-a.profit),
     mostContractedService: topEntry(byService), mostSoldEssay: topEntry(byEssay,(v)=>v.count), topOrigin:topEntry(byOrigin), topCity:topEntry(byCity), topClient:topEntry(byClient),
-    equipmentMostUsed:null, equipmentBestReturn:null, equipmentRows:[],
+    equipmentMostUsed:null, equipmentBestReturn:null,
+    equipmentRows:(studio.equipment||[])
+      .filter((item)=>yearOf(item.dataCompra||item.data_compra)===year)
+      .map((item)=>({
+        name:item.nome||item.modelo||'Equipamento', frequency:1,
+        revenue:money(item.valorCompra??item.valor??0),
+        purchaseDate:item.dataCompra||item.data_compra||'',
+        fundingSource:item.origemRecursos||item.origem_recursos||item.fonteRecursosDescricao||'Não informada',
+        fundingNature:item.fonteRecursosNatureza||item.origemRecursosTipo||'Não informada',
+        linkedIncomeId:item.entradaOrigemId||item.entrada_origem_id||'',
+      }))
+      .sort((a,b)=>String(b.purchaseDate).localeCompare(String(a.purchaseDate))),
     expenseCategoryRows:Object.entries(expensesByCategory).sort((a,b)=>b[1]-a[1]).map(([category,amount])=>({category,amount:money(amount)})),
     receiptMethodRows:Object.entries(receiptsByMethod).sort((a,b)=>b[1]-a[1]).map(([method,amount])=>({method,amount:money(amount)})),
     receiptAccountRows:Object.entries(receiptsByAccount).filter(([,amount])=>amount>0).map(([account,amount])=>({account,amount})),
+    personalExternalIrRows:Object.entries(personalExternalByIr).sort((a,b)=>b[1]-a[1]).map(([classification,amount])=>({classification,amount})),
     ledgerStats: {
       receipts: groups.size + standalone.length + paidExtraPhotoReceipts.length, expenses: expenses.length, financeReceipts: standalone.length, projectReceipts: groups.size + paidExtraPhotoReceipts.length,
-      ignoredFinanceContractReceipts: ignoredMirrors.length, nonOperationalEntries: nonOperationalEntries.length,
+      ignoredFinanceContractReceipts: ignoredMirrors.length, nonOperationalEntries: nonOperationalEntries.length, personalExternalEntries: personalExternalEntries.length,
       sourceProjects:(studio.projects||[]).length, clientBackedProjects:base.projects.length, orphanedProjects:base.orphanedProjects.length, consolidatedProjects:base.projects.length,
       annualProjects:projectRows.length, allAnnualProjects:projectRows.length, annualClients:annualClientIds.size,
       duplicateProjectsRemoved:base.duplicateProjects, duplicateClientsRemoved:base.duplicateClients, hiddenDuplicateProjects:0, orphanAnnualProjects:orphanAnnualProjectRows.length, excludedProjects:base.excludedProjects,
@@ -221,7 +263,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
       expensesWithoutDate:undatedExpenses.length, pendingExpenses:pendingExpenses.length, pendingExpensesAmount:money(pendingExpenses.reduce((s,r)=>s+rowAmount(r),0)),
       reconciliationItems:0, projectsWithoutDate:projectsWithoutDateRows.length, duplicateProjectsRemoved:base.duplicateProjects, hiddenDuplicateProjects:0,
       orphanAnnualProjects:orphanAnnualProjectRows.length, excludedProjects:base.excludedProjects, orphanedProjects:base.orphanedProjects.length,
-      previousYearContractReceipts, futureYearContractReceipts, unlinkedReceipts, ignoredFinanceContractReceipts:ignoredMirrors.length, nonOperationalEntries:nonOperationalEntries.length,
+      previousYearContractReceipts, futureYearContractReceipts, unlinkedReceipts, ignoredFinanceContractReceipts:ignoredMirrors.length, nonOperationalEntries:nonOperationalEntries.length, personalExternalEntries:personalExternalEntries.length,
     },
   };
 };

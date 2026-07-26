@@ -127,9 +127,10 @@ const isIncome = (transaction = {}) => {
 
 
 const isNonOperationalIncome = (transaction = {}) => {
-  const nature = normalize(transaction.naturezaFinanceira || transaction.natureza_financeira || '');
-  const category = normalize(transaction.categoria || '');
-  return nature === 'nao_operacional'
+  const details = transaction.detalhes && typeof transaction.detalhes === 'object' ? transaction.detalhes : {};
+  const nature = normalize(transaction.naturezaFinanceira || transaction.natureza_financeira || details.naturezaFinanceira || '');
+  const category = normalize(transaction.categoria || details.categoria || '');
+  return ['nao_operacional', 'pessoal_externa'].includes(nature)
     || ['aporte pessoal da titular','aporte do titular','venda de patrimonio','reembolso','emprestimo recebido','outras entradas nao operacionais','entrada nao operacional'].includes(category);
 };
 

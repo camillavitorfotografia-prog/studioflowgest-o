@@ -18,27 +18,49 @@ export const DOCUMENT_TEMPLATE_DEFAULT = {
 };
 
 // Page shape example documented as helper
-export const createPage = ({ id, name, order = 0, width = 595.28, height = 841.89 } = {}) => ({
-  id: id || null,
-  name: name || '',
-  order,
-  active: true,
-  pageType: 'default',
-  width,
-  height,
-  background: {
-    type: 'none', // 'none' | 'jpeg' | 'pdf'
-    url: null,
-    opacity: 1,
-    overlayColor: null,
-    overlayOpacity: 0,
-    positionX: 50,
-    positionY: 50,
-    zoom: 1,
-  },
-  elements: [],
-  metadata: {},
-});
+export const createPage = (input = {}) => {
+  const {
+    id = null,
+    name = '',
+    order = 0,
+    width = 595.28,
+    height = 841.89,
+    background = {},
+    elements = [],
+    metadata = {},
+    ...rest
+  } = input || {};
+
+  return {
+    ...rest,
+    id,
+    name,
+    order,
+    active: input.active !== false,
+    pageType: input.pageType || 'default',
+    width,
+    height,
+    background: {
+      type: 'none',
+      url: null,
+      storagePath: null,
+      bucket: null,
+      opacity: 1,
+      overlayColor: null,
+      overlayOpacity: 0,
+      positionX: 50,
+      positionY: 50,
+      zoom: 1,
+      ...background,
+    },
+    elements: Array.isArray(elements)
+      ? elements.map((element) => ({ ...element }))
+      : [],
+    metadata: metadata && typeof metadata === 'object'
+      ? { ...metadata }
+      : {},
+  };
+};
 
 export const ELEMENT_TYPES = ['text', 'image', 'logo', 'overlay', 'pricing', 'package', 'signature', 'dynamicField'];
 

@@ -57,19 +57,23 @@ const isPaidExpense = (row = {}) => {
 };
 
 const classifyRow = (row = {}) => {
-  if (row.entry_kind) return row.entry_kind;
   const type = typeOf(row);
   const general = generalOf(row);
   const category = normalize(row.categoria || row.category || '');
   const nature = normalize(row.naturezaFinanceira || row.natureza_financeira || detailsOf(row).naturezaFinanceira || '');
+
+  // Metadados gravados em detalhes prevalecem sobre versões antigas da view
+  // canônica, garantindo que rendas pessoais nunca inflem o faturamento.
+  if (general === 'entrada' && ['pessoal_externa', 'pessoal externa'].includes(nature)) return 'non_operational_income';
+  if (row.entry_kind) return row.entry_kind;
 
   if (type === 'receita_projeto') return 'ignored_mirror';
   if (type === 'distribuicao_pagamento') return 'operational_allocation';
   if (type === 'transferencia_interna' || general === 'transferencia') return 'internal_transfer';
   if (general === 'entrada' && (
     type === 'entrada_nao_operacional'
-    || nature === 'nao_operacional'
-    || ['aporte pessoal da titular', 'aporte do titular', 'venda de patrimonio', 'reembolso', 'emprestimo recebido', 'outras entradas nao operacionais', 'entrada nao operacional'].includes(category)
+    || ['nao_operacional', 'pessoal_externa'].includes(nature)
+    || ['aporte pessoal da titular', 'aporte do titular', 'venda de patrimonio', 'venda de patrimonio da empresa', 'reembolso', 'emprestimo recebido', 'outras entradas nao operacionais', 'entrada nao operacional'].includes(category)
   )) return 'non_operational_income';
   if (general === 'entrada') return 'operational_income';
   if (general === 'saida' || ['fixa', 'variavel', 'despesa'].includes(type)) return isPaidExpense(row) ? 'expense_paid' : 'expense_pending';

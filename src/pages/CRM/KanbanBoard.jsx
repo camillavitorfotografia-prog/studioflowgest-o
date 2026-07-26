@@ -768,6 +768,15 @@ export default function KanbanBoard({
                       )}
                     </div>
 
+                    {(lead.proposta_status || lead.proposta_id || (lead.historico || []).some((item) => item?.tipo === 'proposta')) && (
+                      <div style={{ marginTop: '12px', padding: '9px 10px', borderRadius: '8px', background: lead.proposta_status === 'sent' ? '#182014' : '#1c1810', border: `1px solid ${lead.proposta_status === 'sent' ? '#36522c' : '#4a391c'}` }}>
+                        <div style={{ color: lead.proposta_status === 'sent' ? '#8ed080' : '#d7aa5a', fontSize: '0.74rem', fontWeight: 800 }}>
+                          {lead.proposta_status === 'sent' ? 'Proposta enviada' : 'Proposta criada'}
+                        </div>
+                        {lead.proposta_enviada_em && <div style={{ color: '#aaa', fontSize: '0.72rem', marginTop: 3 }}>{formatDate(lead.proposta_enviada_em)}</div>}
+                      </div>
+                    )}
+
                     {followupStatus && (
                       <div
                         style={{

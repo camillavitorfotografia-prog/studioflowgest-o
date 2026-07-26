@@ -198,8 +198,23 @@ export default function Despesas({ area = 'fixa' }) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [periodFilter, setPeriodFilter] = useState('todos');
 
-  const loadLocalData = () => {
-    const rawTransactions = readStorage(STORAGE_KEYS.finances, []);
+  const loadLocalData = async () => {
+    let rawTransactions = readStorage(STORAGE_KEYS.finances, []);
+
+    // O Supabase é a fonte oficial do Financeiro. A cópia do navegador pode
+    // estar alguns milissegundos atrasada após uma baixa e não deve decidir
+    // se uma competência está paga ou pendente.
+    if (isSupabaseConfigured) {
+      try {
+        const database = await getDbStudioData();
+        if (Array.isArray(database?.transactions)) {
+          rawTransactions = database.transactions;
+        }
+      } catch (error) {
+        console.warn('Não foi possível atualizar o Financeiro pelo Supabase; usando o espelho local.', error);
+      }
+    }
+
     const storedRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
     const databaseRecurrences = rawTransactions
       .filter((item) => item.tipo === 'configuracao_recorrencia')
@@ -313,12 +328,13 @@ export default function Despesas({ area = 'fixa' }) {
   };
 
   useEffect(() => {
-    loadLocalData();
-    const unsubscribe = subscribeDbUpdates(loadLocalData);
-    window.addEventListener('focus', loadLocalData);
+    const refresh = () => { void loadLocalData(); };
+    refresh();
+    const unsubscribe = subscribeDbUpdates(refresh);
+    window.addEventListener('focus', refresh);
     return () => {
       unsubscribe();
-      window.removeEventListener('focus', loadLocalData);
+      window.removeEventListener('focus', refresh);
     };
   }, []);
 
@@ -1049,81 +1065,353 @@ export default function Despesas({ area = 'fixa' }) {
     loadLocalData();
   };
 
+  const getMonthlyOccurrence = (expense, transactions) => {
+    if (!expense?.isRecurrenceSummary || !expense?.recorrenciaId) return expense;
+
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const recurrenceId = String(expense.recorrenciaId);
+    const occurrences = transactions
+      .filter((item) => (
+        String(item.recorrenciaId || item.recurrenceId || '') === recurrenceId
+        && item.tipo !== 'configuracao_recorrencia'
+      ))
+      .sort((a, b) => String(a.vencimento || '').localeCompare(String(b.vencimento || '')));
+
+    return occurrences.find((item) => String(item.vencimento || '').slice(0, 7) === currentMonth)
+      || occurrences.find((item) => String(item.id) === String(expense.id))
+      || occurrences.find((item) => String(item.vencimento || '').slice(0, 7) > currentMonth)
+      || null;
+  };
+
+  const createCurrentMonthOccurrence = async (expense, transactions) => {
+    const recurrenceId = String(expense?.recorrenciaId || expense?.recurrenceId || '');
+    if (!recurrenceId) return null;
+
+    const recurrence = recorrencias.find((item) => String(item.id) === recurrenceId) || {};
+    const now = new Date();
+    const competence = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const dueDate = buildDueDateForMonth(`${competence}-01`, Number(recurrence.diaVencimento || 1));
+    const id = `despesa-rec-${recurrenceId}-${competence}`;
+
+    const occurrence = {
+      id,
+      recorrenciaId: recurrenceId,
+      recurrenceId,
+      competencia: competence,
+      descricao: recurrence.descricao || expense.descricao,
+      categoria: recurrence.categoria || expense.categoria || 'Geral',
+      valor: Number(recurrence.valor || expense.valor || 0),
+      vencimento: dueDate,
+      dataVencimento: dueDate,
+      data_vencimento: dueDate,
+      status: 'Pendente',
+      tipo: 'fixa',
+      tipoGeral: 'Saida',
+      contaOrigem: recurrence.contaOrigem || expense.contaOrigem || 'empresa',
+      formaPagamento: recurrence.formaPagamento || expense.formaPagamento || 'Pix',
+      fornecedor: recurrence.fornecedor || expense.fornecedor || '',
+      observacoes: recurrence.observacoes || expense.observacoes || '',
+      criadoEm: new Date().toISOString(),
+      atualizadoEm: new Date().toISOString(),
+    };
+
+    const nextTransactions = [
+      ...transactions.filter((item) => String(item.id) !== id),
+      occurrence,
+    ];
+
+    // Persiste primeiro no Supabase. Gravar no localStorage antes do banco
+    // dispara os listeners globais e pode recarregar a versão remota antiga,
+    // fazendo a competência voltar como pendente.
+    if (isSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('financas')
+        .upsert({
+          id,
+          descricao: occurrence.descricao,
+          nome: occurrence.descricao,
+          categoria: occurrence.categoria,
+          valor: occurrence.valor,
+          data: dueDate,
+          data_vencimento: dueDate,
+          tipo: 'fixa',
+          tipo_geral: 'Saida',
+          status: 'Pendente',
+          forma_pagamento: occurrence.formaPagamento,
+          conta_origem: occurrence.contaOrigem,
+          fornecedor: occurrence.fornecedor,
+          observacoes: occurrence.observacoes,
+          recurrence_id: recurrenceId,
+          recorrente: true,
+          detalhes: { competencia: competence },
+          updated_at: occurrence.atualizadoEm,
+        })
+        .select('id, status, data_vencimento, recurrence_id');
+
+      if (error || !Array.isArray(data) || data.length === 0) {
+        console.error('Falha ao criar competência mensal:', error);
+        return null;
+      }
+    }
+
+    writeStorage(STORAGE_KEYS.finances, nextTransactions);
+    return occurrence;
+  };
+
   const markAsPaid = async (expense) => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const paidAt = new Date().toISOString();
+    const now = new Date();
+    const competence = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthStart = `${competence}-01`;
+    const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const nextMonthStart = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+    const recurrenceId = String(expense?.recorrenciaId || expense?.recurrenceId || '');
     const transactions = readStorage(STORAGE_KEYS.finances, []);
-    const nextTransactions = transactions.map((t) => {
-      if (String(t.id) === String(expense.id)) {
-        return {
-          ...t,
-          status: 'Pago',
-          dataPagamento: todayStr,
-          atualizadoEm: new Date().toISOString(),
+    let target = getMonthlyOccurrence(expense, transactions);
+
+    if (isSupabaseConfigured) {
+      let updatedRows = [];
+      let updateError = null;
+
+      // Para despesas recorrentes, o registro mensal é localizado pela
+      // recorrência e pela competência. A linha resumida exibida na tela não
+      // possui necessariamente o mesmo ID da linha mensal no banco.
+      if (recurrenceId) {
+        const result = await supabase
+          .from('financas')
+          .update({
+            status: 'Pago',
+            data_pagamento: paidAt,
+            updated_at: paidAt,
+          })
+          .eq('recurrence_id', recurrenceId)
+          .gte('data_vencimento', monthStart)
+          .lt('data_vencimento', nextMonthStart)
+          .neq('tipo', 'configuracao_recorrencia')
+          .select('id, status, data_pagamento, data_vencimento, recurrence_id');
+        updatedRows = result.data || [];
+        updateError = result.error;
+      } else if (target?.id) {
+        const result = await supabase
+          .from('financas')
+          .update({
+            status: 'Pago',
+            data_pagamento: paidAt,
+            updated_at: paidAt,
+          })
+          .eq('id', String(target.id))
+          .select('id, status, data_pagamento, data_vencimento, recurrence_id');
+        updatedRows = result.data || [];
+        updateError = result.error;
+      }
+
+      if (updateError) {
+        console.error('Falha ao marcar competência como paga:', updateError);
+        alert(`Não foi possível marcar como paga: ${updateError.message || updateError}`);
+        return;
+      }
+
+      // Se a competência ainda não existe, cria a linha do mês atual já paga.
+      if (recurrenceId && updatedRows.length === 0) {
+        const recurrence = recorrencias.find((item) => String(item.id) === recurrenceId) || {};
+        const dueDate = buildDueDateForMonth(monthStart, Number(recurrence.diaVencimento || 1));
+        const id = `despesa-rec-${recurrenceId}-${competence}`;
+        const result = await supabase
+          .from('financas')
+          .upsert({
+            id,
+            descricao: recurrence.descricao || expense.descricao,
+            nome: recurrence.descricao || expense.descricao,
+            categoria: recurrence.categoria || expense.categoria || 'Geral',
+            valor: Number(recurrence.valor || expense.valor || 0),
+            data: dueDate,
+            data_vencimento: dueDate,
+            data_pagamento: paidAt,
+            tipo: 'fixa',
+            tipo_geral: 'Saida',
+            status: 'Pago',
+            forma_pagamento: recurrence.formaPagamento || expense.formaPagamento || 'Pix',
+            conta_origem: recurrence.contaOrigem || expense.contaOrigem || 'empresa',
+            fornecedor: recurrence.fornecedor || expense.fornecedor || '',
+            observacoes: recurrence.observacoes || expense.observacoes || '',
+            recurrence_id: recurrenceId,
+            recorrente: true,
+            detalhes: { competencia: competence },
+            updated_at: paidAt,
+          })
+          .select('id, status, data_pagamento, data_vencimento, recurrence_id');
+
+        if (result.error || !Array.isArray(result.data) || result.data.length === 0) {
+          console.error('Falha ao criar e quitar competência:', result.error);
+          alert(`Não foi possível marcar como paga: ${result.error?.message || 'o banco não confirmou a alteração.'}`);
+          return;
+        }
+        updatedRows = result.data;
+      }
+
+      if (updatedRows.length > 0) {
+        const remote = updatedRows[0];
+        target = {
+          ...(target || expense),
+          id: remote.id,
+          recorrenciaId: remote.recurrence_id || recurrenceId,
+          recurrenceId: remote.recurrence_id || recurrenceId,
+          vencimento: remote.data_vencimento || target?.vencimento,
         };
       }
-      return t;
+    }
+
+    const refreshedTransactions = readStorage(STORAGE_KEYS.finances, []);
+    let foundLocal = false;
+    const nextTransactions = refreshedTransactions.map((item) => {
+      const itemRecurrenceId = String(item.recorrenciaId || item.recurrenceId || '');
+      const itemCompetence = String(item.vencimento || item.dataVencimento || item.data_vencimento || item.competencia || '').slice(0, 7);
+      const matches = target?.id && String(item.id) === String(target.id)
+        || (recurrenceId && itemRecurrenceId === recurrenceId && itemCompetence === competence && item.tipo !== 'configuracao_recorrencia');
+      if (!matches) return item;
+      foundLocal = true;
+      return {
+        ...item,
+        id: target?.id || item.id,
+        status: 'Pago',
+        dataPagamento: paidAt,
+        data_pagamento: paidAt,
+        atualizadoEm: paidAt,
+      };
     });
+
+    if (!foundLocal && target?.id) {
+      nextTransactions.push({
+        ...target,
+        status: 'Pago',
+        dataPagamento: paidAt,
+        data_pagamento: paidAt,
+        competencia: competence,
+        atualizadoEm: paidAt,
+      });
+    }
+
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
 
     appendFinancialAudit({
       action: 'expense_paid',
-      entity: 'expense',
-      entityId: expense.id,
-      before: expense,
-      after: nextTransactions.find((item) => String(item.id) === String(expense.id)) || null,
+      entity: 'expense_occurrence',
+      entityId: target?.id || recurrenceId,
+      before: target,
+      after: nextTransactions.find((item) => String(item.id) === String(target?.id)) || null,
+      details: { recurrenceId, competence },
     });
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('financas').update({
-          status: 'Pago',
-          data_pagamento: todayStr,
-          updated_at: new Date().toISOString(),
-        }).eq('id', String(expense.id));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    loadLocalData();
+    await loadLocalData();
   };
 
   const reversePayment = async (expense) => {
+    const updatedAt = new Date().toISOString();
+    const now = new Date();
+    const competence = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthStart = `${competence}-01`;
+    const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const nextMonthStart = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`;
+    const recurrenceId = String(expense?.recorrenciaId || expense?.recurrenceId || '');
     const transactions = readStorage(STORAGE_KEYS.finances, []);
-    const nextTransactions = transactions.map((t) => {
-      if (String(t.id) === String(expense.id)) {
-        return {
-          ...t,
-          status: 'Pendente',
-          dataPagamento: '',
-          atualizadoEm: new Date().toISOString(),
-        };
+    let target = getMonthlyOccurrence(expense, transactions);
+    let revertedRows = [];
+
+    if (isSupabaseConfigured) {
+      let result;
+
+      if (recurrenceId) {
+        result = await supabase
+          .from('financas')
+          .update({
+            status: 'Pendente',
+            data_pagamento: null,
+            updated_at: updatedAt,
+          })
+          .eq('recurrence_id', recurrenceId)
+          .gte('data_vencimento', monthStart)
+          .lt('data_vencimento', nextMonthStart)
+          .neq('tipo', 'configuracao_recorrencia')
+          .select('id, status, data_pagamento, data_vencimento, recurrence_id');
+      } else if (target?.id) {
+        result = await supabase
+          .from('financas')
+          .update({
+            status: 'Pendente',
+            data_pagamento: null,
+            updated_at: updatedAt,
+          })
+          .eq('id', String(target.id))
+          .select('id, status, data_pagamento, data_vencimento, recurrence_id');
       }
-      return t;
+
+      if (result?.error) {
+        console.error('Falha ao reverter pagamento:', result.error);
+        alert(`Não foi possível reverter o pagamento: ${result.error.message || result.error}`);
+        return;
+      }
+
+      revertedRows = Array.isArray(result?.data) ? result.data : [];
+      if (revertedRows.length === 0) {
+        alert('Não foi encontrada uma competência paga para reverter neste mês.');
+        return;
+      }
+
+      const remote = revertedRows[0];
+      target = {
+        ...(target || expense),
+        id: remote.id,
+        recorrenciaId: remote.recurrence_id || recurrenceId,
+        recurrenceId: remote.recurrence_id || recurrenceId,
+        vencimento: remote.data_vencimento || target?.vencimento,
+      };
+    } else if (!target?.id) {
+      alert('Não foi encontrada uma competência paga para reverter neste mês.');
+      return;
+    }
+
+    const refreshedTransactions = readStorage(STORAGE_KEYS.finances, []);
+    let foundLocal = false;
+    const nextTransactions = refreshedTransactions.map((item) => {
+      const itemRecurrenceId = String(item.recorrenciaId || item.recurrenceId || '');
+      const itemCompetence = String(item.vencimento || item.dataVencimento || item.data_vencimento || item.competencia || '').slice(0, 7);
+      const matches = (target?.id && String(item.id) === String(target.id))
+        || (recurrenceId && itemRecurrenceId === recurrenceId && itemCompetence === competence && item.tipo !== 'configuracao_recorrencia');
+      if (!matches) return item;
+      foundLocal = true;
+      return {
+        ...item,
+        id: target?.id || item.id,
+        status: 'Pendente',
+        dataPagamento: '',
+        data_pagamento: null,
+        atualizadoEm: updatedAt,
+      };
     });
+
+    if (!foundLocal && target?.id) {
+      nextTransactions.push({
+        ...target,
+        status: 'Pendente',
+        dataPagamento: '',
+        data_pagamento: null,
+        competencia: competence,
+        atualizadoEm: updatedAt,
+      });
+    }
+
     writeStorage(STORAGE_KEYS.finances, nextTransactions);
 
     appendFinancialAudit({
       action: 'expense_payment_reversed',
-      entity: 'expense',
-      entityId: expense.id,
+      entity: 'expense_occurrence',
+      entityId: target?.id || recurrenceId,
       before: expense,
-      after: nextTransactions.find((item) => String(item.id) === String(expense.id)) || null,
+      after: nextTransactions.find((item) => String(item.id) === String(target?.id)) || null,
+      details: { recurrenceId, competence },
     });
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('financas').update({
-          status: 'Pendente',
-          data_pagamento: null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', String(expense.id));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    loadLocalData();
+    await loadLocalData();
   };
 
   const cancelExpense = async (expense) => {

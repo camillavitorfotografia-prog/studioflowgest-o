@@ -17,6 +17,8 @@ const STORAGE_KEYS = {
 
 const TEMPLATE_TABLE = 'document_templates';
 const DOCUMENT_TABLE = 'document_instances';
+const DOCUMENT_ASSET_BUCKET = 'studioflow-files';
+const DOCUMENT_ASSET_PREFIX = 'document-templates';
 
 const OFFICIAL_CONTRACT_CATEGORIES = [
   'casamento',
@@ -289,6 +291,123 @@ const normalizeUuidReference = (value) => {
     : null;
 };
 
+
+const isDataUrl = (value) => (
+  typeof value === 'string'
+  && value.startsWith('data:image/')
+);
+
+const extensionFromDataUrl = (value) => {
+  const mime = String(value || '').slice(5).split(';')[0].toLowerCase();
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  return 'jpg';
+};
+
+const stableHash = (value) => {
+  let hash = 2166136261;
+  const input = String(value || '');
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
+const dataUrlToBlob = async (value) => {
+  const response = await fetch(value);
+  if (!response.ok) throw new Error('Não foi possível preparar a imagem do modelo.');
+  return response.blob();
+};
+
+const uploadTemplateAsset = async ({ templateId, pageId, assetId, dataUrl }) => {
+  const extension = extensionFromDataUrl(dataUrl);
+  const hash = stableHash(dataUrl);
+  const safeTemplate = String(templateId || 'template').replace(/[^a-zA-Z0-9_-]/g, '-');
+  const safePage = String(pageId || 'page').replace(/[^a-zA-Z0-9_-]/g, '-');
+  const safeAsset = String(assetId || 'asset').replace(/[^a-zA-Z0-9_-]/g, '-');
+  const path = `${DOCUMENT_ASSET_PREFIX}/${safeTemplate}/${safePage}/${safeAsset}-${hash}.${extension}`;
+  const blob = await dataUrlToBlob(dataUrl);
+  const { error } = await supabase.storage
+    .from(DOCUMENT_ASSET_BUCKET)
+    .upload(path, blob, { upsert: true, contentType: blob.type || `image/${extension}`, cacheControl: '31536000' });
+  if (error) throw error;
+  return path;
+};
+
+const createAssetUrl = async (storagePath, bucket = DOCUMENT_ASSET_BUCKET) => {
+  if (!storagePath) return null;
+  const { data, error } = await supabase.storage
+    .from(bucket || DOCUMENT_ASSET_BUCKET)
+    .createSignedUrl(storagePath, 60 * 60 * 12);
+  if (error) throw error;
+  return data?.signedUrl || null;
+};
+
+const persistTemplateAssets = async (template) => {
+  if (!isSupabaseConfigured) return template;
+  const next = JSON.parse(JSON.stringify(template));
+  const pages = Array.isArray(next.pages) ? next.pages : [];
+  for (const page of pages) {
+    const background = page.background || {};
+    if (isDataUrl(background.url)) {
+      const storagePath = await uploadTemplateAsset({
+        templateId: next.baseTemplateId || next.id,
+        pageId: page.id,
+        assetId: 'background',
+        dataUrl: background.url,
+      });
+      page.background = { ...background, url: null, storagePath, bucket: DOCUMENT_ASSET_BUCKET };
+    } else if (background.storagePath) {
+      page.background = { ...background, url: null };
+    }
+    const elements = Array.isArray(page.elements) ? page.elements : [];
+    for (const element of elements) {
+      if (isDataUrl(element.src)) {
+        const storagePath = await uploadTemplateAsset({
+          templateId: next.baseTemplateId || next.id,
+          pageId: page.id,
+          assetId: element.id || 'image',
+          dataUrl: element.src,
+        });
+        element.src = null;
+        element.storagePath = storagePath;
+        element.bucket = DOCUMENT_ASSET_BUCKET;
+      } else if (element.storagePath) {
+        element.src = null;
+      }
+    }
+  }
+  return next;
+};
+
+const hydrateTemplateAssets = async (template) => {
+  if (!template || !isSupabaseConfigured) return template;
+  const next = JSON.parse(JSON.stringify(template));
+  const pages = Array.isArray(next.pages) ? next.pages : [];
+  for (const page of pages) {
+    const background = page.background || {};
+    if (background.storagePath && !isDataUrl(background.url)) {
+      page.background = {
+        ...background,
+        url: await createAssetUrl(background.storagePath, background.bucket),
+      };
+    }
+    const elements = Array.isArray(page.elements) ? page.elements : [];
+    for (const element of elements) {
+      if (element.storagePath && !isDataUrl(element.src)) {
+        element.src = await createAssetUrl(element.storagePath, element.bucket);
+      }
+    }
+  }
+  return next;
+};
+
+const templatePayloadWithoutPages = (record) => {
+  const { pages, ...payload } = record;
+  return payload;
+};
+
 const serializeTemplateRecord = (record) => ({
   id: record.id,
   document_type: record.documentType,
@@ -302,7 +421,7 @@ const serializeTemplateRecord = (record) => ({
   base_template_id: record.baseTemplateId,
   pages: record.pages,
   metadata: record.metadata,
-  payload: record,
+  payload: templatePayloadWithoutPages(record),
   published_at: record.publishedAt,
   created_at: record.createdAt,
   updated_at: record.updatedAt,
@@ -522,11 +641,10 @@ const handleSupabase = async (
     }
 
     console.error(
-      `Supabase document storage fallback (${table}):`,
+      `Supabase document storage error (${table}):`,
       error?.message || error,
     );
-
-    return fallback();
+    throw error;
   }
 };
 
@@ -534,26 +652,23 @@ const saveRemoteRecord = async (
   table,
   record,
 ) => {
-  const payload = serializeRemoteRecord(
-    table,
-    record,
-  );
+  const preparedRecord = table === TEMPLATE_TABLE
+    ? await persistTemplateAssets(record)
+    : record;
+  const payload = serializeRemoteRecord(table, preparedRecord);
 
   const { data, error } = await supabase
     .from(table)
-    .upsert(
-      [payload],
-      { onConflict: 'id' },
-    )
+    .upsert([payload], { onConflict: 'id' })
     .select()
     .single();
 
   if (error) throw error;
 
-  return transformRemoteRecord(
-    data || payload,
-    table,
-  );
+  const transformed = transformRemoteRecord(data || payload, table);
+  return table === TEMPLATE_TABLE
+    ? hydrateTemplateAssets(transformed)
+    : transformed;
 };
 
 const validateDocument = (document) => {
@@ -597,9 +712,11 @@ const loadRemoteById = async (
 
   if (error) throw error;
 
-  return data
-    ? transformRemoteRecord(data, table)
-    : null;
+  if (!data) return null;
+  const transformed = transformRemoteRecord(data, table);
+  return table === TEMPLATE_TABLE
+    ? hydrateTemplateAssets(transformed)
+    : transformed;
 };
 
 const loadRemoteAll = async (table) => {
@@ -609,11 +726,11 @@ const loadRemoteAll = async (table) => {
 
   if (error) throw error;
 
-  return Array.isArray(data)
-    ? data.map((row) => (
-      transformRemoteRecord(row, table)
-    ))
-    : [];
+  if (!Array.isArray(data)) return [];
+  const transformed = data.map((row) => transformRemoteRecord(row, table));
+  return table === TEMPLATE_TABLE
+    ? Promise.all(transformed.map((item) => hydrateTemplateAssets(item)))
+    : transformed;
 };
 
 const local = {

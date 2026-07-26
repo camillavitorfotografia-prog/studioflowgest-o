@@ -231,6 +231,7 @@ export default function Relatorios() {
         <Metric icon={TrendingUp} label={`Receita recebida em ${effectiveYear} (regime de caixa)`} value={report.totals.taxCashBasisRevenue} />
         <Metric icon={TrendingDown} label={`Despesas pagas em ${effectiveYear}`} value={report.totals.taxCashBasisExpenses} />
         <Metric icon={WalletCards} label="Resultado pelo regime de caixa" value={report.totals.taxCashBasisResult} />
+        <Metric icon={CircleDollarSign} label="Receitas pessoais externas" value={report.totals.personalExternalIncome || 0} />
         <Metric icon={CircleDollarSign} label="Entradas não operacionais (fora do faturamento)" value={report.totals.nonOperationalEntries || 0} />
       </div>
 
@@ -246,11 +247,12 @@ export default function Relatorios() {
           icon={Building2}
         />
         <Report
-          title="Entradas não operacionais"
+          title="Receitas pessoais e outras entradas"
           rows={[
+            ['Receitas pessoais externas', formatMoney(report.totals.personalExternalIncome || 0)],
             ['Aportes, patrimônio, reembolsos e empréstimos', formatMoney(report.totals.nonOperationalEntries || 0)],
             ['Entradas totais de caixa', formatMoney(report.totals.totalCashInflows || report.totals.taxCashBasisRevenue)],
-            ['Faturamento fotográfico', formatMoney(report.totals.taxCashBasisRevenue)],
+            ['Faturamento da empresa', formatMoney(report.totals.taxCashBasisRevenue)],
           ]}
           icon={CircleDollarSign}
         />
@@ -433,6 +435,26 @@ export default function Relatorios() {
             columns={['Nome importado', 'Serviço', 'Data']}
           />
         </div>
+        <TableCard
+          title="Resumo das receitas pessoais por classificação"
+          icon={WalletCards}
+          rows={(report.personalExternalIrRows || []).map((item) => [item.classification, formatMoney(item.amount)])}
+          columns={['Classificação', 'Total recebido']}
+        />
+        <TableCard
+          title="Receitas pessoais externas para conferência do IR"
+          icon={CircleDollarSign}
+          rows={(report.personalExternalEntries || []).map((item) => [
+            formatReportDate(item.date),
+            item.description,
+            item.category,
+            item.irClassification,
+            item.payer || 'Não informada',
+            item.payerDocument || '-',
+            formatMoney(item.amount),
+          ])}
+          columns={['Data', 'Descrição', 'Categoria', 'Classificação', 'Fonte pagadora', 'CPF/CNPJ', 'Valor']}
+        />
         <TableCard
           title="Entradas não operacionais do ano"
           icon={CircleDollarSign}

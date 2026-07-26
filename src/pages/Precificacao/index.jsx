@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import './Precificacao.css';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertTriangle, BriefcaseBusiness, Calculator, Check, CheckCircle2, ChevronDown, Clock3, DollarSign, Package, Percent, Plus, Save, Search, Settings, Sparkles, Trash2, Video, Wallet, X } from 'lucide-react';
+import { AlertTriangle, BriefcaseBusiness, Calculator, Check, CheckCircle2, ChevronDown, Clock3, DollarSign, FileText, Package, Percent, Plus, Save, Search, Settings, Sparkles, Trash2, Video, Wallet, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   FINANCE_STORAGE_KEYS,
@@ -11,6 +11,7 @@ import {
 } from '../../utils/financeEngine';
 import { maskCurrency } from '../../utils/masks';
 import { getDbStudioData, subscribeDbUpdates } from '../../utils/dbData';
+import { enrichPricingOption } from '../../features/proposals/services/packageSuggestions';
 
 const categories = ['Casamento', 'Ensaio', 'Formatura', 'Corporativo', 'Eventos', 'Outro'];
 const services = ['Fotografia', 'Filmagem', 'Fotografia + Filmagem'];
@@ -108,6 +109,120 @@ const collapsibleDefaults = {
   configuracoes: false,
 };
 const defaultFilmDeliveries = filmDeliveryKeys.reduce((acc, key) => ({ ...acc, [key]: false }), {});
+const normalizeProposalKey = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toLowerCase();
+
+
+const readLocalJson = (key, fallback = null) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const compactByShape = (shape, value) => {
+  if (Array.isArray(shape)) {
+    return Array.isArray(value) ? value.filter((item) => ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 200) : [...shape];
+  }
+  if (shape && typeof shape === 'object') {
+    const source = value && typeof value === 'object' ? value : {};
+    return Object.fromEntries(Object.entries(shape).map(([key, defaultValue]) => [key, compactByShape(defaultValue, source[key] ?? defaultValue)]));
+  }
+  if (typeof shape === 'number') return Number.isFinite(Number(value)) ? Number(value) : shape;
+  if (typeof shape === 'boolean') return typeof value === 'boolean' ? value : shape;
+  return typeof value === 'string' || typeof value === 'number' ? value : shape;
+};
+
+const safeSetLocalJson = (key, value) => {
+  const serialized = JSON.stringify(value);
+  try {
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    if (error?.name !== 'QuotaExceededError' && error?.code !== 22 && !String(error?.message || '').toLowerCase().includes('quota')) throw error;
+    try {
+      localStorage.removeItem(key);
+      localStorage.setItem(key, serialized);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+
+const compactPricingOptionForStorage = (option = {}) => ({
+  id: option.id,
+  name: option.name,
+  createdAt: option.createdAt,
+  state: compactByShape(defaultState, option.state || {}),
+  result: {
+    currentPrice: Number(option.result?.currentPrice || 0),
+    recommendedPrice: Number(option.result?.recommendedPrice || 0),
+    minimumPrice: Number(option.result?.minimumPrice || 0),
+    operationalCost: Number(option.result?.operationalCost || 0),
+    laborCost: Number(option.result?.laborCost || 0),
+    equipmentCost: Number(option.result?.equipmentCost || 0),
+    overheadShare: Number(option.result?.overheadShare || 0),
+    taxes: Number(option.result?.taxes || 0),
+  },
+  proposalPackage: option.proposalPackage ? {
+    packageIndex: option.proposalPackage.packageIndex,
+    packageName: option.proposalPackage.packageName,
+    description: option.proposalPackage.description,
+    bullets: Array.isArray(option.proposalPackage.bullets) ? option.proposalPackage.bullets.slice(0, 30) : [],
+    priceValue: Number(option.proposalPackage.priceValue || 0),
+    priceLabel: option.proposalPackage.priceLabel,
+    category: option.proposalPackage.category,
+    service: option.proposalPackage.service,
+  } : undefined,
+});
+
+const persistPricingOptions = (options = []) => safeSetLocalJson(
+  'cv_studio_pricing_options',
+  options.slice(0, 12).map(compactPricingOptionForStorage),
+);
+
+const getProposalCategoryCandidates = (pricingState = {}) => {
+  const category = normalizeProposalKey(pricingState.categoria);
+  const essayType = normalizeProposalKey(pricingState.ensaioTipo || pricingState.tipoEnsaio);
+
+  if (category.includes('casamento')) return ['casamento'];
+  if (category.includes('formatura')) return ['formatura'];
+  if (category.includes('corporativo')) return ['corporativo', 'marca pessoal'];
+  if (category.includes('evento')) return ['eventos', 'evento'];
+  if (category.includes('gestante') || essayType.includes('gestante')) return ['gestante', 'ensaio'];
+  if (essayType.includes('corporativo')) return ['corporativo', 'marca pessoal'];
+  if (essayType.includes('feminino') || essayType.includes('pessoal')) return ['pessoal', 'marca pessoal', 'ensaio'];
+  if (category.includes('ensaio')) return ['ensaio', 'pessoal'];
+  return [category, 'eventos', 'ensaio'].filter(Boolean);
+};
+
+const chooseProposalTemplate = (templates = [], pricingState = {}) => {
+  const candidates = getProposalCategoryCandidates(pricingState);
+  const proposals = templates.filter((template) => normalizeProposalKey(template.documentType) === 'proposal');
+  const ranked = proposals
+    .map((template) => {
+      const category = normalizeProposalKey(template.category);
+      const name = normalizeProposalKey(template.name);
+      const candidateIndex = candidates.findIndex((candidate) => category === candidate || name.includes(candidate));
+      const published = template.isPublished || normalizeProposalKey(template.status) === 'published';
+      const latest = template.isLatest !== false;
+      return { template, candidateIndex, published, latest };
+    })
+    .filter((item) => item.candidateIndex >= 0)
+    .sort((a, b) => {
+      if (a.candidateIndex !== b.candidateIndex) return a.candidateIndex - b.candidateIndex;
+      if (a.published !== b.published) return a.published ? -1 : 1;
+      if (a.latest !== b.latest) return a.latest ? -1 : 1;
+      return Number(b.template.version || 0) - Number(a.template.version || 0);
+    });
+  return ranked[0]?.template || null;
+};
 const timeFields = [
   ['atendimento', 'Atendimento'],
   ['reunioes', 'Reunioes'],
@@ -159,6 +274,11 @@ const defaultConfig = {
   formatura: {
     ensaioPorFotoAluno: 'R$ 8,00',
     coberturaColacao: 'R$ 1200,00',
+    minimoIndividual: 'R$ 1800,00',
+    minimoTurmaPequena: 'R$ 2400,00',
+    limiteTurmaPequena: 4,
+    adicionalFilmagemColacao: 'R$ 1200,00',
+    adicionalFilmagemEnsaio: 'R$ 700,00',
     coberturaFesta: 'R$ 1600,00',
     drone: 'R$ 650,00',
     deslocamento: 'R$ 250,00',
@@ -233,8 +353,35 @@ const defaultConfig = {
     pendrivePersonalizado: 'R$ 150,00',
     galeriaOnline: 'R$ 120,00',
   },
-  corporativo: { valorHora: 'R$ 300,00', valorColaborador: 'R$ 45,00', valorFoto: 'R$ 18,00' },
-  eventos: { valorHora: 'R$ 260,00', valorProfissional: 'R$ 500,00' },
+  ensaioRegras: {
+    duracaoReferencia: { '1 hora': 1, '2 horas': 2, 'Sem limite': 4 },
+    pisosFoto: { '1 hora': 'R$ 850,00', '2 horas': 'R$ 1150,00', 'Sem limite': 'R$ 1600,00' },
+    pisosFotoFilme: { '1 hora': 'R$ 1400,00', '2 horas': 'R$ 1800,00', 'Sem limite': 'R$ 2450,00' },
+    adicionalLocacao: 'R$ 180,00',
+    adicionalPessoaFamilia: 'R$ 55,00',
+    deslocamentoHoras: 1,
+    multiplicadores: { Casal: 1, Gestante: 1.08, Familia: 1.15, Feminino: 1, Infantil: 1.1, Corporativo: 1.25, Outro: 1 },
+  },
+  corporativo: {
+    valorHora: 'R$ 260,00', valorColaborador: 'R$ 35,00', valorFoto: 'R$ 12,00',
+    minimo: 'R$ 900,00', adicionalFilmagem: 'R$ 750,00',
+  },
+  eventos: {
+    valorHora: 'R$ 220,00', valorProfissional: 'R$ 350,00', mobilizacao: 'R$ 450,00',
+    adicionalFilmagemBase: 'R$ 650,00', adicionalFilmagemHora: 'R$ 170,00',
+    pisosFoto: { '2': 'R$ 900,00', '4': 'R$ 1400,00', '6': 'R$ 1900,00', '8': 'R$ 2400,00' },
+    pisosFotoFilme: { '2': 'R$ 1500,00', '4': 'R$ 2300,00', '6': 'R$ 3100,00', '8': 'R$ 3900,00' },
+    multiplicadores: { Aniversarios: 1, Congressos: 1.15, Palestras: 0.9, Shows: 1.35, 'Eventos religiosos': 1, 'Eventos empresariais': 1.2 },
+  },
+  calculoSimples: {
+    custoHora: { Casamento: 65, Ensaio: 45, Formatura: 50, Corporativo: 55, Eventos: 55, Outro: 50 },
+    estrutura: { Casamento: 420, Ensaio: 100, Formatura: 180, Corporativo: 180, Eventos: 200, Outro: 120 },
+    equipamentoFoto: { Casamento: 180, Ensaio: 50, Formatura: 100, Corporativo: 90, Eventos: 110, Outro: 60 },
+    equipamentoVideo: { Casamento: 260, Ensaio: 110, Formatura: 140, Corporativo: 140, Eventos: 170, Outro: 100 },
+    deslocamentoCusto: 100,
+    custoPorAluno: { completo: 210, colacao: 130, ensaio: 110 },
+    margemAlvo: { Casamento: 0.35, Ensaio: 0.25, Formatura: 0.30, Corporativo: 0.28, Eventos: 0.28, Outro: 0.25 },
+  },
 };
 
 const defaultState = {
@@ -256,6 +403,7 @@ const defaultState = {
   deslocamentoFormatura: false,
   colaboradores: 12,
   fotos: 30,
+  pessoasEnsaio: 2,
   horas: 4,
   profissionais: 1,
   eventoTipo: 'Eventos empresariais',
@@ -315,126 +463,323 @@ const defaultCapacity = {
 const buildWorkState = (overrides = {}) => deepMerge(defaultState, overrides);
 
 
-function getServiceWeight(state) {
-  const serviceFactor = state.service === 'Fotografia + Filmagem' ? 1.45 : state.service === 'Filmagem' ? 1.2 : 1;
+function getEssayDurationHours(state, config) {
+  if (state.ensaioDuracao === 'Personalizado') return Math.max(1, moneyToNumber(state.ensaioPersonalizado) / 500);
+  return Number(config.ensaioRegras?.duracaoReferencia?.[state.ensaioDuracao] || (state.ensaioDuracao === '1 hora' ? 1 : state.ensaioDuracao === '2 horas' ? 2 : 4));
+}
+
+function getServiceWeight(state, config = defaultConfig) {
+  const serviceFactor = state.service === 'Fotografia + Filmagem' ? 1.35 : state.service === 'Filmagem' ? 1.18 : 1;
   if (state.categoria === 'Casamento') {
     const hours = Number(state.horasCobertura === 'Personalizado' ? state.horasPersonalizadas : state.horasCobertura || 8);
     const coverageFactor = state.cobertura === 'Casamento Completo' ? 1.2 : state.cobertura === 'Cerimonia + Festa' ? 1 : 0.72;
     return Math.max(1.6, (hours / 3) * coverageFactor * serviceFactor);
   }
   if (state.categoria === 'Ensaio') {
-    const duration = state.ensaioDuracao === '1 hora' ? 0.45 : state.ensaioDuracao === '2 horas' ? 0.65 : 0.9;
-    return duration * serviceFactor;
+    const capture = getEssayDurationHours(state, config);
+    const typeFactor = Number(config.ensaioRegras?.multiplicadores?.[state.ensaioTipo] || 1);
+    const locationFactor = 1 + Math.max(0, Number(state.locacoes || 1) - 1) * 0.08;
+    return Math.max(0.32, (0.28 + capture * 0.16) * typeFactor * locationFactor * serviceFactor);
   }
   if (state.categoria === 'Formatura') return Math.max(1.2, Number(state.alunos || 1) / 5) * serviceFactor;
-  if (state.categoria === 'Corporativo') return Math.max(0.8, Number(state.horas || 1) / 3) * serviceFactor;
-  if (state.categoria === 'Eventos') return Math.max(1, Number(state.horas || 1) / 2.75) * serviceFactor;
-  return Math.max(0.7, Number(state.horas || 1) / 3) * serviceFactor;
+  if (state.categoria === 'Corporativo') {
+    return Math.max(0.55, (Number(state.horas || 1) * 0.18 + Number(state.colaboradores || 0) * 0.012) * serviceFactor);
+  }
+  if (state.categoria === 'Eventos') {
+    const typeFactor = Number(config.eventos?.multiplicadores?.[state.eventoTipo] || 1);
+    return Math.max(0.75, (0.45 + Number(state.horas || 1) * 0.2 + Math.max(0, Number(state.profissionais || 1) - 1) * 0.25) * typeFactor * serviceFactor);
+  }
+  return Math.max(0.5, Number(state.horas || 1) / 4) * serviceFactor;
 }
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
+function calculateFormaturaHours(state) {
+  const students = Math.max(1, Number(state.alunos || 1));
+  const ceremonyHours = state.coberturaColacao ? Math.max(1, Number(state.horas || 3)) : 0;
+  const essayCapture = state.preFormatura ? Math.max(1.5, students * 0.18) : 0;
+  const photoPost = state.preFormatura ? Math.max(2, students * 0.55) : 0;
+  const ceremonyPost = state.coberturaColacao ? Math.max(1.5, ceremonyHours * 0.9) : 0;
+  const videoPost = isVideoService(state.service) ? Math.max(2, (ceremonyHours + essayCapture) * 1.25) : 0;
+  return 2 + ceremonyHours + essayCapture + photoPost + ceremonyPost + videoPost;
+}
+
+function calculateEssayHours(state, config) {
+  const capture = getEssayDurationHours(state, config);
+  const locations = Math.max(1, Number(state.locacoes || 1));
+  const people = Math.max(1, Number(state.pessoasEnsaio || (state.ensaioTipo === 'Familia' ? 4 : 2)));
+  const prep = state.ensaioTipo === 'Corporativo' ? 1.25 : 0.75;
+  const travel = (state.extras || []).includes('deslocamento') ? Number(config.ensaioRegras?.deslocamentoHoras || 1) : 0.35;
+  const photoPost = includesPhotoService(state.service) ? (1.6 + capture * 1.35 + Math.max(0, locations - 1) * 0.45 + Math.max(0, people - 2) * 0.08) : 0;
+  const videoPost = isVideoService(state.service) ? (1.5 + capture * 2.1 + Math.max(0, locations - 1) * 0.5) : 0;
+  const captureLabor = capture * (state.service === 'Fotografia + Filmagem' ? 1.65 : 1);
+  return prep + travel + captureLabor + 0.5 + photoPost + videoPost + 0.5;
+}
+
+function calculateCorporateHours(state) {
+  const hours = Math.max(1, Number(state.horas || 1));
+  const collaborators = Math.max(1, Number(state.colaboradores || 1));
+  const captureLabor = hours * (state.service === 'Fotografia + Filmagem' ? 1.7 : 1);
+  const photoPost = includesPhotoService(state.service) ? Math.max(1.5, collaborators * 0.12 + Number(state.fotos || 0) * 0.025) : 0;
+  const videoPost = isVideoService(state.service) ? Math.max(2.5, hours * 1.8) : 0;
+  return 1.25 + 0.75 + captureLabor + photoPost + videoPost + 0.75;
+}
+
+function calculateEventHours(state) {
+  const hours = Math.max(1, Number(state.horas || 1));
+  const professionals = Math.max(1, Number(state.profissionais || 1));
+  const captureLabor = hours * professionals;
+  const photoPost = includesPhotoService(state.service) ? Math.max(1.5, hours * 0.8) : 0;
+  const videoPost = isVideoService(state.service) ? Math.max(3, hours * 1.55) : 0;
+  return 1.25 + 1 + captureLabor + photoPost + videoPost + 0.75;
+}
+
+function includesPhotoService(service) {
+  return service === 'Fotografia' || service === 'Fotografia + Filmagem';
+}
+
+function calculateWeddingHours(state) {
+  const coverageHours = Math.max(1, Number(
+    state.horasCobertura === 'Personalizado'
+      ? state.horasPersonalizadas
+      : state.horasCobertura || 8,
+  ));
+  const includesPhoto = includesPhotoService(state.service);
+  const includesVideo = isVideoService(state.service);
+  const extras = Array.isArray(state.extras) ? state.extras : [];
+
+  // Tempo de trabalho da equipe, não apenas o tempo presencial do evento.
+  const planning = state.cobertura === 'Casamento Completo' ? 3.5 : 2.5;
+  const captureLabor = coverageHours * (state.service === 'Fotografia + Filmagem' ? 2 : 1);
+  const photoPost = includesPhoto ? 3.5 + coverageHours * 1.15 : 0;
+  const videoPost = includesVideo ? 5.5 + coverageHours * 1.85 : 0;
+  const delivery = 1.25;
+  const preWedding = extras.includes('preWedding') ? (includesVideo ? 8 : 5.5) : 0;
+  const makingOfComplexity = extras.includes('makingOf') ? 1 : 0;
+
+  return planning + captureLabor + photoPost + videoPost + delivery + preWedding + makingOfComplexity;
+}
+
+function calculateServiceHours(state, config) {
+  if (state.categoria === 'Casamento') return calculateWeddingHours(state);
+  if (state.categoria === 'Formatura') return calculateFormaturaHours(state);
+  if (state.categoria === 'Ensaio') return calculateEssayHours(state, config);
+  if (state.categoria === 'Corporativo') return calculateCorporateHours(state);
+  if (state.categoria === 'Eventos') return calculateEventHours(state);
+  return Object.values(state.time || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+}
+
+function nearestEventFloor(hours, floors = {}) {
+  const keys = Object.keys(floors).map(Number).sort((a, b) => a - b);
+  const selected = keys.find((key) => hours <= key) || keys[keys.length - 1];
+  return moneyToNumber(floors[String(selected)] || 0);
+}
+
+function getServiceProtectionFloor(state, config) {
+  if (state.categoria === 'Formatura') return getFormaturaProtectionFloor(state, config);
+  if (state.categoria === 'Ensaio') {
+    const source = isVideoService(state.service) ? config.ensaioRegras?.pisosFotoFilme : config.ensaioRegras?.pisosFoto;
+    const duration = state.ensaioDuracao === 'Personalizado' ? 'Sem limite' : state.ensaioDuracao;
+    const base = moneyToNumber(source?.[duration]);
+    const typeFactor = Number(config.ensaioRegras?.multiplicadores?.[state.ensaioTipo] || 1);
+    const locations = Math.max(1, Number(state.locacoes || 1));
+    const locationAdd = Math.max(0, locations - 1) * moneyToNumber(config.ensaioRegras?.adicionalLocacao);
+    const people = Math.max(1, Number(state.pessoasEnsaio || (state.ensaioTipo === 'Familia' ? 4 : 2)));
+    const peopleAdd = state.ensaioTipo === 'Familia' ? Math.max(0, people - 4) * moneyToNumber(config.ensaioRegras?.adicionalPessoaFamilia) : 0;
+    return base * typeFactor + locationAdd + peopleAdd;
+  }
+  if (state.categoria === 'Corporativo') {
+    const base = moneyToNumber(config.corporativo?.minimo);
+    const videoAdd = isVideoService(state.service) ? moneyToNumber(config.corporativo?.adicionalFilmagem) : 0;
+    return base + videoAdd;
+  }
+  if (state.categoria === 'Eventos') {
+    const floors = isVideoService(state.service) ? config.eventos?.pisosFotoFilme : config.eventos?.pisosFoto;
+    const base = nearestEventFloor(Math.max(1, Number(state.horas || 1)), floors);
+    const typeFactor = Number(config.eventos?.multiplicadores?.[state.eventoTipo] || 1);
+    const extraProfessionals = Math.max(0, Number(state.profissionais || 1) - 1) * moneyToNumber(config.eventos?.valorProfissional);
+    return base * typeFactor + extraProfessionals;
+  }
+  return 0;
+}
+
+function getFormaturaProtectionFloor(state, config) {
+  if (state.categoria !== 'Formatura') return 0;
+  const students = Math.max(1, Number(state.alunos || 1));
+  if (students === 1) return moneyToNumber(config.formatura?.minimoIndividual);
+  if (students <= Math.max(2, Number(config.formatura?.limiteTurmaPequena || 4))) {
+    return moneyToNumber(config.formatura?.minimoTurmaPequena);
+  }
+  return 0;
+}
+
+function getCategoryCostPolicy(state, pricingConfig, rawOverheadShare, rawEquipmentReserve, rawLaborCost) {
+  if (state.categoria === 'Ensaio') {
+    const capture = getEssayDurationHours(state, pricingConfig);
+    const locations = Math.max(1, Number(state.locacoes || 1));
+    const people = Math.max(1, Number(state.pessoasEnsaio || (state.ensaioTipo === 'Familia' ? 4 : 2)));
+    const isVideo = isVideoService(state.service);
+    const laborHourlyRate = clamp(moneyToNumber(pricingConfig.valorHora) * 0.68, 42, 60);
+    const laborCost = calculateEssayHours(state, pricingConfig) * laborHourlyRate;
+    const overheadCap = 95 + capture * 32 + Math.max(0, locations - 1) * 45 + Math.max(0, people - 4) * 18 + (isVideo ? 85 : 0);
+    const equipmentCap = 45 + capture * 18 + (isVideo ? 70 : 0);
+    return {
+      laborCost,
+      overheadShare: Math.min(rawOverheadShare, overheadCap),
+      equipmentReserve: Math.min(rawEquipmentReserve, equipmentCap),
+    };
+  }
+
+  if (state.categoria === 'Corporativo') {
+    const hours = Math.max(1, Number(state.horas || 1));
+    const collaborators = Math.max(1, Number(state.colaboradores || 1));
+    const laborHourlyRate = clamp(moneyToNumber(pricingConfig.valorHora) * 0.78, 50, 70);
+    return {
+      laborCost: calculateCorporateHours(state) * laborHourlyRate,
+      overheadShare: Math.min(rawOverheadShare, 180 + hours * 45 + collaborators * 5),
+      equipmentReserve: Math.min(rawEquipmentReserve, 90 + hours * 22 + (isVideoService(state.service) ? 90 : 0)),
+    };
+  }
+
+  if (state.categoria === 'Eventos') {
+    const hours = Math.max(1, Number(state.horas || 1));
+    const professionals = Math.max(1, Number(state.profissionais || 1));
+    const laborHourlyRate = clamp(moneyToNumber(pricingConfig.valorHora) * 0.82, 52, 75);
+    return {
+      laborCost: calculateEventHours(state) * laborHourlyRate,
+      overheadShare: Math.min(rawOverheadShare, 220 + hours * 55 + Math.max(0, professionals - 1) * 100),
+      equipmentReserve: Math.min(rawEquipmentReserve, 110 + hours * 25 + (isVideoService(state.service) ? 120 : 0)),
+    };
+  }
+
+  return { laborCost: rawLaborCost, overheadShare: rawOverheadShare, equipmentReserve: rawEquipmentReserve };
+}
+
 function calculatePricingResult({ data, pricingConfig, state }) {
   const snapshot = buildFinanceSnapshot(data);
-  const totalHours = Object.values(state.time || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-  const laborCost = totalHours * moneyToNumber(pricingConfig.valorHora);
-  const commercialBase = calculateCommercialBase(state, pricingConfig);
-  const extrasTotal = (state.extras || []).reduce((sum, key) => sum + moneyToNumber(pricingConfig.extras[key]), 0);
-  const filmDeliveriesTotal = calculateFilmDeliveriesTotal(state, pricingConfig);
-  const currentPrice = commercialBase + extrasTotal + filmDeliveriesTotal;
+  const category = state.categoria || 'Outro';
+  const totalHours = calculateServiceHours(state, pricingConfig);
+  const simple = pricingConfig.calculoSimples || defaultConfig.calculoSimples;
+  const taxRate = clamp(Number(pricingConfig.impostoPercentual || 0) / 100, 0, 0.4);
+  const minimumMarginRate = clamp(Number(pricingConfig.margemMinima || 0) / 100, 0, 0.45);
+  const targetMarginRate = clamp(Number(simple.margemAlvo?.[category] ?? 0.25), minimumMarginRate, 0.45);
+  const laborHourlyRate = Number(simple.custoHora?.[category] || 50);
+  const essayTypeFactor = category === 'Ensaio' ? clamp(Number(pricingConfig.ensaioRegras?.multiplicadores?.[state.ensaioTipo] || 1), 1, 1.15) : 1;
+  const laborCost = totalHours * laborHourlyRate * essayTypeFactor;
 
-  // A meta mensal completa continua visível para planejamento, mas não é despejada inteira em cada serviço.
-  // O pró-labore já é remunerado pelo custo das horas; incluí-lo novamente no rateio criava dupla cobrança.
-  // Despesas variáveis mensais entram apenas parcialmente no overhead, porque o restante deve ser lançado
-  // como custo direto do trabalho quando realmente ocorrer.
-  const monthlyBusinessNeed = snapshot.fixedMonthly
-    + snapshot.variableAverage
-    + snapshot.equipmentDepreciation
-    + moneyToNumber(pricingConfig.proLaboreMensal)
-    + moneyToNumber(pricingConfig.reservaMensal)
-    + moneyToNumber(pricingConfig.investimentoMensal);
-  const variableOverheadRate = clamp(Number(pricingConfig.rateioVariaveisPercentual || 0) / 100, 0, 1);
-  const rateableMonthlyBase = snapshot.fixedMonthly
-    + (snapshot.variableAverage * variableOverheadRate)
-    + moneyToNumber(pricingConfig.reservaMensal)
-    + moneyToNumber(pricingConfig.investimentoMensal);
-  const capacityPoints = Math.max(1, Number(pricingConfig.capacidadePontos || 1));
-  const serviceWeight = getServiceWeight(state);
-  const overheadShare = rateableMonthlyBase * (serviceWeight / capacityPoints);
+  const includesPhoto = includesPhotoService(state.service);
+  const includesVideo = isVideoService(state.service);
+  let equipmentCost = includesPhoto ? Number(simple.equipamentoFoto?.[category] || 0) : 0;
+  if (includesVideo) equipmentCost += Number(simple.equipamentoVideo?.[category] || 0);
 
-  const selectedEquipment = (data.equipment || []).filter((item) => (state.selectedEquipment || []).includes(item.id));
-  const equipmentMonthlyBase = selectedEquipment.length
-    ? selectedEquipment.reduce((sum, item) => sum + calculateDepreciation(item).monthlyDepreciation, 0)
-    : snapshot.equipmentDepreciation;
-  const selectedEquipmentReserve = equipmentMonthlyBase * (serviceWeight / capacityPoints);
-  const addOnProductionCost = (extrasTotal + filmDeliveriesTotal) * (Number(pricingConfig.custoAdicionaisPercentual || 0) / 100);
-  const operationalCost = overheadShare + laborCost + selectedEquipmentReserve + addOnProductionCost;
+  let overheadShare = Number(simple.estrutura?.[category] || 0);
+  let directCosts = 0;
+  const displacementEnabled = (state.extras || []).includes('deslocamento');
+  if (displacementEnabled) directCosts += Number(simple.deslocamentoCusto || 0);
 
-  const taxRate = Number(pricingConfig.impostoPercentual || 0) / 100;
-  const targetMarginRate = Number(pricingConfig.margem || 0) / 100;
-  const minimumMarginRate = Number(pricingConfig.margemMinima || 0) / 100;
-  const minimumPrice = operationalCost / Math.max(0.05, 1 - taxRate - minimumMarginRate);
-  const technicalPrice = operationalCost / Math.max(0.05, 1 - taxRate - targetMarginRate);
+  if (category === 'Ensaio') {
+    const capture = getEssayDurationHours(state, pricingConfig);
+    const locations = Math.max(1, Number(state.locacoes || 1));
+    const people = Math.max(1, Number(state.pessoasEnsaio || (state.ensaioTipo === 'Familia' ? 4 : 2)));
+    overheadShare += Math.max(0, capture - 1) * 30;
+    directCosts += Math.max(0, locations - 1) * 80;
+    if (state.ensaioTipo === 'Familia') directCosts += Math.max(0, people - 4) * 35;
+    if (state.ensaioTipo === 'Corporativo') overheadShare += 80;
+  }
 
-  const range = pricingConfig.faixasComerciais?.[state.categoria] || { minimo: 0.9, maximo: 1.25 };
-  const marketMin = currentPrice > 0 ? currentPrice * Number(range.minimo || 0.9) : minimumPrice;
-  const marketMax = currentPrice > 0 ? currentPrice * Number(range.maximo || 1.25) : technicalPrice * 1.15;
-  const commercialFloor = Math.max(minimumPrice, marketMin);
-  const commercialCeiling = Math.max(commercialFloor, marketMax);
-  const recommendedPrice = clamp(technicalPrice, commercialFloor, commercialCeiling);
-  const premiumPrice = Math.max(recommendedPrice, commercialCeiling);
+  if (category === 'Formatura') {
+    const students = Math.max(1, Number(state.alunos || 1));
+    const packageKey = state.preFormatura && state.coberturaColacao ? 'completo' : state.coberturaColacao ? 'colacao' : 'ensaio';
+    directCosts += students * Number(simple.custoPorAluno?.[packageKey] || 0);
+    if (students > 10) overheadShare += (students - 10) * 8;
+  }
 
+  if (category === 'Corporativo') {
+    const collaborators = Math.max(1, Number(state.colaboradores || 1));
+    const photos = Math.max(0, Number(state.fotos || 0));
+    directCosts += Math.max(0, collaborators - 1) * 18 + photos * 3;
+  }
+
+  if (category === 'Eventos') {
+    const professionals = Math.max(1, Number(state.profissionais || 1));
+    const typeFactor = Number(pricingConfig.eventos?.multiplicadores?.[state.eventoTipo] || 1);
+    directCosts += Math.max(0, professionals - 1) * 300;
+    overheadShare *= typeFactor;
+    equipmentCost *= typeFactor;
+  }
+
+  if (category === 'Casamento') {
+    const extrasSelected = state.extras || [];
+    directCosts += extrasSelected.includes('segundoFotografo') ? 500 : 0;
+    directCosts += extrasSelected.includes('segundoFilmmaker') ? 600 : 0;
+    directCosts += extrasSelected.includes('hospedagem') ? 500 : 0;
+    directCosts += extrasSelected.includes('alimentacao') ? 180 : 0;
+    directCosts += extrasSelected.includes('drone') ? 180 : 0;
+  }
+
+  const addOnProductionCost = directCosts;
+  const operationalCost = laborCost + equipmentCost + overheadShare + directCosts;
+  const protectionFloor = category === 'Formatura' ? getFormaturaProtectionFloor(state, pricingConfig) : 0;
+  const calculatedMinimumPrice = operationalCost / Math.max(0.2, 1 - taxRate - minimumMarginRate);
+  const minimumPrice = Math.max(calculatedMinimumPrice, protectionFloor);
+  const calculatedTechnicalPrice = operationalCost / Math.max(0.2, 1 - taxRate - targetMarginRate);
+  const technicalPrice = Math.max(minimumPrice, calculatedTechnicalPrice);
+  const recommendedPrice = Math.ceil(technicalPrice / 10) * 10;
+  const currentPrice = recommendedPrice;
   const taxes = recommendedPrice * taxRate;
   const netCost = operationalCost + taxes;
   const netProfit = recommendedPrice - netCost;
-  const grossProfit = recommendedPrice - operationalCost;
   const margin = recommendedPrice > 0 ? (netProfit / recommendedPrice) * 100 : 0;
-  const currentTaxes = currentPrice * taxRate;
-  const currentNetProfit = currentPrice - operationalCost - currentTaxes;
-  const currentMargin = currentPrice > 0 ? (currentNetProfit / currentPrice) * 100 : 0;
-  const variationPercent = currentPrice > 0 ? ((recommendedPrice - currentPrice) / currentPrice) * 100 : 0;
-  const coherence = technicalPrice > marketMax * 1.2 ? 'revisar-custos' : technicalPrice < marketMin * 0.8 ? 'mercado-acima' : 'coerente';
-  const displacementValue = (state.extras || []).includes('deslocamento') ? moneyToNumber(pricingConfig.extras.deslocamento) : 0;
-  const displacementShare = recommendedPrice > 0 ? (displacementValue / recommendedPrice) * 100 : 0;
-  const depreciationShare = recommendedPrice > 0 ? (selectedEquipmentReserve / recommendedPrice) * 100 : 0;
+  const monthlyBusinessNeed = snapshot.fixedMonthly + snapshot.variableAverage + snapshot.equipmentDepreciation + moneyToNumber(pricingConfig.proLaboreMensal) + moneyToNumber(pricingConfig.reservaMensal) + moneyToNumber(pricingConfig.investimentoMensal);
 
   return {
     fixedPerProject: overheadShare,
-    variablePerProject: 0,
-    equipmentCost: selectedEquipmentReserve,
+    variablePerProject: directCosts,
+    equipmentCost,
     totalHours,
     laborCost,
     operationalCost,
-    commercialBase,
-    extrasTotal,
-    filmDeliveriesTotal,
+    commercialBase: recommendedPrice,
+    extrasTotal: 0,
+    filmDeliveriesTotal: 0,
     subtotal: currentPrice,
     currentPrice,
     monthlyBusinessNeed,
-    rateableMonthlyBase,
-    variableOverheadRate,
-    capacityPoints,
-    serviceWeight,
+    rateableMonthlyBase: overheadShare,
+    variableOverheadRate: 0,
+    capacityPoints: 0,
+    serviceWeight: 0,
     overheadShare,
     addOnProductionCost,
+    directCosts,
     taxes,
     netCost,
     minimumPrice,
+    protectionFloor,
     technicalPrice,
-    marketMin,
-    marketMax,
+    marketMin: 0,
+    marketMax: 0,
     recommendedPrice,
-    premiumPrice,
-    grossProfit,
+    premiumPrice: recommendedPrice,
+    grossProfit: recommendedPrice - operationalCost,
     netProfit,
     margin,
-    currentMargin,
-    variationPercent,
-    coherence,
+    currentMargin: margin,
+    variationPercent: 0,
+    coherence: 'coerente',
     hourValue: totalHours ? recommendedPrice / totalHours : 0,
-    displacementShare,
-    depreciationShare,
-    valuePerStudent: state.categoria === 'Formatura' && Number(state.alunos) > 0 ? recommendedPrice / Number(state.alunos) : 0,
+    displacementShare: recommendedPrice > 0 ? (displacementEnabled ? Number(simple.deslocamentoCusto || 0) / recommendedPrice * 100 : 0) : 0,
+    depreciationShare: recommendedPrice > 0 ? equipmentCost / recommendedPrice * 100 : 0,
+    valuePerStudent: category === 'Formatura' && Number(state.alunos) > 0 ? recommendedPrice / Number(state.alunos) : 0,
+    breakdown: {
+      labor: laborCost,
+      direct: directCosts,
+      equipment: equipmentCost,
+      structure: overheadShare,
+      taxRate,
+      minimumMarginRate,
+      targetMarginRate,
+    },
   };
 }
 
@@ -520,17 +865,15 @@ export default function Precificacao() {
   const location = useLocation();
   const navigate = useNavigate();
   const leadContext = location.state?.lead;
-  const [state, setState] = useState(() => deepMerge(defaultState, JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.pricing) || 'null')));
-  const [pricingConfig, setPricingConfig] = useState(() => deepMerge(defaultConfig, JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.pricingConfig) || 'null')));
+  const [state, setState] = useState(() => deepMerge(defaultState, compactByShape(defaultState, readLocalJson(FINANCE_STORAGE_KEYS.pricing, null))));
+  const [pricingConfig, setPricingConfig] = useState(() => deepMerge(defaultConfig, compactByShape(defaultConfig, readLocalJson(FINANCE_STORAGE_KEYS.pricingConfig, null))));
   const [data, setData] = useState({ leads: [], clients: [], transactions: [], equipment: [], balances: {}, config: {} });
-  const [savedOptions, setSavedOptions] = useState(() => JSON.parse(localStorage.getItem('cv_studio_pricing_options') || '[]'));
-  const [proposalFlowOpen, setProposalFlowOpen] = useState(false);
-  const [leadSearch, setLeadSearch] = useState('');
-  const [selectedLeadId, setSelectedLeadId] = useState(() => String(leadContext?.id || ''));
+  const [savedOptions, setSavedOptions] = useState(() => enrichPricingOption ? (readLocalJson('cv_studio_pricing_options', []) || []).map((option, index) => enrichPricingOption(option, index)) : []);
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedScenario, setSelectedScenario] = useState(() => localStorage.getItem(scenarioStorageKey) || scenarioOptions[0]);
   const [capacity, setCapacity] = useState(() => JSON.parse(localStorage.getItem(capacityStorageKey) || 'null') || defaultCapacity);
   const [selectedRowId, setSelectedRowId] = useState('casamento-6h');
+  const [commercialPrice, setCommercialPrice] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -569,21 +912,27 @@ export default function Precificacao() {
   useEffect(() => {
     localStorage.setItem(capacityStorageKey, JSON.stringify(capacity));
   }, [capacity]);
+  useEffect(() => {
+    safeSetLocalJson(FINANCE_STORAGE_KEYS.pricing, compactByShape(defaultState, state));
+    safeSetLocalJson(FINANCE_STORAGE_KEYS.pricingConfig, compactByShape(defaultConfig, pricingConfig));
+    persistPricingOptions(savedOptions);
+    // Executa apenas na montagem para substituir versões antigas e excessivamente grandes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (state.categoria === 'Formatura' && state.service === 'Filmagem') {
+      setState((current) => ({ ...current, service: 'Fotografia + Filmagem' }));
+    }
+  }, [state.categoria, state.service]);
 
   const snapshot = useMemo(() => buildFinanceSnapshot(data), [data]);
   const result = useMemo(() => calculatePricingResult({ data, pricingConfig, state }), [data, pricingConfig, state]);
+  useEffect(() => { setCommercialPrice(''); }, [result.recommendedPrice, state.categoria, state.service]);
   const insights = useMemo(() => buildInsights(result), [result]);
   const overviewRows = useMemo(() => buildOverviewRows(pricingConfig, data), [pricingConfig, data]);
 
   const selectedOverviewRow = overviewRows.find((item) => item.id === selectedRowId) || overviewRows[0] || null;
-  const selectedLead = data.leads.find((lead) => String(lead.id) === selectedLeadId) || leadContext;
-  const filteredLeads = data.leads.filter((lead) => String(lead.nome || lead.name || '').toLowerCase().includes(leadSearch.toLowerCase()));
-  const suggestedModel = String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('cas')
-    ? 'proposta-casamento-2026'
-    : String(selectedLead?.tipoServico || selectedLead?.service || state.categoria).toLowerCase().includes('form')
-      ? 'proposta-formatura-individual-2026'
-      : 'proposta-casal-2026';
-
   const companyMonthlyCost = snapshot.fixedMonthly + snapshot.variableAverage + snapshot.equipmentDepreciation + moneyToNumber(pricingConfig.proLaboreMensal) + moneyToNumber(pricingConfig.reservaMensal) + moneyToNumber(pricingConfig.investimentoMensal);
   const projectsPerMonth = Math.max(1, Number(pricingConfig.projetosMes || 1));
   const targetRevenue = companyMonthlyCost / Math.max(0.05, 1 - Number(pricingConfig.impostoPercentual || 0) / 100 - Number(pricingConfig.margem || 0) / 100);
@@ -606,16 +955,75 @@ export default function Precificacao() {
   ];
 
   const saveAll = () => {
-    localStorage.setItem(FINANCE_STORAGE_KEYS.pricing, JSON.stringify(state));
-    localStorage.setItem(FINANCE_STORAGE_KEYS.pricingConfig, JSON.stringify(pricingConfig));
+    const stateSaved = safeSetLocalJson(FINANCE_STORAGE_KEYS.pricing, compactByShape(defaultState, state));
+    const configSaved = safeSetLocalJson(FINANCE_STORAGE_KEYS.pricingConfig, compactByShape(defaultConfig, pricingConfig));
     window.dispatchEvent(new Event('storage'));
+    return stateSaved && configSaved;
   };
 
-  const buildOption = () => ({ id: `option-${Date.now()}`, name: `Opção ${savedOptions.length + 1}`, state: structuredClone(state), result: { ...result }, createdAt: new Date().toISOString() });
+  const commercialPriceValue = commercialPrice ? moneyToNumber(commercialPrice) : result.recommendedPrice;
+  const buildOption = () => enrichPricingOption({ id: `option-${Date.now()}`, name: `Opção ${savedOptions.length + 1}`, state: structuredClone(state), result: { ...result, currentPrice: commercialPriceValue, recommendedPrice: commercialPriceValue }, createdAt: new Date().toISOString() }, savedOptions.length);
   const saveCurrentOption = () => {
     const next = [...savedOptions, buildOption()];
     setSavedOptions(next);
-    localStorage.setItem('cv_studio_pricing_options', JSON.stringify(next));
+    persistPricingOptions(next);
+    saveAll();
+  };
+  const buildSuggestedOption = (nextState, index) => enrichPricingOption({
+    id: `option-${Date.now()}-${index + 1}`,
+    name: `Opção ${index + 1}`,
+    state: structuredClone(nextState),
+    result: { ...calculatePricingResult({ data, pricingConfig, state: nextState }) },
+    createdAt: new Date().toISOString(),
+  }, index);
+
+  const buildSuggestionStates = () => {
+    const cloneState = () => ({
+      ...structuredClone(state),
+      extras: Array.isArray(state.extras) ? [...state.extras] : [],
+      filmDeliveries: { ...defaultFilmDeliveries, ...(state.filmDeliveries || {}) },
+    });
+
+    if (state.categoria === 'Casamento') {
+      const selectedService = state.service || 'Fotografia';
+      const includesVideo = isVideoService(selectedService);
+      const optionalExtras = (state.extras || []).filter((key) => ['segundoFotografo', 'segundoFilmmaker', 'drone', 'deslocamento', 'alimentacao', 'hospedagem'].includes(key));
+      const videoDeliveries = includesVideo
+        ? { ...defaultFilmDeliveries, filmeHighlight: true, teaserInstagram: true, entrega4k: true }
+        : { ...defaultFilmDeliveries };
+
+      return [
+        (() => { const next = cloneState(); next.service = selectedService; next.cobertura = 'Casamento Completo'; next.horasCobertura = '12'; next.extras = [...new Set(['preWedding', 'makingOf', ...optionalExtras])]; next.filmDeliveries = { ...videoDeliveries }; next.highlightDuration = '5 minutos'; return next; })(),
+        (() => { const next = cloneState(); next.service = selectedService; next.cobertura = 'Cerimonia + Festa'; next.horasCobertura = '10'; next.extras = [...new Set(['makingOf', ...optionalExtras])]; next.filmDeliveries = { ...videoDeliveries }; next.highlightDuration = '5 minutos'; return next; })(),
+        (() => { const next = cloneState(); next.service = selectedService; next.cobertura = 'Cerimonia + Festa'; next.horasCobertura = '8'; next.extras = [...new Set(optionalExtras)]; next.filmDeliveries = { ...videoDeliveries, teaserInstagram: false }; next.highlightDuration = '3 minutos'; return next; })(),
+        (() => { const next = cloneState(); next.service = 'Fotografia'; next.cobertura = 'Cerimonia + Festa'; next.horasCobertura = '6'; next.extras = optionalExtras.filter((key) => !['segundoFilmmaker', 'drone'].includes(key)); next.filmDeliveries = { ...defaultFilmDeliveries }; next.highlightDuration = ''; return next; })(),
+      ];
+    }
+
+    if (state.categoria === 'Formatura') return [
+      (() => { const next = cloneState(); next.preFormatura = true; next.coberturaColacao = true; next.festa = false; return next; })(),
+      (() => { const next = cloneState(); next.preFormatura = false; next.coberturaColacao = true; next.festa = false; return next; })(),
+      (() => { const next = cloneState(); next.preFormatura = true; next.coberturaColacao = false; next.festa = false; return next; })(),
+    ];
+
+    if (state.categoria === 'Ensaio') return ['1 hora', '2 horas', 'Sem limite'].map((duration) => { const next = cloneState(); next.categoria = 'Ensaio'; next.ensaioDuracao = duration; return next; });
+
+    if (state.categoria === 'Corporativo') return [2, 4, 8].map((hours) => { const next = cloneState(); next.horas = hours; return next; });
+
+    if (state.categoria === 'Eventos') return [2, 4, 6].map((hours) => { const next = cloneState(); next.horas = hours; return next; });
+
+    return [cloneState()];
+  };
+
+  const generateSuggestedPackages = () => {
+    if (savedOptions.length) {
+      const overwrite = window.confirm('Gerar novas sugestões automáticas e substituir as opções salvas atualmente?');
+      if (!overwrite) return;
+    }
+    const suggestions = buildSuggestionStates();
+    const next = suggestions.map((optionState, index) => buildSuggestedOption(optionState, index));
+    setSavedOptions(next);
+    persistPricingOptions(next);
     saveAll();
   };
   const createAnotherOption = () => {
@@ -628,30 +1036,20 @@ export default function Precificacao() {
     }));
     setActiveTab('services');
   };
-  const continueToProposal = () => {
-    if (!savedOptions.length) saveCurrentOption();
-    setSelectedLeadId((current) => current || String(leadContext?.id || ''));
-    setProposalFlowOpen(true);
-  };
-  const openProposal = () => {
-    if (!selectedLead) return;
-    saveAll();
-    navigate('/propostas/editor', { state: { lead: selectedLead, modelId: suggestedModel, pricingOptions: savedOptions.length ? savedOptions : [buildOption()] } });
-  };
-
   const loadOption = (option) => {
     if (!option?.state) return;
     setState((current) => ({
       ...deepMerge(defaultState, option.state),
       selectedEquipment: option.state.selectedEquipment?.length ? option.state.selectedEquipment : current.selectedEquipment,
     }));
+    setCommercialPrice(maskCurrency(option.proposalPackage?.priceValue || option.result?.recommendedPrice || option.result?.currentPrice || 0));
     setActiveTab('services');
   };
 
   const removeOption = (optionId) => {
     const next = savedOptions.filter((option) => option.id !== optionId);
     setSavedOptions(next);
-    localStorage.setItem('cv_studio_pricing_options', JSON.stringify(next));
+    persistPricingOptions(next);
   };
 
   const clearSavedOptions = () => {
@@ -732,302 +1130,129 @@ export default function Precificacao() {
         )
         : <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />;
 
+  const packageCount = state.categoria === 'Casamento' ? 4 : 3;
+  const packageActionLabel = `Gerar ${packageCount} sugestões`;
+  const categoryTabs = [
+    { key: 'Casamento', label: 'Casamento' },
+    { key: 'Formatura', label: 'Formatura' },
+    { key: 'Ensaio', label: 'Ensaio' },
+    { key: 'Gestante', label: 'Gestante' },
+    { key: 'Corporativo', label: 'Corporativo' },
+    { key: 'Eventos', label: 'Eventos' },
+  ];
+  const selectedCategoryKey = state.categoria === 'Ensaio' && state.ensaioTipo === 'Gestante' ? 'Gestante' : state.categoria;
+  const setCategory = (key) => {
+    if (key === 'Gestante') setState((current) => ({ ...current, categoria: 'Ensaio', ensaioTipo: 'Gestante', step: 0 }));
+    else if (key === 'Ensaio') setState((current) => ({ ...current, categoria: 'Ensaio', ensaioTipo: current.ensaioTipo === 'Gestante' ? 'Casal' : current.ensaioTipo, step: 0 }));
+    else setState((current) => ({ ...current, categoria: key, step: 0 }));
+    setSavedOptions([]);
+    setCommercialPrice('');
+  };
+  const liveSuggestedOptions = buildSuggestionStates().map((optionState, index) => buildSuggestedOption(optionState, index));
+  const visibleOptions = liveSuggestedOptions;
+  const proposalPreviewOption = visibleOptions[0]?.proposalPackage || buildOption().proposalPackage;
+  const commercialTaxes = commercialPriceValue * (Number(pricingConfig.impostoPercentual || 0) / 100);
+  const marginAmount = commercialPriceValue - result.operationalCost - commercialTaxes;
+  const formaturaPerStudent = state.categoria === 'Formatura' ? commercialPriceValue / Math.max(1, Number(state.alunos || 1)) : 0;
+
   return (
-    <div className="sf-finance-section sf-pricing-screen">
-      <div className="sf-section-header sf-pricing-topbar">
+    <div className="minimal-pricing-page">
+      <header className="minimal-pricing-header">
         <div>
           <h1>Precificação</h1>
-          <p>Descubra quanto cada serviço precisa custar para pagar sua operação, remunerar seu trabalho e gerar lucro.</p>
+          <p>Defina o valor comercial com base no cálculo interno, sem expor complexidade.</p>
         </div>
-        <div className="sf-pricing-toolbar-actions">
-          <select className="sf-scenario-select" value={selectedScenario} onChange={(event) => setSelectedScenario(event.target.value)}>
-            {scenarioOptions.map((option) => <option key={option}>{option}</option>)}
-          </select>
-          <button type="button" className="sf-secondary-button" onClick={startNewSimulation}><Plus size={17} /> Nova simulação</button>
-          <button type="button" className="sf-secondary-button" onClick={saveAll}><Save size={17} /> Salvar cenário</button>
-          <button type="button" className="sf-primary-button" onClick={() => setActiveTab('services')}><Package size={17} /> Criar pacote</button>
+        <div className="minimal-header-actions">
+          <button type="button" className="minimal-gold-button" onClick={generateSuggestedPackages}><Sparkles size={17} /> {packageActionLabel}</button>
+          <button type="button" className="minimal-outline-button" onClick={saveCurrentOption}><Save size={17} /> Salvar opção</button>
         </div>
-      </div>
+      </header>
 
-      {leadContext && (
-        <div className="sf-alert" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-          <span>Orçamento para <strong>{leadContext.nome}</strong> · {leadContext.tipoServico || 'Serviço não informado'}</span>
-          <button type="button" className="sf-secondary-button" onClick={() => navigate('/crm')}>Voltar ao CRM</button>
+      <nav className="minimal-category-tabs">
+        {categoryTabs.map((item) => <button type="button" key={item.key} className={selectedCategoryKey === item.key ? 'active' : ''} onClick={() => setCategory(item.key)}>{item.label}</button>)}
+      </nav>
+
+      {leadContext && <div className="minimal-context-bar"><span>Precificação para <strong>{leadContext.nome}</strong></span><button type="button" onClick={() => navigate('/crm')}>Voltar ao CRM</button></div>}
+
+      <section className="minimal-pricing-grid">
+        <article className="minimal-panel service-panel">
+          <div className="minimal-panel-title"><Settings size={20} /><div><h2>Configuração do serviço</h2><p>As opções mudam de acordo com o trabalho selecionado.</p></div></div>
+
+          {state.categoria === 'Casamento' && <div className="minimal-fields">
+            <label><span>Formato</span><select value={state.service} onChange={(e) => setState({ ...state, service: e.target.value })}>{services.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Cobertura</span><select value={state.cobertura} onChange={(e) => setState({ ...state, cobertura: e.target.value })}>{coverageOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Horas</span><select value={state.horasCobertura} onChange={(e) => setState({ ...state, horasCobertura: e.target.value })}>{weddingHours.map((item) => <option key={item}>{item === 'Personalizado' ? item : `${item} horas`}</option>)}</select></label>
+            <label><span>Equipe</span><div className="minimal-readonly">Camilla + Júnior {state.service === 'Fotografia + Filmagem' ? '+ apoio' : ''}</div></label>
+            <div className="minimal-extra-row"><span>Extras</span><div>{['preWedding','makingOf','segundoFotografo','segundoFilmmaker','drone'].map((key) => <button type="button" key={key} className={state.extras.includes(key) ? 'active' : ''} onClick={() => toggleExtra(key)}>{extraLabels[key]}</button>)}</div></div>
+          </div>}
+
+          {state.categoria === 'Formatura' && <div className="minimal-fields">
+            <label><span>Quantidade de alunos</span><input type="number" min="1" value={state.alunos} onChange={(e) => setState({ ...state, alunos: Number(e.target.value) })} /></label>
+            <label><span>Formato</span><select value={state.service === 'Filmagem' ? 'Fotografia + Filmagem' : state.service} onChange={(e) => setState({ ...state, service: e.target.value })}><option>Fotografia</option><option>Fotografia + Filmagem</option></select></label>
+            <label><span>Horas da colação</span><input type="number" min="1" value={state.horas || 3} onChange={(e) => setState({ ...state, horas: Number(e.target.value) })} /></label>
+            <label><span>Fotos incluídas no ensaio</span><input type="number" min="1" value={state.fotosEnsaio || 10} onChange={(e) => setState({ ...state, fotosEnsaio: Number(e.target.value) })} /><small>Aplicadas somente aos pacotes que incluem pré-formatura.</small></label>
+            <div className="minimal-switches"><button type="button" className={state.preFormatura ? 'active' : ''} onClick={() => setState({ ...state, preFormatura: !state.preFormatura })}>Simular ensaio pré-formatura</button><button type="button" className={state.coberturaColacao ? 'active' : ''} onClick={() => setState({ ...state, coberturaColacao: !state.coberturaColacao })}>Simular colação de grau</button></div>
+            <div className="minimal-protection-note">O botão “Gerar 3 sugestões” sempre cria: ensaio + colação, somente colação e somente ensaio. Para até {pricingConfig.formatura.limiteTurmaPequena || 4} alunos, o sistema respeita o mínimo sustentável configurado.</div>
+          </div>}
+
+          {state.categoria === 'Ensaio' && <div className="minimal-fields">
+            <label><span>Tipo de ensaio</span><select value={state.ensaioTipo} onChange={(e) => setState({ ...state, ensaioTipo: e.target.value })}>{essayTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Formato</span><select value={state.service} onChange={(e) => setState({ ...state, service: e.target.value })}>{services.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Duração</span><select value={state.ensaioDuracao} onChange={(e) => setState({ ...state, ensaioDuracao: e.target.value })}>{essayDurations.filter((item) => item !== 'Personalizado').map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Locações</span><select value={state.locacoes || 1} onChange={(e) => setState({ ...state, locacoes: Number(e.target.value) })}><option value="1">1 locação</option><option value="2">2 locações</option><option value="3">3 locações</option></select></label>
+            <label><span>Quantidade de pessoas</span><input type="number" min="1" value={state.pessoasEnsaio || (state.ensaioTipo === 'Familia' ? 4 : 2)} onChange={(e) => setState({ ...state, pessoasEnsaio: Number(e.target.value) })} /></label>
+            <div className="minimal-switches"><button type="button" className={state.service !== 'Fotografia' ? 'active' : ''} onClick={() => setState({ ...state, service: state.service === 'Fotografia' ? 'Fotografia + Filmagem' : 'Fotografia' })}>Incluir filmagem</button><button type="button" className={state.extras.includes('deslocamento') ? 'active' : ''} onClick={() => toggleExtra('deslocamento')}>Deslocamento</button></div>
+            <div className="minimal-protection-note">O custo considera captação, atendimento, deslocamento, seleção, edição, entrega, quantidade de pessoas e peso operacional específico do tipo de ensaio.</div>
+          </div>}
+
+          {state.categoria === 'Corporativo' && <div className="minimal-fields">
+            <label><span>Formato</span><select value={state.service} onChange={(e) => setState({ ...state, service: e.target.value })}><option>Fotografia</option><option>Fotografia + Filmagem</option></select></label>
+            <label><span>Horas de produção</span><input type="number" min="1" value={state.horas || 2} onChange={(e) => setState({ ...state, horas: Number(e.target.value) })} /></label>
+            <label><span>Colaboradores</span><input type="number" min="1" value={state.colaboradores || 1} onChange={(e) => setState({ ...state, colaboradores: Number(e.target.value) })} /></label>
+            <label><span>Fotos finais previstas</span><input type="number" min="0" value={state.fotos || 0} onChange={(e) => setState({ ...state, fotos: Number(e.target.value) })} /></label>
+            <div className="minimal-protection-note">O cálculo considera montagem, captação, volume de colaboradores, tratamento por foto, entrega e edição de filme quando incluída.</div>
+          </div>}
+
+          {state.categoria === 'Eventos' && <div className="minimal-fields">
+            <label><span>Tipo de evento</span><select value={state.eventoTipo} onChange={(e) => setState({ ...state, eventoTipo: e.target.value })}>{eventTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
+            <label><span>Formato</span><select value={state.service} onChange={(e) => setState({ ...state, service: e.target.value })}><option>Fotografia</option><option>Fotografia + Filmagem</option></select></label>
+            <label><span>Duração</span><input type="number" min="1" value={state.horas || 4} onChange={(e) => setState({ ...state, horas: Number(e.target.value) })} /></label>
+            <label><span>Profissionais</span><input type="number" min="1" value={state.profissionais || 1} onChange={(e) => setState({ ...state, profissionais: Number(e.target.value) })} /></label>
+            <div className="minimal-switches"><button type="button" className={state.extras.includes('deslocamento') ? 'active' : ''} onClick={() => toggleExtra('deslocamento')}>Deslocamento</button></div>
+            <div className="minimal-protection-note">Shows, congressos e eventos empresariais recebem pesos maiores de operação e responsabilidade. O piso aumenta conforme duração e equipe.</div>
+          </div>}
+        </article>
+
+        <article className="minimal-panel finance-panel">
+          <div className="minimal-panel-title"><Calculator size={20} /><div><h2>Resumo financeiro interno</h2><p>Visível somente para você.</p></div></div>
+          <div className="minimal-finance-small"><div><span>Custo interno total</span><strong>{formatCurrency(result.operationalCost)}</strong></div><div><span>Preço mínimo sustentável</span><strong>{formatCurrency(result.minimumPrice)}</strong></div></div>
+          <details className="minimal-cost-breakdown"><summary>Ver composição do custo</summary><div><span>Mão de obra ({result.totalHours.toFixed(1)}h)</span><strong>{formatCurrency(result.breakdown?.labor || 0)}</strong></div><div><span>Custos diretos</span><strong>{formatCurrency(result.breakdown?.direct || 0)}</strong></div><div><span>Uso de equipamentos</span><strong>{formatCurrency(result.breakdown?.equipment || 0)}</strong></div><div><span>Estrutura do estúdio</span><strong>{formatCurrency(result.breakdown?.structure || 0)}</strong></div></details>
+          <label className="minimal-commercial-price"><span>Preço comercial</span><input value={commercialPrice || maskCurrency(result.recommendedPrice)} onChange={(e) => setCommercialPrice(maskCurrency(e.target.value))} /><small>Este é o único valor levado para a proposta.</small></label>
+          <div className={`minimal-margin-row ${marginAmount < 0 ? 'negative' : ''}`}><span>Resultado estimado após custos e impostos</span><strong>{formatCurrency(marginAmount)}</strong></div>{result.protectionFloor > 0 && <div className="minimal-floor-applied">Mínimo de proteção aplicado: {formatCurrency(result.protectionFloor)}</div>}
+          {state.categoria === 'Formatura' && <div className="minimal-student-summary"><div><span>Valor por aluno</span><strong>{formatCurrency(formaturaPerStudent)}</strong></div><div><span>Total da turma</span><strong>{formatCurrency(commercialPriceValue)}</strong></div></div>}
+        </article>
+      </section>
+
+      <section className="minimal-panel suggestions-panel">
+        <div className="minimal-panel-title"><Sparkles size={20} /><div><h2>Pacotes sugeridos</h2><p>{state.categoria === 'Casamento' ? 'Quatro níveis de experiência.' : state.categoria === 'Formatura' ? 'Três combinações para turma, colação e ensaio.' : state.categoria === 'Corporativo' ? 'Três níveis conforme duração e volume de pessoas.' : state.categoria === 'Eventos' ? 'Três coberturas conforme duração do evento.' : 'Três opções por tempo de ensaio.'}</p></div></div>
+        <div className={`minimal-package-grid count-${packageCount}`}>
+          {visibleOptions.slice(0, packageCount).map((option, index) => {
+            const details = option.proposalPackage || {};
+            const price = details.priceValue || option.result?.recommendedPrice || option.result?.currentPrice || commercialPriceValue;
+            const perStudent = state.categoria === 'Formatura' ? price / Math.max(1, Number(state.alunos || 1)) : 0;
+            return <article className="minimal-package-card" key={option.id || index}><span className="package-number">{index + 1}</span><h3>{details.packageName || option.name}</h3><strong>{formatCurrency(price)}</strong>{state.categoria === 'Formatura' && <small>{formatCurrency(perStudent)} por aluno · total de {formatCurrency(price)}</small>}<p>{details.description || 'Uma proposta equilibrada para este serviço.'}</p><ul className="minimal-package-items">{(details.bullets || []).slice(0, 4).map((item) => <li key={item}>{item}</li>)}</ul><button type="button" onClick={() => loadOption(option)}>Editar pacote</button></article>;
+          })}
         </div>
-      )}
+      </section>
 
-      <div className="sf-pricing-kpi-grid">
-        <Metric icon={Calculator} label="Custo mensal da empresa" value={companyMonthlyCost} />
-        <Metric icon={Wallet} label="Pró-labore projetado" value={snapshot.projectedDistribution?.salario || 0} />
-        <Metric icon={Sparkles} label="Lucro projetado" value={snapshot.monthlyProfit || 0} tone={(snapshot.monthlyProfit || 0) >= 0 ? 'positive' : 'warning'} />
-        <Metric icon={DollarSign} label="Faturamento mínimo mensal" value={targetRevenue} />
-        <Metric icon={Percent} label="Ticket médio necessário" value={targetTicket} />
-      </div>
+      <section className="minimal-panel proposal-output-panel">
+        <div className="proposal-output-copy"><FileText size={21} /><div><h2>Resumo para o Canva</h2><p>Copie o nome, o valor, a descrição e os itens incluídos de cada pacote para o seu modelo no Canva.</p></div></div>
+        <div className="proposal-output-preview"><div><span>Nome do pacote</span><strong>{proposalPreviewOption?.packageName || 'Pacote selecionado'}</strong></div><div><span>Valor final</span><strong>{formatCurrency(commercialPriceValue)}</strong></div><div><span>Descrição curta</span><p>{proposalPreviewOption?.description || 'Experiência pensada para este trabalho.'}</p></div><div><span>Itens inclusos</span><ul>{(proposalPreviewOption?.bullets || []).slice(0, 4).map((item) => <li key={item}>{item}</li>)}</ul></div></div>
+      </section>
 
-      <div className="sf-pricing-layout">
-        <div className="sf-pricing-content">
-          <div className="sf-pricing-tabbar">
-            <button type="button" className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>Visão geral</button>
-            <button type="button" className={activeTab === 'costs' ? 'active' : ''} onClick={() => setActiveTab('costs')}>Custos</button>
-            <button type="button" className={activeTab === 'services' ? 'active' : ''} onClick={() => setActiveTab('services')}>Serviços e pacotes</button>
-            <button type="button" className={activeTab === 'simulations' ? 'active' : ''} onClick={() => setActiveTab('simulations')}>Simulações</button>
-          </div>
-
-          {activeTab === 'overview' && (
-            <>
-              <div className="sf-card sf-capacity-card">
-                <div className="sf-pricing-section-head">
-                  <div>
-                    <h3>Capacidade produtiva mensal</h3>
-                    <p>Use esta visão para comparar a meta do mês com sua capacidade real de execução.</p>
-                  </div>
-                </div>
-                <div className="sf-capacity-grid">
-                  <Field label="Dias disponíveis"><input type="number" min="1" style={inputStyle} value={capacity.diasDisponiveis} onChange={(event) => setCapacity((current) => ({ ...current, diasDisponiveis: event.target.value }))} /></Field>
-                  <Field label="Casamentos"><input type="number" min="0" style={inputStyle} value={capacity.casamentos} onChange={(event) => setCapacity((current) => ({ ...current, casamentos: event.target.value }))} /></Field>
-                  <Field label="Ensaios de casal"><input type="number" min="0" style={inputStyle} value={capacity.ensaios} onChange={(event) => setCapacity((current) => ({ ...current, ensaios: event.target.value }))} /></Field>
-                  <Field label="Gestantes"><input type="number" min="0" style={inputStyle} value={capacity.gestantes} onChange={(event) => setCapacity((current) => ({ ...current, gestantes: event.target.value }))} /></Field>
-                  <Field label="Filmagens avulsas"><input type="number" min="0" style={inputStyle} value={capacity.filmagensAvulsas} onChange={(event) => setCapacity((current) => ({ ...current, filmagensAvulsas: event.target.value }))} /></Field>
-                  <div className="sf-capacity-total">
-                    <span>Capacidade total estimada</span>
-                    <strong>{capacityTotal}</strong>
-                    <small>trabalhos/mês</small>
-                  </div>
-                </div>
-                <div className={`sf-capacity-alert ${capacityGap >= 0 ? 'good' : 'bad'}`}>
-                  {capacityGap >= 0
-                    ? `Sua capacidade atual comporta a meta de ${projectsPerMonth} projeto(s) por mês.`
-                    : `Sua meta atual exige ${Math.abs(capacityGap)} projeto(s) a mais por mês. Revise a capacidade ou o ticket médio.`}
-                </div>
-              </div>
-
-              <div className="sf-card sf-pricing-table-card">
-                <div className="sf-pricing-section-head">
-                  <div>
-                    <h3>Preço sustentável por serviço</h3>
-                    <p>Selecione uma linha para ver o detalhamento completo e use a opção como base para a simulação.</p>
-                  </div>
-                </div>
-                <div className="sf-pricing-table-wrapper">
-                  <table className="sf-pricing-table">
-                    <thead>
-                      <tr>
-                        <th>Serviço</th>
-                        <th>Horas totais</th>
-                        <th>Custo direto</th>
-                        <th>Custo operacional</th>
-                        <th>Preço mínimo</th>
-                        <th>Preço recomendado</th>
-                        <th>Preço atual</th>
-                        <th>Margem no recomendado</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {overviewRows.map((row) => (
-                        <tr key={row.id} className={selectedRowId === row.id ? 'is-selected' : ''} onClick={() => setSelectedRowId(row.id)}>
-                          <td>
-                            <strong>{row.title}</strong>
-                            <small>{row.subtitle}</small>
-                          </td>
-                          <td>{row.result.totalHours.toFixed(0)}h</td>
-                          <td>{formatCurrency(row.directCost)}</td>
-                          <td>{formatCurrency(row.operationalCost)}</td>
-                          <td>{formatCurrency(row.result.minimumPrice)}</td>
-                          <td>{formatCurrency(row.result.recommendedPrice)}</td>
-                          <td>{formatCurrency(row.currentPrice)}</td>
-                          <td>
-                            <span className={`sf-margin-badge ${row.result.margin >= 20 ? 'good' : row.result.margin >= 10 ? 'warning' : 'bad'}`}>{row.result.margin.toFixed(1)}%</span>
-                          </td>
-                          <td><button type="button" className="sf-table-link" onClick={(event) => { event.stopPropagation(); applyOverviewPreset(row); }}>Usar</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="sf-table-legend">
-                  <span><i className="dot good" /> Margem saudável (&gt;20%)</span>
-                  <span><i className="dot warning" /> Margem apertada (10% a 20%)</span>
-                  <span><i className="dot bad" /> Abaixo do mínimo (&lt;10%)</span>
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeTab === 'costs' && (
-            <div className="sf-pricing-two-column">
-              <div className="sf-pricing-stack">
-                <div className="sf-card">
-                  <div className="sf-pricing-section-head">
-                    <div>
-                      <h3>Custos do serviço atual</h3>
-                      <p>Ajuste tempo, adicionais e equipamentos sem sair da tela de precificação.</p>
-                    </div>
-                  </div>
-                  <CostStep
-                    state={state}
-                    setState={setState}
-                    config={pricingConfig}
-                    setConfig={setPricingConfig}
-                    toggleExtra={toggleExtra}
-                    toggleEquipment={toggleEquipment}
-                    equipment={data.equipment}
-                    result={result}
-                  />
-                </div>
-              </div>
-              <div className="sf-pricing-stack">
-                <ConfigPanel config={pricingConfig} updateConfig={updateConfig} />
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'services' && (
-            <div className="sf-pricing-two-column">
-              <div className="sf-pricing-stack">
-                <div className="sf-card sf-builder-card">
-                  <div className="sf-pricing-section-head">
-                    <div>
-                      <h3>Monte o serviço</h3>
-                      <p>Configure o trabalho, os adicionais e avance até a proposta em PDF.</p>
-                    </div>
-                    <button type="button" className="sf-secondary-button" onClick={saveAll}><Save size={16} /> Salvar regras</button>
-                  </div>
-                  <Stepper active={state.step} setActive={(step) => setState({ ...state, step })} />
-                  <div className="sf-builder-body">{activeStepContent}</div>
-                  <div className="sf-step-actions">
-                    <button className="sf-secondary-button" disabled={state.step === 0} onClick={() => setState({ ...state, step: Math.max(0, state.step - 1) })}>Voltar</button>
-                    {state.step < 3 && <button className="sf-primary-button" onClick={() => setState({ ...state, step: state.step + 1 })}>Continuar</button>}
-                  </div>
-                </div>
-              </div>
-              <div className="sf-pricing-stack">
-                <div className="sf-card">
-                  <div className="sf-pricing-section-head">
-                    <div>
-                      <h3>Pacotes salvos</h3>
-                      <p>Salve variações antes de gerar o orçamento final.</p>
-                    </div>
-                    <div className="sf-saved-option-actions">
-                      {savedOptions.length > 0 && <button type="button" className="sf-table-link danger" onClick={clearSavedOptions}><Trash2 size={15} /> Apagar todas</button>}
-                      <button type="button" className="sf-secondary-button" onClick={saveCurrentOption}><Save size={16} /> Salvar opção</button>
-                    </div>
-                  </div>
-                  <div className="sf-saved-options-list">
-                    {!savedOptions.length && <p className="sf-muted">Nenhuma opção salva até agora.</p>}
-                    {savedOptions.map((option) => (
-                      <div key={option.id} className="sf-saved-option-item">
-                        <div>
-                          <strong>{option.name}</strong>
-                          <small>{new Date(option.createdAt).toLocaleDateString('pt-BR')} · {formatCurrency(option.result?.recommendedPrice || 0)}</small>
-                        </div>
-                        <div className="sf-saved-option-actions">
-                          <button type="button" className="sf-table-link" onClick={() => loadOption(option)}>Carregar</button>
-                          <button type="button" className="sf-table-link danger" onClick={() => removeOption(option.id)}>Remover</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="sf-card sf-action-card">
-                  <h3>Gerar orçamento</h3>
-                  <p className="sf-muted">Continue para o fluxo de orçamento e abra o editor com o modelo sugerido.</p>
-                  <button type="button" className="sf-primary-button" onClick={continueToProposal}><Sparkles size={16} /> Gerar orçamento</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'simulations' && (
-            <div className="sf-pricing-stack">
-              <div className="sf-card">
-                <div className="sf-pricing-section-head">
-                  <div>
-                    <h3>Resultado da simulação</h3>
-                    <p>Analise a escada de preço, a composição de custos e a margem antes de seguir para a proposta.</p>
-                  </div>
-                </div>
-                <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />
-              </div>
-              <div className="sf-card">
-                <div className="sf-pricing-section-head">
-                  <div><h3>Simulações salvas</h3><p>Carregue uma alternativa ou apague as simulações que não deseja mais manter.</p></div>
-                  {savedOptions.length > 0 && <button type="button" className="sf-table-link danger" onClick={clearSavedOptions}><Trash2 size={15} /> Apagar todas</button>}
-                </div>
-                <div className="sf-saved-options-list">
-                  {!savedOptions.length && <p className="sf-muted">Nenhuma simulação salva.</p>}
-                  {savedOptions.map((option) => (
-                    <div key={option.id} className="sf-saved-option-item">
-                      <div><strong>{option.name}</strong><small>{new Date(option.createdAt).toLocaleDateString('pt-BR')} · {formatCurrency(option.result?.recommendedPrice || 0)}</small></div>
-                      <div className="sf-saved-option-actions">
-                        <button type="button" className="sf-table-link" onClick={() => loadOption(option)}>Carregar</button>
-                        <button type="button" className="sf-table-link danger" onClick={() => removeOption(option.id)}><Trash2 size={14} /> Apagar</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <aside className="sf-pricing-inspector">
-          <div className="sf-card sf-inspector-card">
-            <div className="sf-inspector-head">
-              <div>
-                <h3>{detailContext.title}</h3>
-                <p>{detailContext.subtitle}</p>
-              </div>
-              {activeTab === 'overview' && selectedOverviewRow && <button type="button" className="sf-secondary-button" onClick={() => applyOverviewPreset(selectedOverviewRow)}>Usar na simulação</button>}
-            </div>
-            <div className="sf-inspector-section">
-              <div className="sf-inspector-tabs">
-                <span className="active">Composição</span>
-                <span>Simular preço</span>
-              </div>
-              <div className="sf-inspector-list">
-                <div className="sf-inspector-block-title">1. Tempo dedicado <strong>Total: {detailContext.result.totalHours.toFixed(0)}h</strong></div>
-                {timeFields.map(([key, label]) => (
-                  <div className="formula-row" key={key}><span>{label}</span><strong>{Number(detailContext.time?.[key] || 0).toFixed(1)}h</strong></div>
-                ))}
-              </div>
-            </div>
-            <div className="sf-inspector-section">
-              <div className="sf-inspector-block-title">2. Custos diretos <strong>Total: {formatCurrency(detailContext.result.laborCost + detailContext.result.equipmentCost + detailContext.result.addOnProductionCost)}</strong></div>
-              <div className="formula-row"><span>Tempo de produção</span><strong>{formatCurrency(detailContext.result.laborCost)}</strong></div>
-              <div className="formula-row"><span>Equipamentos</span><strong>{formatCurrency(detailContext.result.equipmentCost)}</strong></div>
-              <div className="formula-row"><span>Produção dos adicionais</span><strong>{formatCurrency(detailContext.result.addOnProductionCost)}</strong></div>
-              <div className="formula-row"><span>Impostos no preço recomendado</span><strong>{formatCurrency(detailContext.result.taxes)}</strong></div>
-            </div>
-            <div className="sf-inspector-section">
-              <div className="sf-inspector-block-title">3. Distribuição do valor <strong>Preço atual: {formatCurrency(detailContext.currentPrice)}</strong></div>
-              <div className="formula-row"><span>Custos diretos</span><strong>{formatCurrency(detailContext.result.laborCost + detailContext.result.equipmentCost + detailContext.result.addOnProductionCost)}</strong></div>
-              <div className="formula-row"><span>Custos operacionais</span><strong>{formatCurrency(detailContext.result.operationalCost)}</strong></div>
-              <div className="formula-row"><span>Lucro líquido</span><strong>{formatCurrency(detailContext.result.netProfit)}</strong></div>
-              <div className="formula-row"><span>Reserva / margem</span><strong>{detailContext.result.margin.toFixed(1)}%</strong></div>
-            </div>
-            <div className="sf-inspector-metrics">
-              <div><small>Valor por hora real</small><strong>{formatCurrency(detailContext.result.hourValue)}</strong></div>
-              <div><small>Margem líquida</small><strong>{detailContext.result.margin.toFixed(1)}%</strong></div>
-              <div><small>Lucro por trabalho</small><strong>{formatCurrency(detailContext.result.netProfit)}</strong></div>
-            </div>
-            <button type="button" className="sf-secondary-button sf-full-width" onClick={() => setActiveTab('services')}>Editar serviço</button>
-          </div>
-        </aside>
-      </div>
-
-      {proposalFlowOpen && <div className="sf-proposal-flow-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setProposalFlowOpen(false); }}>
-        <section className="sf-proposal-flow" role="dialog" aria-modal="true" aria-labelledby="proposal-flow-title">
-          <header><div><span>Próxima etapa</span><h2 id="proposal-flow-title">Selecionar lead</h2></div><button type="button" aria-label="Fechar" onClick={() => setProposalFlowOpen(false)}><X /></button></header>
-          {leadContext && <p className="sf-flow-hint"><Check size={16} /> Lead vindo do CRM pré-selecionado. Você pode trocá-lo.</p>}
-          <label className="sf-lead-search"><Search size={17} /><input value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} placeholder="Pesquisar lead pelo nome" autoFocus /></label>
-          <div className="sf-lead-options">{filteredLeads.map((lead) => <button type="button" key={lead.id} className={String(lead.id) === selectedLeadId ? 'active' : ''} onClick={() => setSelectedLeadId(String(lead.id))}><span><strong>{lead.nome || lead.name}</strong><small>{lead.tipoServico || lead.service || 'Serviço não informado'}</small></span>{String(lead.id) === selectedLeadId && <Check />}</button>)}{!filteredLeads.length && <p className="sf-muted">Nenhum lead encontrado.</p>}</div>
-          {selectedLead && <div className="sf-model-suggestion"><span>Modelo sugerido</span><strong>{suggestedModel.includes('casamento') ? 'Casamento 2026' : suggestedModel.includes('formatura') ? 'Formatura individual 2026' : 'Ensaio de casal 2026'}</strong></div>}
-          <footer><button type="button" className="sf-secondary-button" onClick={() => setProposalFlowOpen(false)}>Cancelar</button><button type="button" className="sf-primary-button" disabled={!selectedLead} onClick={openProposal}>Abrir proposta</button></footer>
-        </section>
-      </div>}
     </div>
   );
+
 }
 
 function calculateCommercialBase(state, config) {
@@ -1039,25 +1264,52 @@ function calculateCommercialBase(state, config) {
   }
   if (state.categoria === 'Ensaio') {
     if (state.ensaioDuracao === 'Personalizado') return moneyToNumber(state.ensaioPersonalizado);
-    return moneyToNumber(config.ensaios[state.service]?.[state.ensaioDuracao]);
+    const source = isVideoService(state.service) ? config.ensaioRegras?.pisosFotoFilme : config.ensaioRegras?.pisosFoto;
+    const base = moneyToNumber(source?.[state.ensaioDuracao] || config.ensaios[state.service]?.[state.ensaioDuracao]);
+    const typeFactor = Number(config.ensaioRegras?.multiplicadores?.[state.ensaioTipo] || 1);
+    const locationAdd = Math.max(0, Number(state.locacoes || 1) - 1) * moneyToNumber(config.ensaioRegras?.adicionalLocacao);
+    const people = Math.max(1, Number(state.pessoasEnsaio || (state.ensaioTipo === 'Familia' ? 4 : 2)));
+    const peopleAdd = state.ensaioTipo === 'Familia' ? Math.max(0, people - 4) * moneyToNumber(config.ensaioRegras?.adicionalPessoaFamilia) : 0;
+    return base * typeFactor + locationAdd + peopleAdd;
   }
   if (state.categoria === 'Formatura') {
     const students = Math.max(1, Number(state.alunos || 1));
     const tier = config.formaturaFaixas.find((item) => students >= Number(item.min) && students <= Number(item.max)) || config.formaturaFaixas[0];
-    let value = students * moneyToNumber(tier.valor);
-    if (state.service !== 'Fotografia') value += moneyToNumber(config.baseServicos[state.service]) * 0.45;
-    if (state.preFormatura) value += students * Math.max(0, Number(state.fotosEnsaio || 0)) * moneyToNumber(config.formatura.ensaioPorFotoAluno);
-    if (state.coberturaColacao) value += moneyToNumber(config.formatura.coberturaColacao);
+    const perStudentBase = students * moneyToNumber(tier.valor);
+    const ceremonyHours = Math.max(1, Number(state.horas || 3));
+    const ceremonyValue = state.coberturaColacao
+      ? moneyToNumber(config.formatura.coberturaColacao) + Math.max(0, ceremonyHours - 3) * moneyToNumber(config.valorHoraCobertura)
+      : 0;
+    const essayValue = state.preFormatura
+      ? students * Math.max(1, Number(state.fotosEnsaio || 10)) * moneyToNumber(config.formatura.ensaioPorFotoAluno)
+      : 0;
+    const videoValue = isVideoService(state.service)
+      ? (state.coberturaColacao ? moneyToNumber(config.formatura.adicionalFilmagemColacao) : 0)
+        + (state.preFormatura ? moneyToNumber(config.formatura.adicionalFilmagemEnsaio) : 0)
+      : 0;
+    let value = perStudentBase + ceremonyValue + essayValue + videoValue;
     if (state.festa) value += moneyToNumber(config.formatura.coberturaFesta);
     if (state.droneFormatura) value += moneyToNumber(config.formatura.drone);
     if (state.deslocamentoFormatura) value += moneyToNumber(config.formatura.deslocamento);
-    return value;
+    return Math.max(value, getFormaturaProtectionFloor(state, config));
   }
   if (state.categoria === 'Corporativo') {
-    return Number(state.horas || 0) * moneyToNumber(config.corporativo.valorHora) + Number(state.colaboradores || 0) * moneyToNumber(config.corporativo.valorColaborador) + Number(state.fotos || 0) * moneyToNumber(config.corporativo.valorFoto);
+    const base = Number(state.horas || 0) * moneyToNumber(config.corporativo.valorHora)
+      + Number(state.colaboradores || 0) * moneyToNumber(config.corporativo.valorColaborador)
+      + Number(state.fotos || 0) * moneyToNumber(config.corporativo.valorFoto);
+    const video = isVideoService(state.service) ? moneyToNumber(config.corporativo.adicionalFilmagem) : 0;
+    return Math.max(base + video, moneyToNumber(config.corporativo.minimo) + video);
   }
   if (state.categoria === 'Eventos') {
-    return Number(state.horas || 0) * moneyToNumber(config.eventos.valorHora) + Number(state.profissionais || 1) * moneyToNumber(config.eventos.valorProfissional) + moneyToNumber(config.baseServicos[state.service]) * 0.45;
+    const hours = Math.max(1, Number(state.horas || 1));
+    const professionals = Math.max(1, Number(state.profissionais || 1));
+    const typeFactor = Number(config.eventos?.multiplicadores?.[state.eventoTipo] || 1);
+    const photoBase = moneyToNumber(config.eventos.mobilizacao) + hours * moneyToNumber(config.eventos.valorHora);
+    const extraProfessionals = Math.max(0, professionals - 1) * moneyToNumber(config.eventos.valorProfissional);
+    const video = isVideoService(state.service)
+      ? moneyToNumber(config.eventos.adicionalFilmagemBase) + hours * moneyToNumber(config.eventos.adicionalFilmagemHora)
+      : 0;
+    return (photoBase + extraProfessionals + video) * typeFactor;
   }
   return moneyToNumber(config.baseServicos[state.service]) + Number(state.horas || 0) * moneyToNumber(config.valorHoraCobertura);
 }

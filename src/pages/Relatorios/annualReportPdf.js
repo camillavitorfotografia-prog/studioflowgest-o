@@ -429,7 +429,8 @@ export async function generateAnnualReportPdf({ report, studio = {} }) {
     { label: 'Trabalhos com data no ano', value: String(report.totals.projects) },
     { label: 'Valor contratado desses trabalhos', value: money(report.totals.contracted) },
     { label: 'Saldo desses contratos', value: money(report.totals.remaining) },
-    { label: 'Recebimentos no ano (caixa)', value: money(report.totals.annualReceived), color: COLORS.positive },
+    { label: 'Faturamento da empresa recebido', value: money(report.totals.annualReceived), color: COLORS.positive },
+    { label: 'Receitas pessoais externas', value: money(report.totals.personalExternalIncome || 0), color: COLORS.gold },
     { label: 'Despesas pagas no ano', value: money(report.totals.annualExpenses), color: COLORS.negative },
     { label: 'Resultado financeiro do ano', value: money(report.totals.annualResult), color: report.totals.annualResult >= 0 ? COLORS.positive : COLORS.negative },
     { label: 'Casamentos no ano', value: String(report.totals.weddings) },
@@ -491,6 +492,57 @@ export async function generateAnnualReportPdf({ report, studio = {} }) {
       amount: money(receipt.amount),
     })),
     emptyText: 'Nenhum recebimento com data foi registrado neste ano.',
+  });
+
+  drawTable({
+    title: 'Resumo das receitas pessoais por classificação',
+    columns: [
+      { key: 'classification', label: 'Classificação', width: 350, bold: true },
+      { key: 'amount', label: 'Total recebido', width: 161, bold: true },
+    ],
+    rows: (report.personalExternalIrRows || []).map((item) => ({
+      classification: item.classification,
+      amount: money(item.amount),
+    })),
+    emptyText: 'Nenhuma receita pessoal externa foi incluída neste exercício.',
+  });
+
+  drawTable({
+    title: 'Receitas pessoais externas para conferência do IR',
+    columns: [
+      { key: 'date', label: 'Data', width: 52 },
+      { key: 'description', label: 'Descrição', width: 105, bold: true },
+      { key: 'classification', label: 'Classificação', width: 92 },
+      { key: 'payer', label: 'Fonte pagadora', width: 110 },
+      { key: 'document', label: 'CPF/CNPJ', width: 80 },
+      { key: 'amount', label: 'Valor', width: 72, bold: true, color: () => COLORS.gold },
+    ],
+    rows: (report.personalExternalEntries || []).map((item) => ({
+      date: formatReportDate(item.date),
+      description: item.description,
+      classification: item.irClassification,
+      payer: item.payer || 'Não informada',
+      document: item.payerDocument || '-',
+      amount: money(item.amount),
+    })),
+    emptyText: 'Nenhuma receita pessoal externa foi incluída neste exercício.',
+  });
+
+  drawTable({
+    title: 'Aquisições de equipamentos e origem dos recursos',
+    columns: [
+      { key: 'date', label: 'Data', width: 58 },
+      { key: 'equipment', label: 'Equipamento', width: 125, bold: true },
+      { key: 'source', label: 'Origem dos recursos', width: 205 },
+      { key: 'amount', label: 'Valor', width: 123, bold: true, color: () => COLORS.gold },
+    ],
+    rows: (report.equipmentRows || []).map((item) => ({
+      date: formatReportDate(item.purchaseDate),
+      equipment: item.name,
+      source: item.fundingSource || item.fundingNature || 'Não informada',
+      amount: money(item.revenue),
+    })),
+    emptyText: 'Nenhuma aquisição de equipamento foi registrada neste exercício.',
   });
 
   drawTable({

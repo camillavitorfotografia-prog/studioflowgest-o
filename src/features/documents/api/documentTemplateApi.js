@@ -7,7 +7,7 @@ export async function saveTemplate(template) {
   if (!next.id) next.id = createId('template');
   if (!Array.isArray(next.pages)) next.pages = [];
   // ensure pages have ids and default structure
-  next.pages = next.pages.map((p, i) => ({ ...createPage(p), id: p.id || createId(`page-${i}`), order: p.order ?? i }));
+  next.pages = next.pages.map((page, index) => createPage({ ...page, id: page?.id || createId(`page-${index}`), order: page?.order ?? index }));
   next.updatedAt = new Date().toISOString();
   if (!next.createdAt) next.createdAt = next.updatedAt;
   return storage.saveTemplate(next);

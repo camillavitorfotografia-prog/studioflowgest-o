@@ -144,7 +144,7 @@ const loadImage = (file) => new Promise((resolve, reject) => {
 
 export async function createProtectedPreview(file, settings = {}, clientName = '') {
   const image = await loadImage(file);
-  const maxWidth = Number(settings.previewMaxWidth || 1280);
+  const maxWidth = Number(settings.previewMaxWidth || 1600);
   const scale = Math.min(1, maxWidth / image.naturalWidth);
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
   const height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -157,9 +157,9 @@ export async function createProtectedPreview(file, settings = {}, clientName = '
   ctx.drawImage(image, 0, 0, width, height);
 
   if (settings.protected !== false) {
-    const text = String(settings.text || 'PROTEGIDO').toUpperCase();
-    const opacity = Math.max(0.12, Math.min(0.65, Number(settings.opacity ?? 0.3)));
-    const spacing = Math.max(95, Number(settings.spacing || 170));
+    const text = String(settings.text || 'PROVA PARA SELEÇÃO').toUpperCase();
+    const opacity = Math.max(0.18, Math.min(0.7, Number(settings.opacity ?? 0.38)));
+    const spacing = Math.max(90, Number(settings.spacing || 150));
     const angle = (Number(settings.angle ?? -28) * Math.PI) / 180;
     const fontSize = Math.max(18, Math.round(width / 42));
     ctx.save();
@@ -174,7 +174,8 @@ export async function createProtectedPreview(file, settings = {}, clientName = '
     const diagonal = Math.sqrt(width * width + height * height);
     for (let y = -diagonal; y <= diagonal; y += spacing) {
       for (let x = -diagonal; x <= diagonal; x += spacing * 1.55) {
-        const label = settings.showClient && clientName ? `${text} · ${capitalizeName(clientName)}` : text;
+        const includeClient = settings.showClient !== false;
+        const label = includeClient && clientName ? `${text} · ${capitalizeName(clientName)}` : text;
         ctx.strokeText(label, x, y);
         ctx.fillText(label, x, y);
       }
@@ -190,7 +191,7 @@ export async function createProtectedPreview(file, settings = {}, clientName = '
     ctx.restore();
   }
 
-  const quality = Math.max(0.52, Math.min(0.82, Number(settings.previewQuality ?? 0.68)));
+  const quality = Math.max(0.52, Math.min(0.78, Number(settings.previewQuality ?? 0.66)));
   let mimeType = 'image/webp';
   let blob = await new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
   if (!blob) {
@@ -585,7 +586,34 @@ export async function renewGalleryAccess(galleryId) {
   return { gallery: normalizeGallery(data), token };
 }
 
-export async function publishGallery(galleryId, status = 'selection') {
+export async function publishGallery(galleryId, status = 'selection', options = {}) {
+  if (status === 'selection') {
+    const detail = await getGallery(galleryId);
+    const protection = {
+      text: 'PROVA PARA SELEÇÃO',
+      opacity: 0.38,
+      spacing: 150,
+      angle: -28,
+      grid: true,
+      showClient: true,
+      previewMaxWidth: 1600,
+      previewQuality: 0.66,
+      ...(detail.gallery.watermarkSettings || {}),
+      ...(options.watermarkSettings || {}),
+      protected: true,
+    };
+    const processed = await reprocessGalleryPreviews({
+      galleryId,
+      watermarkSettings: protection,
+      clientName: options.clientName || '',
+      onProgress: options.onProgress,
+    });
+    if (processed.failures.length) {
+      throw new Error(`Não foi possível proteger ${processed.failures.length} fotografia(s). Revise os arquivos antes de publicar.`);
+    }
+    await updateGallery(galleryId, { watermarkSettings: protection });
+  }
+
   let token = getStoredGalleryToken(galleryId);
   if (!token) {
     const renewed = await renewGalleryAccess(galleryId);

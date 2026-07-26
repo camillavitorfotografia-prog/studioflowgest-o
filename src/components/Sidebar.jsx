@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   FileSignature,
-  FileText,
   KeyRound,
   LogIn,
   LogOut,
@@ -234,7 +233,6 @@ export default function Sidebar() {
             <div className="account-menu-group">
               <button type="button" role="menuitem" onClick={() => goTo('/perfil')}><UserRound /><span>Meu Perfil</span></button>
               <button type="button" role="menuitem" onClick={() => goTo('/configuracoes')}><Settings /><span>Configurações</span></button>
-              <button type="button" role="menuitem" onClick={() => goTo('/configuracoes/modelos-propostas')}><FileText /><span>Modelos de Propostas</span></button>
               <button type="button" role="menuitem" onClick={() => goTo('/configuracoes/modelos-contratos')}><FileSignature /><span>Modelos de Contratos</span></button>
               <button type="button" role="menuitem" onClick={() => goTo('/perfil?secao=seguranca')}><KeyRound /><span>Segurança / Alterar senha</span></button>
             </div>
