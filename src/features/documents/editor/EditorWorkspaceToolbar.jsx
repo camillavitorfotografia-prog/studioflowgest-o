@@ -12,6 +12,8 @@ import {
   Ruler,
   Rows3,
   Columns3,
+  ClipboardCopy,
+  ClipboardPaste,
   ScanLine,
   Trash2,
 } from 'lucide-react';
@@ -28,6 +30,9 @@ export default function EditorWorkspaceToolbar({
   onFitPage,
   onToggleView,
   onSelectAll,
+  onCopy,
+  onPaste,
+  canPaste,
   onDelete,
   onAlign,
   onDistribute,
@@ -46,7 +51,7 @@ export default function EditorWorkspaceToolbar({
         <button type="button" onClick={onZoomOut} title="Diminuir zoom"><Minus /></button>
         <span className="contract-zoom-label">{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={onZoomIn} title="Aumentar zoom"><Plus /></button>
-        <button type="button" onClick={onResetZoom}>100%</button>
+        <button type="button" onClick={onResetZoom} title="Voltar para 100%"><span className="contract-workspace-text">100%</span></button>
         <button type="button" onClick={onFitPage} title="Ajustar página"><Maximize2 /></button>
       </div>
 
@@ -75,8 +80,10 @@ export default function EditorWorkspaceToolbar({
       )}
 
       <span className="contract-toolbar-divider" />
-      <button type="button" onClick={onSelectAll}>Selecionar tudo</button>
-      <button type="button" disabled={!hasSelection} onClick={onDelete}><Trash2 /> Apagar</button>
+      <button type="button" onClick={onSelectAll} title="Selecionar tudo"><span className="contract-workspace-text contract-workspace-text-full">Selecionar tudo</span><span className="contract-workspace-text contract-workspace-text-short">Tudo</span></button>
+      <button type="button" disabled={!hasSelection} onClick={onCopy} title="Copiar seleção"><ClipboardCopy /><span className="contract-workspace-text">Copiar</span></button>
+      <button type="button" disabled={!canPaste} onClick={onPaste} title="Colar no último ponto marcado"><ClipboardPaste /><span className="contract-workspace-text">Colar</span></button>
+      <button type="button" disabled={!hasSelection} onClick={onDelete} title="Apagar seleção"><Trash2 /><span className="contract-workspace-text">Apagar</span></button>
       <span className={`contract-autosave-status is-${autosaveStatus}`}>{saveLabel}</span>
     </div>
   );

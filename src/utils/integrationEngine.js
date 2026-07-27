@@ -1,5 +1,14 @@
 import { FINANCE_STORAGE_KEYS } from './financeEngine';
 
+const readLocalArray = (key) => {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+};
+
 // Chaves globais padronizadas do ecossistema StudioFlow
 export const INTEGRATION_KEYS = {
   LEADS: 'cv_crm_leads',
@@ -17,9 +26,9 @@ export function processLeadApproval(lead) {
 
   try {
     // 1. Carregar estados atuais do LocalStorage
-    const clientsList = JSON.parse(localStorage.getItem(INTEGRATION_KEYS.CLIENTS_PROJECTS) || '[]');
-    const agendaList = JSON.parse(localStorage.getItem(INTEGRATION_KEYS.AGENDA) || '[]');
-    const financialList = JSON.parse(localStorage.getItem(INTEGRATION_KEYS.TRANSACTIONS) || '[]');
+    const clientsList = readLocalArray(INTEGRATION_KEYS.CLIENTS_PROJECTS);
+    const agendaList = readLocalArray(INTEGRATION_KEYS.AGENDA);
+    const financialList = readLocalArray(INTEGRATION_KEYS.TRANSACTIONS);
 
     // 2. Higienização e busca de duplicidade de cliente (E-mail, CPF ou Telefone como chaves únicas)
     const uniqueEmail = lead.email?.trim().toLowerCase();
@@ -118,7 +127,7 @@ export function processLeadApproval(lead) {
     }
 
     // 6. Atualização do Status do Lead no CRM para "Aprovado/Ganho"
-    const leadsList = JSON.parse(localStorage.getItem(INTEGRATION_KEYS.LEADS) || '[]');
+    const leadsList = readLocalArray(INTEGRATION_KEYS.LEADS);
     const leadIndex = leadsList.findIndex(l => l.id === lead.id);
     if (leadIndex !== -1) {
       leadsList[leadIndex].status = 'Aprovado';

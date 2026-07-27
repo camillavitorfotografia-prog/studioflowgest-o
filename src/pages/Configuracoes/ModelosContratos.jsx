@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
-  listTemplates,
+  getTemplate,
+  listTemplateSummaries,
   saveTemplate,
 } from '../../features/documents/storage/documentStorageAdapter';
 import {
@@ -19,6 +20,7 @@ import {
 import {
   buildContractBlueprint,
   CONTRACT_BLUEPRINT_VERSION,
+  upgradeContractTemplateBlueprint,
 } from '../../features/documents/editor/contractTemplateBlueprints';
 import './ModelosContratos.css';
 
@@ -33,6 +35,8 @@ const OFFICIAL_NAMES = {
   ensaio: 'Contrato de Ensaio',
   formatura: 'Contrato de Formatura',
 };
+
+const upgradingTemplateIds = new Set();
 
 const getCanonicalBaseId = (category) => (
   `contract-${category}`
@@ -102,69 +106,6 @@ const buildDefaultTemplate = (model) => {
   };
 };
 
-const consolidateOfficialTemplates = async (
-  items,
-) => {
-  const officialItems = items.filter(
-    (item) => OFFICIAL_CATEGORIES.includes(
-      item.category,
-    ),
-  );
-
-  const normalized = [];
-
-  for (const category of OFFICIAL_CATEGORIES) {
-    const group = officialItems
-      .filter((item) => item.category === category)
-      .sort(compareTemplates);
-
-    if (!group.length) continue;
-
-    const current = group[0];
-    const canonicalBaseId =
-      getCanonicalBaseId(category);
-
-    const savedCurrent = await saveTemplate({
-      ...current,
-      name: OFFICIAL_NAMES[category],
-      slug: canonicalBaseId,
-      baseTemplateId: canonicalBaseId,
-      isLatest: true,
-      updatedAt: new Date().toISOString(),
-    });
-
-    normalized.push(savedCurrent);
-
-    const outdated = group.slice(1).filter(
-      (item) => (
-        item.isLatest
-        || item.baseTemplateId
-          !== canonicalBaseId
-        || item.slug !== canonicalBaseId
-      ),
-    );
-
-    if (outdated.length) {
-      await Promise.all(
-        outdated.map((item) => (
-          saveTemplate({
-            ...item,
-            name: OFFICIAL_NAMES[category],
-            slug: canonicalBaseId,
-            baseTemplateId: canonicalBaseId,
-            isLatest: false,
-            updatedAt:
-              item.updatedAt
-              || new Date().toISOString(),
-          })
-        )),
-      );
-    }
-  }
-
-  return normalized;
-};
-
 export default function ModelosContratos() {
   const navigate = useNavigate();
 
@@ -178,7 +119,7 @@ export default function ModelosContratos() {
     setError('');
 
     try {
-      let items = await listTemplates({
+      let items = await listTemplateSummaries({
         documentType: 'contract',
       });
 
@@ -192,44 +133,73 @@ export default function ModelosContratos() {
       const existingCategories = new Set(
         items
           .filter((item) => (
-            OFFICIAL_CATEGORIES.includes(
-              item.category,
-            )
+            OFFICIAL_CATEGORIES.includes(item.category)
           ))
           .map((item) => item.category),
       );
 
       const missingModels = validModels.filter(
-        (model) => (
-          !existingCategories.has(model.type)
-        ),
+        (model) => !existingCategories.has(model.type),
       );
 
       if (missingModels.length) {
-        const created = await Promise.all(
+        await Promise.all(
           missingModels.map((model) => (
-            saveTemplate(
-              buildDefaultTemplate(model),
-            )
+            saveTemplate(buildDefaultTemplate(model))
           )),
         );
 
-        items = [...created, ...items];
+        items = await listTemplateSummaries(
+          { documentType: 'contract' },
+          { force: true },
+        );
       }
 
-      const consolidated =
-        await consolidateOfficialTemplates(items);
+      const officialTemplates = OFFICIAL_CATEGORIES
+        .map((category) => (
+          items
+            .filter((item) => item.category === category)
+            .sort(compareTemplates)[0]
+        ))
+        .filter(Boolean);
 
-      setTemplates(consolidated.sort(
-        (first, second) => (
-          OFFICIAL_CATEGORIES.indexOf(
-            first.category,
-          )
-          - OFFICIAL_CATEGORIES.indexOf(
-            second.category,
-          )
+      setTemplates(officialTemplates);
+
+      const outdatedTemplates = officialTemplates.filter(
+        (item) => (
+          Number(item.metadata?.blueprintVersion || 0)
+          < CONTRACT_BLUEPRINT_VERSION
+          && !upgradingTemplateIds.has(item.id)
         ),
-      ));
+      );
+
+      outdatedTemplates.forEach((item) => {
+        upgradingTemplateIds.add(item.id);
+
+        void getTemplate(item.id)
+          .then((fullTemplate) => {
+            if (
+              !fullTemplate
+              || Number(fullTemplate.metadata?.blueprintVersion || 0)
+                >= CONTRACT_BLUEPRINT_VERSION
+            ) {
+              return null;
+            }
+
+            return saveTemplate(
+              upgradeContractTemplateBlueprint(fullTemplate),
+            );
+          })
+          .catch((upgradeError) => {
+            console.error(
+              `Erro ao atualizar o modelo ${item.category}:`,
+              upgradeError,
+            );
+          })
+          .finally(() => {
+            upgradingTemplateIds.delete(item.id);
+          });
+      });
     } catch (caughtError) {
       console.error(
         'Erro ao carregar modelos de contrato:',
@@ -310,7 +280,7 @@ export default function ModelosContratos() {
                 </strong>
 
                 <span>
-                  {template.pages?.length || 0}
+                  {template.pageCount || template.metadata?.originalPageCount || 0}
                   {' '}
                   páginas
                 </span>

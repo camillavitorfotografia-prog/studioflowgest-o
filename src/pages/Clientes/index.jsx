@@ -54,6 +54,9 @@ const emptyWithdrawal = { pessoa: 'camilla', valor: '', data: '', observacao: ''
 const emptyContact = { id: null, data: '', tipo: 'WhatsApp', observacao: '' };
 
 const CLIENTS_LOCAL_MODE = false;
+const CLIENTS_CACHE_TTL = 30_000;
+let clientsMemoryCache = null;
+
 
 const inputStyle = {
   width: '100%',
@@ -765,7 +768,9 @@ const calculatePayments = (formData) => {
 };
 
 export default function Clientes() {
-  const [studio, setStudio] = useState({ clients: [], projects: [] });
+  const [studio, setStudio] = useState(() => clientsMemoryCache?.data || loadLocalStudio());
+  const [isLoadingClients, setIsLoadingClients] = useState(() => !clientsMemoryCache);
+  const [clientsLoadError, setClientsLoadError] = useState('');
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [formData, setFormData] = useState(emptyForm);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -786,38 +791,55 @@ export default function Clientes() {
   const [contactDraft, setContactDraft] = useState(emptyContact);
   const nameInputRef = useRef(null);
 
-  const load = async () => {
+  const load = async ({ force = false } = {}) => {
+    const cacheIsFresh = clientsMemoryCache
+      && Date.now() - clientsMemoryCache.timestamp < CLIENTS_CACHE_TTL;
+
+    if (!force && cacheIsFresh) {
+      setStudio(clientsMemoryCache.data);
+      setIsLoadingClients(false);
+      setClientsLoadError('');
+      return;
+    }
+
     setSyncStatus('saving');
+    setIsLoadingClients(!clientsMemoryCache);
+    setClientsLoadError('');
 
     try {
       const localStudio = loadLocalStudio();
+      let nextStudio;
 
       if (isSupabaseConfigured) {
         const remoteStudio = await getDbStudioData();
-        const remoteClients = Array.isArray(remoteStudio.clients) ? remoteStudio.clients : [];
-        setStudio({
-          // Com Supabase configurado, o banco é a única fonte oficial. Registros
-          // antigos do cache não podem reaparecer nem gerar duplicações visuais.
-          clients: remoteClients,
+        nextStudio = {
+          clients: Array.isArray(remoteStudio.clients) ? remoteStudio.clients : [],
           projects: Array.isArray(remoteStudio.projects) ? remoteStudio.projects : [],
-        });
+        };
       } else {
-        setStudio({
+        nextStudio = {
           clients: Array.isArray(localStudio.clients) ? localStudio.clients : [],
           projects: Array.isArray(localStudio.projects) ? localStudio.projects : [],
-        });
+        };
       }
+
+      clientsMemoryCache = { data: nextStudio, timestamp: Date.now() };
+      setStudio(nextStudio);
     } catch (error) {
-      console.error(
-        'Erro ao carregar clientes locais:',
-        error.message,
+      console.error('Erro ao carregar clientes:', error?.message || error);
+      setClientsLoadError(
+        'Não foi possível atualizar os clientes. Verifique a conexão e tente novamente.',
       );
 
-      setStudio({
-        clients: [],
-        projects: [],
-      });
+      if (!clientsMemoryCache) {
+        const fallback = loadLocalStudio();
+        setStudio({
+          clients: Array.isArray(fallback.clients) ? fallback.clients : [],
+          projects: Array.isArray(fallback.projects) ? fallback.projects : [],
+        });
+      }
     } finally {
+      setIsLoadingClients(false);
       setSyncStatus('saved');
     }
   };
@@ -827,7 +849,7 @@ export default function Clientes() {
 
     const refresh = () => {
       if (!active) return;
-      void load();
+      void load({ force: true });
     };
 
     setTimeout(refresh, 0);
@@ -2039,7 +2061,24 @@ export default function Clientes() {
                 </div>
               </article>
             ))}
-            {filteredClients.length === 0 && <div className="sf-client-empty">Nenhum cliente integrado ainda.</div>}
+            {isLoadingClients && filteredClients.length === 0 && (
+              <div className="sf-client-empty sf-client-loading" role="status">
+                Carregando clientes…
+              </div>
+            )}
+            {!isLoadingClients && clientsLoadError && filteredClients.length === 0 && (
+              <div className="sf-client-empty sf-client-load-error" role="alert">
+                <span>{clientsLoadError}</span>
+                <button type="button" className="sf-secondary-button" onClick={() => load({ force: true })}>
+                  Tentar novamente
+                </button>
+              </div>
+            )}
+            {!isLoadingClients && !clientsLoadError && filteredClients.length === 0 && (
+              <div className="sf-client-empty">
+                {search ? 'Nenhum cliente corresponde à busca.' : 'Nenhum cliente integrado ainda.'}
+              </div>
+            )}
           </div>
         </div>
       </div>

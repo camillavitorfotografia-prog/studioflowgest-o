@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 
 import { loadSettings, saveSettings } from '../../utils/settings';
+import { emitThemeChange } from '../../utils/theme';
 import { createBackupPayload, restoreBackupPayload } from '../../utils/backup';
 import {
   capitalizeName,
@@ -577,11 +578,24 @@ export default function Configuracoes() {
                   <select
                     value={settings.general.theme}
                     onChange={(event) => {
-                      update(
-                        'general',
-                        'theme',
-                        event.target.value,
-                      );
+                      const nextTheme = event.target.value;
+
+                      setSettings((current) => {
+                        const nextSettings = {
+                          ...current,
+                          general: {
+                            ...current.general,
+                            theme: nextTheme,
+                          },
+                        };
+
+                        // A aparência é uma preferência imediata: aplica e persiste
+                        // no mesmo gesto para não voltar ao tema anterior após F5.
+                        saveSettings(nextSettings);
+                        return nextSettings;
+                      });
+
+                      emitThemeChange(nextTheme);
                     }}
                   >
                     <option value="dark">Escuro</option>

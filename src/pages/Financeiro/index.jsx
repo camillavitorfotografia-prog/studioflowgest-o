@@ -572,9 +572,12 @@ const isSettledFinancialRow = (item) => {
 
 function useFinanceData() {
   const [loading, setLoading] = useState(true);
-  const [financasConfig, setFinancasConfig] = useState(() =>
-    JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario": 35, "empresa": 45, "reserva": 20}'),
-  );
+  const [financasConfig, setFinancasConfig] = useState(() => {
+    const stored = readStorage(FINANCE_STORAGE_KEYS.config, null);
+    return stored && typeof stored === 'object' && !Array.isArray(stored)
+      ? stored
+      : { salario: 35, empresa: 45, reserva: 20 };
+  });
   
   const [dataState, setDataState] = useState({
     transacoes: [],
@@ -930,20 +933,24 @@ export default function Financeiro() {
 
   return (
     <div className="sf-finance-page">
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          marginBottom: '8px',
-        }}
-      >
+      <div className="sf-finance-toolbar">
+        <label className="sf-finance-mobile-nav">
+          <span>Módulo financeiro</span>
+          <select
+            value={activeTab}
+            onChange={(event) => setActiveTab(event.target.value)}
+            aria-label="Selecionar módulo financeiro"
+          >
+            {tabs.map((tab) => (
+              <option key={tab.id} value={tab.id}>{tab.label}</option>
+            ))}
+          </select>
+        </label>
+
         <button
           type="button"
-          className="sf-secondary-button"
+          className="sf-secondary-button sf-finance-alert-button"
           onClick={() => setAlertsOpen(true)}
-          style={{
-            position: 'relative',
-          }}
         >
           <BellRing size={16} />
           Alertas
@@ -1417,13 +1424,7 @@ function FinanceDashboard({ data }) {
         title="Painel Financeiro Executivo"
         subtitle="Caixa, lucro, meta, cobranças e próximos 30 dias em uma única visão."
         action={
-          <div
-            style={{
-              display: 'flex',
-              gap: '8px',
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className="sf-finance-header-actions">
             <button
               className="sf-secondary-button"
               onClick={() => setGoalOpen(true)}
@@ -1649,7 +1650,8 @@ function FinanceDashboard({ data }) {
         <div className="sf-card tall">
           <h3>Fluxo dos próximos 30 dias</h3>
 
-          <ResponsiveContainer width="100%" height={260}>
+          <div className="sf-finance-chart sf-finance-chart-forecast">
+            <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={forecastChart}
               margin={{
@@ -1688,7 +1690,8 @@ function FinanceDashboard({ data }) {
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>
-          </ResponsiveContainer>
+            </ResponsiveContainer>
+          </div>
 
           <div className="formula-total soft">
             <span>Saldo projetado</span>
@@ -1707,7 +1710,8 @@ function FinanceDashboard({ data }) {
         <div className="sf-card tall">
           <h3>Regra dos Três</h3>
 
-          <ResponsiveContainer width="100%" height={220}>
+          <div className="sf-finance-chart sf-finance-chart-pie">
+            <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={[
@@ -1754,7 +1758,8 @@ function FinanceDashboard({ data }) {
                 }}
               />
             </PieChart>
-          </ResponsiveContainer>
+            </ResponsiveContainer>
+          </div>
 
           <div className="formula-row">
             <span>Salário</span>
@@ -3523,7 +3528,8 @@ function FluxoCaixa({ data }) {
       <div className="sf-card tall">
         <h3>Evolução mensal</h3>
 
-        <ResponsiveContainer width="100%" height={320}>
+        <div className="sf-finance-chart sf-finance-chart-cashflow">
+          <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={cashFlow}
             margin={{
@@ -3577,13 +3583,15 @@ function FluxoCaixa({ data }) {
               radius={[4, 4, 0, 0]}
             />
           </BarChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="sf-card tall">
         <h3>Projeção dos próximos 12 meses</h3>
 
-        <ResponsiveContainer width="100%" height={320}>
+        <div className="sf-finance-chart sf-finance-chart-projection">
+          <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={Array.from({ length: 12 }, (_, index) => {
               const reference = new Date();
@@ -3670,7 +3678,8 @@ function FluxoCaixa({ data }) {
               radius={[4, 4, 0, 0]}
             />
           </BarChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <SimpleTable
@@ -5864,6 +5873,7 @@ function DiagnosticoFinanceiro({ data }) {
   };
 
   const removeJournalEntry = (id) => {
+    if (!window.confirm('Excluir esta observação financeira?')) return;
     const next = journal.filter((item) => item.id !== id);
 
     setJournal(next);
@@ -6387,6 +6397,7 @@ function OperacoesFinanceiras({ data }) {
       alert('As contas padrão não podem ser excluídas.');
       return;
     }
+    if (!window.confirm('Excluir esta conta financeira? Os lançamentos existentes não serão apagados.')) return;
 
     persistAccounts(accounts.filter((item) => item.id !== id));
   };
@@ -6612,6 +6623,7 @@ function OperacoesFinanceiras({ data }) {
   };
 
   const removeCard = (id) => {
+    if (!window.confirm('Excluir este cartão? As despesas já registradas serão preservadas.')) return;
     persistCards(cards.filter((card) => card.id !== id));
   };
 
@@ -8808,7 +8820,10 @@ function SimpleTable({
               <tr key={row?.id || `row-${idx}`}>
                 {(Array.isArray(cells) ? cells : []).map(
                   (cell, index) => (
-                    <td key={`${row?.id || idx}-${index}`}>
+                    <td
+                      key={`${row?.id || idx}-${index}`}
+                      data-label={safeColumns[index] || ''}
+                    >
                       {cell}
                     </td>
                   ),

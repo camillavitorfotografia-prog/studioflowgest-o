@@ -122,7 +122,7 @@ table { max-width: 100%; }
 
 @media (max-width: 1180px) {
   .content-wrapper { padding: 18px !important; }
-  :is(.sf-project-detail-layout, .sf-pricing-layout, .contract-editor-grid, .editor-body) {
+  :is(.sf-project-detail-layout, .sf-pricing-layout, .editor-body) {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }
@@ -146,21 +146,25 @@ table { max-width: 100%; }
   .content-wrapper {
     width: 100% !important;
     margin-left: 0 !important;
-    padding: var(--sf-mobile-top-offset) 10px calc(18px + env(safe-area-inset-bottom)) !important;
+    padding: calc(54px + env(safe-area-inset-top, 0px)) 8px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  h1 { font-size: clamp(1.45rem, 7vw, 2rem) !important; line-height: 1.08; }
-  h2 { font-size: clamp(1.15rem, 5.4vw, 1.55rem); }
+  h1 { font-size: clamp(1.3rem, 6vw, 1.65rem) !important; line-height: 1.1; }
+  h2 { font-size: clamp(1.05rem, 4.8vw, 1.3rem); }
 
   button, a[role="button"] { min-height: var(--sf-touch-size); }
   input, select, textarea { font-size: 16px !important; }
 
-  :is(.dashboard-metrics-grid, .dashboard-grid, .crm-stats-grid, .clients-summary-grid,
+  :is(.dashboard-metrics-grid, .crm-stats-grid, .clients-summary-grid,
   .sf-project-summary-grid, .agenda-summary-grid, .equipment-summary-grid,
-  .sf-reports-metrics, .sf-reports-summary-grid, .sf-reports-table-grid,
-  .file-library-summary, .gallery-collection-grid, .client-area-summary,
-  .documents-grid, .sf-pricing-kpi-grid, .migration-stats, .profile-grid,
-  .settings-grid, .sf-metric-grid, .sf-panel-grid, .sf-report-grid) {
+  .sf-reports-metrics, .sf-reports-summary-grid, .file-library-summary,
+  .client-area-summary, .sf-pricing-kpi-grid, .migration-stats, .sf-metric-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  :is(.dashboard-grid, .sf-reports-table-grid, .gallery-collection-grid,
+  .documents-grid, .profile-grid, .settings-grid, .sf-panel-grid, .sf-report-grid) {
     grid-template-columns: 1fr !important;
     gap: 10px !important;
   }
@@ -207,12 +211,19 @@ table { max-width: 100%; }
 }
 
 @media (max-width: 480px) {
-  .content-wrapper { padding-left: 8px !important; padding-right: 8px !important; }
+  .content-wrapper { padding-left: 7px !important; padding-right: 7px !important; }
   :is(.sf-card, .sf-table-card, .dashboard-card, .crm-stat-card, .client-card,
   .sf-project-card, .agenda-summary-card, .equipment-card, .sf-report-summary-card,
-  .sf-report-table-card) { border-radius: 11px !important; }
-  :is(.sf-primary-button, .sf-secondary-button, .agenda-primary, .crm-new-lead-button) {
-    width: 100%;
+  .sf-report-table-card) { border-radius: 10px !important; }
+  :is(.agenda-primary, .crm-new-lead-button) { width: 100%; }
+}
+
+@media (max-width: 359px) {
+  :is(.dashboard-metrics-grid, .crm-stats-grid, .clients-summary-grid,
+  .sf-project-summary-grid, .agenda-summary-grid, .equipment-summary-grid,
+  .sf-reports-metrics, .sf-reports-summary-grid, .file-library-summary,
+  .client-area-summary, .sf-pricing-kpi-grid, .migration-stats, .sf-metric-grid) {
+    grid-template-columns: 1fr !important;
   }
 }
 

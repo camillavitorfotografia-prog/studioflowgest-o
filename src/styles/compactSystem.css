@@ -237,11 +237,11 @@ textarea { min-height: 88px !important; }
   }
 
   .content-wrapper {
-    padding: 64px 10px 18px !important;
+    padding: calc(54px + env(safe-area-inset-top, 0px)) 8px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  h1 { font-size: 1.55rem; }
-  h2 { font-size: 1.2rem; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.12rem; }
 
   :is(.sf-finance-nav, .sf-tab-nav, .crm-tabs, .sf-pricing-tabs, .toolbar-tabs) {
     overflow-x: auto;
@@ -252,9 +252,12 @@ textarea { min-height: 88px !important; }
     display: none;
   }
 
-  :is(.sf-metric-grid, .sf-panel-grid, .sf-report-grid, .agenda-summary-grid, .dashboard-grid,
-  .crm-stats-grid, .clients-grid, .works-stats-grid, .equipment-grid, .gallery-grid,
-  .file-library-grid, .client-area-grid) {
+  :is(.sf-metric-grid, .agenda-summary-grid, .crm-stats-grid, .works-stats-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  :is(.sf-panel-grid, .sf-report-grid, .dashboard-grid, .clients-grid, .equipment-grid,
+  .gallery-grid, .file-library-grid, .client-area-grid) {
     grid-template-columns: 1fr !important;
   }
 

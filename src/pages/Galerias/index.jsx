@@ -489,14 +489,29 @@ export default function Galerias() {
     </>}
 
     {editor && <div className="gallery-workspace">
-      <header className="gallery-workspace-header"><div className="gallery-workspace-title"><button className="icon secondary" onClick={() => navigate('/galerias')}><ArrowLeft /></button><div><small>GALERIA</small><h1>{capitalizeName(editor.gallery.name)}</h1><span className={`save-indicator ${dirty ? 'dirty' : ''}`}>{saving ? 'Salvando…' : dirty ? 'Alterações pendentes' : lastSavedAt ? `Salvo às ${lastSavedAt}` : 'Tudo salvo'}</span></div></div><div className="gallery-workspace-actions"><button className="secondary" onClick={previewGallery}><Eye /> Pré-visualizar</button><button className="secondary" onClick={copyLink}><Copy /> Link</button><button onClick={publish}><Send /> {editor.gallery.status === 'draft' ? 'Publicar' : 'Atualizar publicação'}</button><button disabled={!dirty || saving} onClick={() => saveEditor()}><Save /> Salvar</button></div></header>
+      <header className="gallery-workspace-header">
+        <div className="gallery-workspace-title">
+          <button className="icon secondary gallery-back-button" onClick={() => navigate('/galerias')} aria-label="Voltar para galerias" title="Voltar para galerias"><ArrowLeft /></button>
+          <div className="gallery-workspace-title-copy">
+            <small>GALERIA</small>
+            <h1>{capitalizeName(editor.gallery.name)}</h1>
+            <span className={`save-indicator ${dirty ? 'dirty' : ''}`}>{saving ? 'Salvando…' : dirty ? 'Alterações pendentes' : lastSavedAt ? `Salvo às ${lastSavedAt}` : 'Tudo salvo'}</span>
+          </div>
+        </div>
+        <div className="gallery-workspace-actions" aria-label="Ações da galeria">
+          <button className="secondary gallery-action-preview" onClick={previewGallery} title="Pré-visualizar galeria"><Eye /><span className="action-label-long">Pré-visualizar</span><span className="action-label-short">Prévia</span></button>
+          <button className="secondary gallery-action-link" onClick={copyLink} title="Copiar link da galeria"><Copy /><span>Link</span></button>
+          <button className="gallery-action-publish" onClick={publish} title={editor.gallery.status === 'draft' ? 'Publicar galeria' : 'Atualizar publicação'}><Send /><span className="action-label-long">{editor.gallery.status === 'draft' ? 'Publicar' : 'Atualizar publicação'}</span><span className="action-label-short">{editor.gallery.status === 'draft' ? 'Publicar' : 'Atualizar'}</span></button>
+          <button className="gallery-action-save" disabled={!dirty || saving} onClick={() => saveEditor()} title="Salvar alterações"><Save /><span>Salvar</span></button>
+        </div>
+      </header>
 
       {message && <div className="gallery-admin-message workspace-message">{message}</div>}
       <section className="gallery-production-strip">{[
         ['Originais', metrics.originals, FileImage], ['Provas', metrics.previews, ShieldCheck], ['Selecionadas', metrics.selected, Heart], ['Editadas', metrics.edited, Palette], ['Entregues', metrics.delivered, CheckCircle2],
       ].map(([label,value,Icon]) => <article key={label}><Icon/><span><strong>{value}</strong><small>{label}</small></span></article>)}{metrics.failed>0 && <article className="warning"><RefreshCw/><span><strong>{metrics.failed}</strong><small>Com falha</small></span></article>}</section>
 
-      <div className="gallery-workspace-layout"><nav className="gallery-workspace-nav">{TABS.map(([id,label,Icon]) => <button className={editorTab===id?'active':''} key={id} onClick={() => setEditorTab(id)}><Icon/>{label}</button>)}</nav><main className="gallery-workspace-content">
+      <div className="gallery-workspace-layout"><nav className="gallery-workspace-nav" aria-label="Seções da galeria">{TABS.map(([id,label,Icon]) => <button className={editorTab===id?'active':''} key={id} onClick={() => setEditorTab(id)} title={label} aria-current={editorTab===id?'page':undefined}><Icon/><span>{label}</span></button>)}</nav><main className="gallery-workspace-content">
         {editorTab==='overview' && <OverviewTab editor={editor} metrics={metrics} operations={operations} setTab={setEditorTab} />}
         {editorTab==='photos' && <PhotosTab editor={editor} selectedPhotoIds={selectedPhotoIds} setSelectedPhotoIds={setSelectedPhotoIds} menuId={photoMenuId} setMenuId={setPhotoMenuId} onUpload={() => {setUploadGallery(editor.gallery);setUploadProgress([])}} onCover={chooseCover} onMove={movePhoto} onDelete={removePhoto} />}
         {editorTab==='cover' && <CoverTab editor={editor} updateSettings={updateSettings} onChoose={() => setCoverPickerOpen(true)} />}

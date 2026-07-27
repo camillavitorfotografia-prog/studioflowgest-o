@@ -732,3 +732,61 @@
   .sf-extra-payment-toggle { width: 100%; }
   .sf-extra-payment-option { flex: 1; min-width: 0; }
 }
+
+.sf-client-loading { min-height: 140px; display: grid; place-items: center; }
+.sf-client-load-error { min-height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
+
+/* V5 — Clientes mobile: filtros e dados do card em duas colunas. */
+@container clients-page (max-width: 520px) {
+  .sf-clients-header {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .sf-clients-header h1 { font-size: 1.18rem; }
+  .sf-clients-header p { font-size: 0.69rem; line-height: 1.4; }
+
+  .sf-client-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 7px;
+    gap: 6px;
+  }
+
+  .sf-client-toolbar .sf-client-search {
+    grid-column: 1 / -1;
+  }
+
+  .sf-client-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 8px;
+    padding: 8px;
+  }
+
+  .sf-client-row-name,
+  .sf-client-row-actions {
+    grid-column: 1 / -1;
+  }
+
+  .sf-client-row-name { padding-bottom: 6px; }
+  .sf-client-row small { font-size: 0.59rem; }
+  .sf-client-row > div:not(.sf-client-row-name):not(.sf-client-row-actions)::before { font-size: 0.52rem; }
+
+  .sf-client-row-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(84px, .62fr);
+    gap: 6px;
+  }
+
+  .sf-client-edit-button,
+  .sf-client-delete-button {
+    min-height: 34px;
+    font-size: 0.65rem;
+  }
+}
+
+@container clients-page (max-width: 350px) {
+  .sf-client-toolbar,
+  .sf-client-row { grid-template-columns: 1fr; }
+  .sf-client-row-name,
+  .sf-client-row-actions,
+  .sf-client-toolbar .sf-client-search { grid-column: auto; }
+}

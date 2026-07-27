@@ -49,12 +49,27 @@ export default function MainLayout() {
           }
         }
 
+        @media (min-width: 769px) and (max-width: 1366px) {
+          body:has(.gallery-workspace) .content-wrapper {
+            margin-left: 84px !important;
+            width: calc(100% - 84px) !important;
+            padding: 14px !important;
+          }
+        }
+
         @media (max-width: 768px) {
           .content-wrapper {
             margin-top: 0 !important;
             margin-left: 0 !important;
             width: 100% !important;
-            padding: 64px 10px 22px !important;
+            padding: calc(54px + env(safe-area-inset-top, 0px)) 8px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+          }
+        }
+
+        @media (max-width: 430px) {
+          .content-wrapper {
+            padding-left: 7px !important;
+            padding-right: 7px !important;
           }
         }
       `}</style>

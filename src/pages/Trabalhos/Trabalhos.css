@@ -5652,3 +5652,156 @@
 .sf-photo-participant-grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .sf-photo-participant-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .sf-photo-selection-heading, .sf-photo-selection-actions, .sf-photo-participant-top { align-items: stretch; flex-direction: column; } .sf-photo-participant-grid { grid-template-columns: 1fr; } }
+
+/* V5 — Trabalhos mobile: painel em grade compacta, sem sequência de cards gigantes. */
+@media (max-width: 620px) {
+  .sf-projects-header {
+    gap: 8px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .sf-projects-heading h1 { font-size: 1.3rem !important; }
+  .sf-projects-heading p { font-size: 0.7rem !important; line-height: 1.4; }
+
+  .sf-project-dashboard {
+    gap: 9px;
+  }
+
+  .sf-project-dashboard-hero {
+    gap: 8px;
+    padding: 0 0 10px;
+  }
+
+  .sf-project-dashboard-heading h2 { font-size: 1.1rem; }
+  .sf-project-dashboard-heading p { margin-top: 4px; font-size: 0.72rem; }
+
+  .sf-project-dashboard-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .sf-project-dashboard-actions .sf-project-dashboard-priority {
+    grid-column: 1 / -1;
+    justify-self: start;
+    padding: 5px 8px;
+  }
+
+  .sf-project-dashboard-actions .sf-secondary-button,
+  .sf-project-dashboard-actions .sf-project-dashboard-edit {
+    width: 100% !important;
+    min-height: 34px;
+    padding: 6px 7px !important;
+    justify-content: center;
+    font-size: 0.67rem;
+  }
+
+  .sf-project-executive-summary {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .sf-project-executive-summary h3 { font-size: 0.78rem; }
+  .sf-project-executive-summary p { font-size: 0.59rem; }
+
+  .sf-project-executive-cards {
+    margin-top: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px;
+  }
+
+  .sf-project-executive-cards article {
+    min-height: 72px;
+    padding: 8px;
+    border-radius: 8px;
+  }
+
+  .sf-project-executive-cards span { font-size: 0.54rem; }
+  .sf-project-executive-cards strong { margin-top: 4px; font-size: 0.72rem; }
+  .sf-project-executive-cards small { margin-top: 3px; font-size: 0.54rem; }
+
+  .sf-project-dashboard-progress,
+  .sf-project-dashboard-panel {
+    padding: 9px !important;
+    border-radius: 9px;
+  }
+
+  .sf-project-dashboard-metrics,
+  .sf-project-dashboard-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px;
+  }
+
+  .sf-project-dashboard-metric {
+    min-height: 68px;
+    padding: 8px;
+    gap: 7px;
+  }
+
+  .sf-project-dashboard-metric-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .sf-project-dashboard-metric strong { font-size: 0.75rem; }
+  .sf-project-dashboard-metric span:not(.sf-project-dashboard-metric-icon),
+  .sf-project-dashboard-metric small { font-size: 0.57rem; }
+
+  .sf-project-dashboard-panel > header {
+    margin-bottom: 8px;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .sf-project-dashboard-panel-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .sf-project-dashboard-panel h3 { font-size: 0.78rem; }
+  .sf-project-dashboard-panel header p { font-size: 0.58rem; }
+
+  .sf-project-dashboard-info {
+    min-height: 62px;
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .sf-project-dashboard-info span:not(.sf-project-dashboard-info-icon) { font-size: 0.56rem; }
+  .sf-project-dashboard-info strong { margin-top: 3px; font-size: 0.68rem; }
+
+  .sf-project-timeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px;
+  }
+
+  .sf-project-timeline-item {
+    min-height: 62px;
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .sf-project-timeline-marker {
+    width: 20px;
+    height: 20px;
+  }
+
+  .sf-project-timeline-marker > span { width: 6px; height: 6px; }
+  .sf-project-timeline-item strong { font-size: 0.65rem; }
+  .sf-project-timeline-item > div > span { margin-top: 2px; font-size: 0.55rem; }
+
+  .sf-project-automatic-alerts {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 359px) {
+  .sf-project-dashboard-actions,
+  .sf-project-executive-cards,
+  .sf-project-dashboard-metrics,
+  .sf-project-dashboard-info-grid,
+  .sf-project-timeline,
+  .sf-project-automatic-alerts {
+    grid-template-columns: 1fr !important;
+  }
+}

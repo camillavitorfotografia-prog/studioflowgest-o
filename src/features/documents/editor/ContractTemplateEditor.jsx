@@ -10,17 +10,17 @@ import {
   AlignJustify,
   AlignLeft,
   AlignRight,
-  ArrowDown,
-  ArrowLeft,
   ArrowRight,
-  ArrowUp,
   Circle,
+  Check,
+  ClipboardCopy,
+  ClipboardPaste,
+  Move,
+  RotateCcw,
   Redo2,
   Bold,
   BringToFront,
   Copy,
-  FileImage,
-  FilePlus2,
   ImagePlus,
   Italic,
   List,
@@ -30,7 +30,6 @@ import {
   Lock,
   Minus,
   Plus,
-  Save,
   SendToBack,
   Square,
   Trash2,
@@ -57,6 +56,8 @@ import { createId } from '../utils/documentIds';
 import {
   buildContractBlueprint,
   CONTRACT_BLUEPRINT_VERSION,
+  upgradeContractTemplateBlueprint,
+  isDefaultContractTemplate,
   CONTRACT_FIELD_OPTIONS,
 } from './contractTemplateBlueprints';
 import EditorToolbar from './EditorToolbar';
@@ -67,8 +68,11 @@ import EditorWorkspaceToolbar from './EditorWorkspaceToolbar';
 import useEditorAutosave from './hooks/useEditorAutosave';
 import { alignElements, distributeElements } from './utils/alignmentUtils';
 import SelectionBox from './SelectionBox';
+import ElementDesignPanel from './ElementDesignPanel';
+import { SelectionContextMenu, SelectionQuickToolbar } from './SelectionActions';
 import {
   cloneSelectedElements,
+  cloneValue,
   elementIntersectsRect,
   expandIdsWithGroups,
   getGroupedElementIds,
@@ -109,7 +113,27 @@ const baseElement = (type) => ({
   locked: false,
   visible: true,
   metadata: {},
+  shadowEnabled: false,
+  shadowColor: '#000000',
+  shadowOpacity: 0.28,
+  shadowBlur: 16,
+  shadowSpread: 0,
+  shadowOffsetX: 0,
+  shadowOffsetY: 6,
 });
+
+const getTextElementHtml = (element = {}) => {
+  const html = typeof element.htmlContent === 'string'
+    ? element.htmlContent
+    : null;
+  const plainText = String(element.content || '');
+
+  if (html !== null && (html.trim() || !plainText.trim())) {
+    return html;
+  }
+
+  return plainText.replace(/\n/g, '<br>');
+};
 
 const newDynamicField = () => ({
   ...baseElement('dynamicField'),
@@ -138,6 +162,20 @@ const newText = () => ({
   letterSpacing: 0,
   textTransform: 'none',
   hideIfEmpty: false,
+  backgroundEnabled: false,
+  backgroundFillType: 'solid',
+  backgroundColor: '#151515',
+  backgroundColor2: '#b88746',
+  backgroundOpacity: 0.72,
+  backgroundGradientAngle: 180,
+  backgroundRadius: 6,
+  textPadding: 8,
+  textShadowEnabled: false,
+  textShadowColor: '#000000',
+  textShadowOpacity: 0.45,
+  textShadowBlur: 6,
+  textShadowOffsetX: 0,
+  textShadowOffsetY: 2,
 });
 
 const newLogo = () => ({
@@ -163,6 +201,9 @@ const newOverlay = () => ({
   borderColor: '#c89f84',
   borderWidth: 1,
   borderRadius: 12,
+  fillType: 'solid',
+  backgroundColor2: '#b88746',
+  gradientAngle: 135,
 });
 
 const newRectangle = () => ({
@@ -333,6 +374,122 @@ const getElementLabel = (element = {}) => {
   return element.placeholderKey || 'Campo variável';
 };
 
+const clamp01 = (value, fallback = 1) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(1, numeric));
+};
+
+const colorWithOpacity = (color = '#000000', opacity = 1) => {
+  const safeOpacity = clamp01(opacity, 1);
+  const normalized = String(color || '#000000').trim();
+  const match = normalized.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
+
+  if (!match) return normalized;
+
+  let hex = match[1];
+  if (hex.length === 3) {
+    hex = hex.split('').map((character) => character + character).join('');
+  }
+
+  const integer = Number.parseInt(hex, 16);
+  const red = (integer >> 16) & 255;
+  const green = (integer >> 8) & 255;
+  const blue = integer & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${safeOpacity})`;
+};
+
+const buildElementShadow = (element = {}) => (
+  element.shadowEnabled
+    ? `${Number(element.shadowOffsetX || 0)}px ${Number(element.shadowOffsetY ?? 6)}px ${Math.max(0, Number(element.shadowBlur ?? 16))}px ${Number(element.shadowSpread || 0)}px ${colorWithOpacity(element.shadowColor || '#000000', element.shadowOpacity ?? 0.28)}`
+    : 'none'
+);
+
+const buildTextShadow = (element = {}) => (
+  element.textShadowEnabled
+    ? `${Number(element.textShadowOffsetX || 0)}px ${Number(element.textShadowOffsetY ?? 2)}px ${Math.max(0, Number(element.textShadowBlur ?? 6))}px ${colorWithOpacity(element.textShadowColor || '#000000', element.textShadowOpacity ?? 0.45)}`
+    : 'none'
+);
+
+const buildElementFill = (element = {}, options = {}) => {
+  const isTextBackground = Boolean(options.textBackground);
+  if (isTextBackground && !element.backgroundEnabled) return 'transparent';
+
+  const fillType = isTextBackground
+    ? element.backgroundFillType || 'solid'
+    : element.fillType || 'solid';
+  const primaryColor = element.backgroundColor || (isTextBackground ? '#151515' : '#f2d5c1');
+  const secondaryColor = element.backgroundColor2 || '#b88746';
+  const opacity = isTextBackground ? element.backgroundOpacity ?? 0.72 : 1;
+
+  if (fillType === 'gradient') {
+    const angle = Number(isTextBackground
+      ? element.backgroundGradientAngle ?? 180
+      : element.gradientAngle ?? 135);
+    return `linear-gradient(${angle}deg, ${colorWithOpacity(primaryColor, opacity)}, ${colorWithOpacity(secondaryColor, opacity)})`;
+  }
+
+  return colorWithOpacity(primaryColor, opacity);
+};
+
+
+const ELEMENT_STYLE_KEYS = [
+  'opacity',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'fontStyle',
+  'textDecoration',
+  'color',
+  'align',
+  'lineHeight',
+  'letterSpacing',
+  'textTransform',
+  'backgroundEnabled',
+  'backgroundFillType',
+  'backgroundColor',
+  'backgroundColor2',
+  'backgroundOpacity',
+  'backgroundGradientAngle',
+  'backgroundRadius',
+  'textPadding',
+  'textShadowEnabled',
+  'textShadowColor',
+  'textShadowOpacity',
+  'textShadowBlur',
+  'textShadowOffsetX',
+  'textShadowOffsetY',
+  'shadowEnabled',
+  'shadowColor',
+  'shadowOpacity',
+  'shadowBlur',
+  'shadowSpread',
+  'shadowOffsetX',
+  'shadowOffsetY',
+  'fillType',
+  'gradientAngle',
+  'borderColor',
+  'borderWidth',
+  'borderRadius',
+  'strokeColor',
+  'strokeWidth',
+  'strokeStyle',
+  'objectFit',
+  'imageScale',
+  'objectPositionX',
+  'objectPositionY',
+];
+
+const pickElementStyle = (element = {}) => ELEMENT_STYLE_KEYS.reduce(
+  (style, key) => (
+    Object.prototype.hasOwnProperty.call(element, key)
+      ? { ...style, [key]: cloneValue(element[key]) }
+      : style
+  ),
+  {},
+);
+
+
 export default function ContractTemplateEditor() {
   const {
     templateId: paramTemplateId,
@@ -345,8 +502,9 @@ export default function ContractTemplateEditor() {
   const [template, setTemplate] = useState(null);
   const [pageId, setPageId] = useState(null);
   const [fieldId, setFieldId] = useState(null);
-  const [mobileTab, setMobileTab] = useState('pages');
+  const [mobileTab, setMobileTab] = useState('canvas');
   const [message, setMessage] = useState('');
+  const [selectionContextMenu, setSelectionContextMenu] = useState(null);
   const [loading, setLoading] = useState(true);
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [viewOptions, setViewOptions] = useState({ grid: false, rulers: false, margins: true });
@@ -357,20 +515,37 @@ export default function ContractTemplateEditor() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [editingTextId, setEditingTextId] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
+  const [clipboardCount, setClipboardCount] = useState(0);
+  const [hasStyleClipboard, setHasStyleClipboard] = useState(false);
   const [history, setHistory] = useState({
     past: [],
     future: [],
+  });
+  const [textHistory, setTextHistory] = useState({
+    past: 0,
+    future: 0,
   });
   const interactionRef = useRef(null);
   const stageRef = useRef(null);
   const marqueeRef = useRef(null);
   const clipboardRef = useRef([]);
+  const styleClipboardRef = useRef(null);
+  const pastePointRef = useRef({ x: 84, y: 112 });
   const skipHistoryRef = useRef(false);
   const savedSelectionRef = useRef(null);
+  const textEditSessionRef = useRef(0);
   const templateRef = useRef(null);
   const historyRef = useRef({
     past: [],
     future: [],
+  });
+  const textHistoryRef = useRef({
+    elementId: null,
+    pageId: null,
+    past: [],
+    present: null,
+    future: [],
+    restoring: false,
   });
 
   useEffect(() => {
@@ -388,10 +563,31 @@ export default function ContractTemplateEditor() {
 
       if (!active) return;
 
-      setTemplate(data);
-      templateRef.current = data;
-      setPageId(data?.pages?.[0]?.id || null);
+      let resolvedData = data;
+      const needsBlueprintUpgrade = Boolean(
+        data
+        && isDefaultContractTemplate(data)
+        && Number(data.metadata?.blueprintVersion || 0)
+          < CONTRACT_BLUEPRINT_VERSION
+      );
+
+      if (needsBlueprintUpgrade) {
+        resolvedData = await saveTemplate(
+          upgradeContractTemplateBlueprint(data),
+        );
+      }
+
+      if (!active) return;
+
+      setTemplate(resolvedData);
+      templateRef.current = resolvedData;
+      setPageId(resolvedData?.pages?.[0]?.id || null);
       setSelectedIds([]);
+      clipboardRef.current = [];
+      styleClipboardRef.current = null;
+      setClipboardCount(0);
+      setHasStyleClipboard(false);
+      pastePointRef.current = { x: 84, y: 112 };
 
       const emptyHistory = {
         past: [],
@@ -400,6 +596,15 @@ export default function ContractTemplateEditor() {
 
       historyRef.current = emptyHistory;
       setHistory(emptyHistory);
+      textHistoryRef.current = {
+        elementId: null,
+        pageId: null,
+        past: [],
+        present: null,
+        future: [],
+        restoring: false,
+      };
+      setTextHistory({ past: 0, future: 0 });
       setLoading(false);
     })();
 
@@ -407,6 +612,16 @@ export default function ContractTemplateEditor() {
       active = false;
     };
   }, [templateId]);
+
+  useEffect(() => {
+    if (!message) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setMessage('');
+    }, 3200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [message]);
 
   const pages = useMemo(
     () => [...(template?.pages || [])].sort(
@@ -430,6 +645,149 @@ export default function ContractTemplateEditor() {
       ? JSON.parse(JSON.stringify(value))
       : value
   );
+
+  const updateTextHistoryStatus = (state = textHistoryRef.current) => {
+    setTextHistory({
+      past: state.past.length,
+      future: state.future.length,
+    });
+  };
+
+  const initializeTextHistory = (pageItem, elementItem) => {
+    const nextState = {
+      elementId: elementItem?.id || null,
+      pageId: pageItem?.id || null,
+      past: [],
+      present: elementItem ? cloneTemplate(elementItem) : null,
+      future: [],
+      restoring: false,
+    };
+
+    textHistoryRef.current = nextState;
+    updateTextHistoryStatus(nextState);
+  };
+
+  const recordTextSnapshot = (nextElement) => {
+    const currentState = textHistoryRef.current;
+
+    if (
+      !nextElement
+      || currentState.restoring
+      || currentState.elementId !== nextElement.id
+    ) {
+      return;
+    }
+
+    const nextSnapshot = cloneTemplate(nextElement);
+    const currentSnapshot = currentState.present;
+
+    if (
+      currentSnapshot
+      && JSON.stringify(currentSnapshot) === JSON.stringify(nextSnapshot)
+    ) {
+      return;
+    }
+
+    const nextState = {
+      ...currentState,
+      past: currentSnapshot
+        ? [...currentState.past.slice(-79), cloneTemplate(currentSnapshot)]
+        : currentState.past,
+      present: nextSnapshot,
+      future: [],
+    };
+
+    textHistoryRef.current = nextState;
+    updateTextHistoryStatus(nextState);
+  };
+
+  const restoreTextSnapshot = (snapshot) => {
+    const currentState = textHistoryRef.current;
+
+    if (!snapshot || !currentState.pageId || !currentState.elementId) {
+      return;
+    }
+
+    currentState.restoring = true;
+    textHistoryRef.current = currentState;
+
+    updateElementById(
+      currentState.pageId,
+      currentState.elementId,
+      cloneTemplate(snapshot),
+      { recordHistory: false },
+    );
+
+    requestAnimationFrame(() => {
+      const editable = document.querySelector(
+        `[data-rich-text-id="${currentState.elementId}"]`,
+      );
+
+      if (editable) {
+        editable.innerHTML = snapshot.htmlContent
+          || String(snapshot.content || '').replace(/\n/g, '<br>');
+        editable.focus();
+
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        range.collapse(false);
+
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        savedSelectionRef.current = range.cloneRange();
+      }
+
+      const releasedState = {
+        ...textHistoryRef.current,
+        restoring: false,
+      };
+      textHistoryRef.current = releasedState;
+      updateTextHistoryStatus(releasedState);
+    });
+  };
+
+  const undoTextEdit = () => {
+    const currentState = textHistoryRef.current;
+
+    if (!currentState.past.length || !currentState.present) return;
+
+    const previous = currentState.past.at(-1);
+    const nextState = {
+      ...currentState,
+      past: currentState.past.slice(0, -1),
+      present: cloneTemplate(previous),
+      future: [
+        cloneTemplate(currentState.present),
+        ...currentState.future,
+      ].slice(0, 80),
+    };
+
+    textHistoryRef.current = nextState;
+    updateTextHistoryStatus(nextState);
+    restoreTextSnapshot(previous);
+  };
+
+  const redoTextEdit = () => {
+    const currentState = textHistoryRef.current;
+
+    if (!currentState.future.length || !currentState.present) return;
+
+    const nextSnapshot = currentState.future[0];
+    const nextState = {
+      ...currentState,
+      past: [
+        ...currentState.past.slice(-79),
+        cloneTemplate(currentState.present),
+      ],
+      present: cloneTemplate(nextSnapshot),
+      future: currentState.future.slice(1),
+    };
+
+    textHistoryRef.current = nextState;
+    updateTextHistoryStatus(nextState);
+    restoreTextSnapshot(nextSnapshot);
+  };
 
   const commitTemplateChange = (
     updater,
@@ -574,6 +932,10 @@ export default function ContractTemplateEditor() {
     item,
     event = null,
   ) => {
+    if (editingTextId && editingTextId !== item.id) {
+      finishTextEditing();
+    }
+
     const elements = page?.elements || [];
     const targetIds = getGroupedElementIds(elements, item);
     const additive = Boolean(
@@ -611,6 +973,29 @@ export default function ContractTemplateEditor() {
   const clearSelection = () => {
     setSelectedIds([]);
     setFieldId(null);
+  };
+
+
+  const closeSelectionContextMenu = () => {
+    setSelectionContextMenu(null);
+  };
+
+  const openSelectionContextMenu = (event, item = null) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (item && !selectedIds.includes(item.id)) {
+      selectElement(item, event);
+    }
+
+    const menuWidth = 320;
+    const menuHeight = 560;
+    const viewportWidth = window.innerWidth || menuWidth;
+    const viewportHeight = window.innerHeight || menuHeight;
+    const x = Math.max(12, Math.min(event.clientX, viewportWidth - menuWidth - 12));
+    const y = Math.max(12, Math.min(event.clientY, viewportHeight - menuHeight - 12));
+
+    setSelectionContextMenu({ x, y });
   };
 
   const deleteSelectedElements = () => {
@@ -661,11 +1046,19 @@ export default function ContractTemplateEditor() {
   ) => {
     if (!page || !field) return;
 
+    const normalizedPatch = (
+      field.type === 'text'
+      && Object.prototype.hasOwnProperty.call(patch, 'content')
+      && !Object.prototype.hasOwnProperty.call(patch, 'htmlContent')
+    )
+      ? { ...patch, htmlContent: null }
+      : patch;
+
     updatePage(
       {
         elements: page.elements.map((item) => (
           item.id === field.id
-            ? { ...item, ...patch }
+            ? { ...item, ...normalizedPatch }
             : item
         )),
       },
@@ -673,7 +1066,7 @@ export default function ContractTemplateEditor() {
     );
   };
 
-  const updateWholeTextStyle = (patch) => {
+  const updateWholeTextStyle = (patch, options = {}) => {
     if (
       !field
       || !['text', 'dynamicField'].includes(
@@ -683,7 +1076,7 @@ export default function ContractTemplateEditor() {
       return;
     }
 
-    updateField(patch);
+    updateField(patch, options);
   };
 
   const updateElementById = (
@@ -740,6 +1133,76 @@ export default function ContractTemplateEditor() {
     return true;
   };
 
+
+  const getActiveRichTextNode = () => (
+    editingTextId
+      ? document.querySelector(
+          `[data-rich-text-id="${editingTextId}"]`,
+        )
+      : null
+  );
+
+  const syncRichTextDraft = (
+    elementId = editingTextId,
+    editableNode = null,
+  ) => {
+    if (!elementId) return;
+
+    const editable = editableNode || document.querySelector(
+      `[data-rich-text-id="${elementId}"]`,
+    );
+
+    if (!editable) return;
+
+    const activePageId = textHistoryRef.current.pageId || page?.id;
+    const activeTemplate = templateRef.current;
+    const activePage = (activeTemplate?.pages || []).find(
+      (item) => item.id === activePageId,
+    );
+    const currentElement = (activePage?.elements || []).find(
+      (item) => item.id === elementId,
+    );
+
+    if (!activePage || !currentElement) return;
+
+    const availableHeight = Math.max(
+      32,
+      Number(activePage.height || 841.89)
+        - Number(currentElement.y || 0)
+        - 24,
+    );
+    const measuredHeight = Math.ceil(editable.scrollHeight + 8);
+    const currentHeight = Math.max(18, Number(currentElement.height || 0));
+    const shouldAutoFitHeight = currentElement.autoFitText !== false;
+    const nextHeight = shouldAutoFitHeight
+      ? Math.min(availableHeight, Math.max(currentHeight, measuredHeight))
+      : currentHeight;
+    const nextElement = {
+      ...currentElement,
+      htmlContent: editable.innerHTML,
+      content: editable.innerText,
+      height: nextHeight,
+    };
+
+    recordTextSnapshot(nextElement);
+
+    updateElementById(
+      activePage.id,
+      elementId,
+      {
+        htmlContent: nextElement.htmlContent,
+        content: nextElement.content,
+        height: nextElement.height,
+      },
+      { recordHistory: false },
+    );
+  };
+
+  const syncActiveRichText = () => {
+    const editable = getActiveRichTextNode();
+    if (editable) syncRichTextDraft(editingTextId, editable);
+  };
+
   const applyInlineStyle = (stylePatch) => {
     if (!editingTextId) return;
 
@@ -782,6 +1245,7 @@ export default function ContractTemplateEditor() {
 
     savedSelectionRef.current =
       nextRange.cloneRange();
+    syncActiveRichText();
   };
 
   const applyInlineCommand = (
@@ -799,6 +1263,7 @@ export default function ContractTemplateEditor() {
     );
 
     rememberTextSelection();
+    syncActiveRichText();
   };
 
   const applyInlineFontSize = (size) => {
@@ -839,10 +1304,7 @@ export default function ContractTemplateEditor() {
   const finishTextEditing = () => {
     if (!editingTextId || !page) return;
 
-    const editable = document.querySelector(
-      `[data-rich-text-id="${editingTextId}"]`,
-    );
-
+    const editable = getActiveRichTextNode();
     const textInteraction = (
       interactionRef.current?.mode === 'text-edit'
         ? interactionRef.current
@@ -850,20 +1312,16 @@ export default function ContractTemplateEditor() {
     );
 
     if (editable) {
-      updateElementById(
-        page.id,
-        editingTextId,
-        {
-          htmlContent: editable.innerHTML,
-          content: editable.innerText,
-        },
-        {
-          recordHistory: false,
-        },
-      );
+      syncRichTextDraft(editingTextId, editable);
     }
 
-    if (textInteraction?.historySnapshot) {
+    const hasChanged = Boolean(
+      textInteraction?.historySnapshot
+      && JSON.stringify(textInteraction.historySnapshot)
+        !== JSON.stringify(templateRef.current)
+    );
+
+    if (hasChanged) {
       const nextHistory = {
         past: [
           ...historyRef.current.past.slice(-39),
@@ -878,7 +1336,34 @@ export default function ContractTemplateEditor() {
 
     interactionRef.current = null;
     savedSelectionRef.current = null;
+    textHistoryRef.current = {
+      elementId: null,
+      pageId: null,
+      past: [],
+      present: null,
+      future: [],
+      restoring: false,
+    };
+    setTextHistory({ past: 0, future: 0 });
     setEditingTextId(null);
+  };
+
+  const undoCurrentAction = () => {
+    if (editingTextId) {
+      undoTextEdit();
+      return;
+    }
+
+    undo();
+  };
+
+  const redoCurrentAction = () => {
+    if (editingTextId) {
+      redoTextEdit();
+      return;
+    }
+
+    redo();
   };
 
   const groupSelectedElements = () => {
@@ -957,19 +1442,84 @@ export default function ContractTemplateEditor() {
     clipboardRef.current = (page.elements || [])
       .filter((item) => selectedIds.includes(item.id))
       .map((item) => cloneTemplate(item));
+
+    setClipboardCount(clipboardRef.current.length);
+    setMessage(
+      clipboardRef.current.length === 1
+        ? 'Elemento copiado. Toque na página e use Colar.'
+        : `${clipboardRef.current.length} elementos copiados. Toque na página e use Colar.`,
+    );
+  };
+
+  const copySelectedStyle = () => {
+    const source = selectedElements.at(-1) || field;
+    if (!source) return;
+
+    styleClipboardRef.current = {
+      sourceType: source.type,
+      style: pickElementStyle(source),
+    };
+    setHasStyleClipboard(true);
+    setMessage('Estilo copiado. Selecione outro elemento e use Colar estilo.');
+  };
+
+  const pasteSelectedStyle = () => {
+    if (!page || !selectedIds.length || !styleClipboardRef.current?.style) return;
+
+    const style = cloneTemplate(styleClipboardRef.current.style);
+    updatePage({
+      elements: (page.elements || []).map((item) => (
+        selectedIds.includes(item.id) && !item.locked
+          ? { ...item, ...style }
+          : item
+      )),
+    });
+    setMessage('Estilo aplicado à seleção.');
   };
 
   const pasteCopiedElements = () => {
     if (!page || !clipboardRef.current.length) return;
 
-    const sourceIds = clipboardRef.current.map((item) => item.id);
+    const source = clipboardRef.current;
+    const sourceIds = source.map((item) => item.id);
+    const minX = Math.min(...source.map((item) => Number(item.x || 0)));
+    const minY = Math.min(...source.map((item) => Number(item.y || 0)));
+    const maxRight = Math.max(...source.map((item) => (
+      Number(item.x || 0) + Number(item.width || 0)
+    )));
+    const maxBottom = Math.max(...source.map((item) => (
+      Number(item.y || 0) + Number(item.height || 0)
+    )));
+    const groupWidth = Math.max(1, maxRight - minX);
+    const groupHeight = Math.max(1, maxBottom - minY);
+    const desired = pastePointRef.current || {
+      x: minX + 16,
+      y: minY + 16,
+    };
+    const pageWidth = Number(page.width || 595.28);
+    const pageHeight = Number(page.height || 841.89);
+    const targetX = Math.max(0, Math.min(
+      desired.x,
+      Math.max(0, pageWidth - groupWidth),
+    ));
+    const targetY = Math.max(0, Math.min(
+      desired.y,
+      Math.max(0, pageHeight - groupHeight),
+    ));
+
     const { copies } = cloneSelectedElements({
-      elements: clipboardRef.current,
+      elements: source,
       selectedIds: sourceIds,
       createElementId: createId,
+      offsetX: targetX - minX,
+      offsetY: targetY - minY,
     });
 
     clipboardRef.current = copies.map((item) => cloneTemplate(item));
+    pastePointRef.current = {
+      x: Math.min(pageWidth - 20, targetX + 16),
+      y: Math.min(pageHeight - 20, targetY + 16),
+    };
 
     updatePage({
       elements: [
@@ -980,6 +1530,7 @@ export default function ContractTemplateEditor() {
 
     setSelectedIds(copies.map((item) => item.id));
     setFieldId(copies.at(-1)?.id || null);
+    setMessage('Elemento colado. Arraste para fazer o ajuste final.');
   };
 
   const nudgeSelectedElements = (
@@ -1402,6 +1953,7 @@ export default function ContractTemplateEditor() {
     event.preventDefault();
 
     const point = getCanvasPoint(event);
+    pastePointRef.current = { x: point.x, y: point.y };
     const additive = Boolean(
       event.shiftKey || event.ctrlKey || event.metaKey
     );
@@ -1608,6 +2160,7 @@ export default function ContractTemplateEditor() {
       startHeight: Number(item.height || 0),
       preserveAspectRatio:
         Boolean(item.preserveAspectRatio),
+      elementType: item.type,
       aspectRatio:
         Number(item.width || 1)
         / Math.max(1, Number(item.height || 1)),
@@ -1744,6 +2297,9 @@ export default function ContractTemplateEditor() {
                         y: Math.round(nextY + ((start.y - bounds.y) * scaleY)),
                         width: Math.max(8, Math.round(start.width * scaleX)),
                         height: Math.max(8, Math.round(start.height * scaleY)),
+                        ...(['text', 'dynamicField'].includes(elementItem.type)
+                          ? { autoFitText: false }
+                          : {}),
                       }
                     : elementItem;
                 }),
@@ -1939,15 +2495,21 @@ export default function ContractTemplateEditor() {
       }
     }
 
+    const manualResizePatch = {
+      x: Math.round(nextX),
+      y: Math.round(nextY),
+      width: Math.round(nextWidth),
+      height: Math.round(nextHeight),
+    };
+
+    if (['text', 'dynamicField'].includes(interaction.elementType)) {
+      manualResizePatch.autoFitText = false;
+    }
+
     updateElementById(
       interaction.pageId,
       interaction.elementId,
-      {
-        x: Math.round(nextX),
-        y: Math.round(nextY),
-        width: Math.round(nextWidth),
-        height: Math.round(nextHeight),
-      },
+      manualResizePatch,
       {
         recordHistory: false,
       },
@@ -1991,6 +2553,28 @@ export default function ContractTemplateEditor() {
     });
   };
 
+  const fitSelectedTextToContent = () => {
+    if (!field || !['text', 'dynamicField'].includes(field.type)) return;
+
+    const editable = document.querySelector(
+      `[data-rich-text-id="${field.id}"]`,
+    );
+    const measuredHeight = editable
+      ? Math.ceil(editable.scrollHeight + 8)
+      : Math.max(24, Number(field.height || 0));
+    const availableHeight = Math.max(
+      24,
+      Number(page?.height || 841.89)
+        - Number(field.y || 0)
+        - 24,
+    );
+
+    updateField({
+      autoFitText: true,
+      height: Math.min(availableHeight, measuredHeight),
+    });
+  };
+
   const resizeHandles = (item) => {
     if (
       selectedIds.length !== 1
@@ -2023,14 +2607,16 @@ export default function ContractTemplateEditor() {
             onPointerCancel={endElementInteraction}
           />
         ))}
-        <span
-          className="contract-rotation-handle"
-          title="Girar"
-          onPointerDown={(event) => beginElementInteraction(event, item, 'rotate')}
-          onPointerMove={moveElementInteraction}
-          onPointerUp={endElementInteraction}
-          onPointerCancel={endElementInteraction}
-        />
+        {item.type !== 'logo' && (
+          <span
+            className="contract-rotation-handle"
+            title="Girar"
+            onPointerDown={(event) => beginElementInteraction(event, item, 'rotate')}
+            onPointerMove={moveElementInteraction}
+            onPointerUp={endElementInteraction}
+            onPointerCancel={endElementInteraction}
+          />
+        )}
       </>
     );
   };
@@ -2049,17 +2635,95 @@ export default function ContractTemplateEditor() {
     });
   };
 
+
+  const alignSelectionToPage = (mode) => {
+    if (!page || !selectedIds.length) return;
+
+    const active = (page.elements || []).filter(
+      (item) => selectedIds.includes(item.id) && !item.locked,
+    );
+    if (!active.length) return;
+
+    const left = Math.min(...active.map((item) => Number(item.x || 0)));
+    const top = Math.min(...active.map((item) => Number(item.y || 0)));
+    const right = Math.max(...active.map((item) => Number(item.x || 0) + Number(item.width || 0)));
+    const bottom = Math.max(...active.map((item) => Number(item.y || 0) + Number(item.height || 0)));
+    const selectionWidth = right - left;
+    const selectionHeight = bottom - top;
+    const pageWidth = Number(page.width || 595.28);
+    const pageHeight = Number(page.height || 841.89);
+    let deltaX = 0;
+    let deltaY = 0;
+
+    if (mode === 'left') deltaX = -left;
+    if (mode === 'center') deltaX = ((pageWidth - selectionWidth) / 2) - left;
+    if (mode === 'right') deltaX = pageWidth - right;
+    if (mode === 'top') deltaY = -top;
+    if (mode === 'middle') deltaY = ((pageHeight - selectionHeight) / 2) - top;
+    if (mode === 'bottom') deltaY = pageHeight - bottom;
+
+    updatePage({
+      elements: (page.elements || []).map((item) => (
+        selectedIds.includes(item.id) && !item.locked
+          ? {
+              ...item,
+              x: Math.round(Number(item.x || 0) + deltaX),
+              y: Math.round(Number(item.y || 0) + deltaY),
+            }
+          : item
+      )),
+    });
+  };
+
+  const openSelectedElementEffects = () => {
+    setMobileTab('properties');
+    closeSelectionContextMenu();
+    window.setTimeout(() => {
+      document.getElementById('contract-element-design-properties')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
+  };
+
   const toggleViewOption = (key) => {
     setViewOptions((current) => ({ ...current, [key]: !current[key] }));
   };
 
-  const fitPageToStage = () => {
+  const fitPageToStage = useCallback(() => {
     if (!stageRef.current || !page) return;
     const bounds = stageRef.current.getBoundingClientRect();
-    const widthRatio = (bounds.width - 96) / Number(page.width || 595.28);
-    const heightRatio = (bounds.height - 120) / Number(page.height || 841.89);
+    const horizontalGutter = bounds.width <= 520 ? 28 : bounds.width <= 760 ? 40 : 64;
+    const verticalGutter = bounds.height <= 640 ? 92 : 118;
+    const widthRatio = (bounds.width - horizontalGutter) / Number(page.width || 595.28);
+    const heightRatio = (bounds.height - verticalGutter) / Number(page.height || 841.89);
     setCanvasZoom(Math.max(0.35, Math.min(1.5, Number(Math.min(widthRatio, heightRatio).toFixed(2)))));
-  };
+  }, [page]);
+
+
+  useEffect(() => {
+    let frameId = 0;
+
+    const fitResponsiveCanvas = () => {
+      if (window.innerWidth > 1180) return;
+      if (window.innerWidth <= 860 && mobileTab !== 'canvas') return;
+
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        fitPageToStage();
+      });
+    };
+
+    fitResponsiveCanvas();
+    window.addEventListener('resize', fitResponsiveCanvas);
+    window.addEventListener('orientationchange', fitResponsiveCanvas);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', fitResponsiveCanvas);
+      window.removeEventListener('orientationchange', fitResponsiveCanvas);
+    };
+  }, [fitPageToStage, mobileTab]);
 
   const addQrCode = async () => {
     const value = window.prompt('Informe o texto ou link do QR Code:');
@@ -2344,6 +3008,9 @@ export default function ContractTemplateEditor() {
       return;
     }
 
+    const sessionId = textEditSessionRef.current + 1;
+    textEditSessionRef.current = sessionId;
+
     interactionRef.current = {
       mode: 'text-edit',
       historySnapshot:
@@ -2352,19 +3019,42 @@ export default function ContractTemplateEditor() {
       pageId: page?.id || null,
     };
 
+    initializeTextHistory(page, item);
     savedSelectionRef.current = null;
     setEditingTextId(item.id);
     setSelectedIds([item.id]);
     setFieldId(item.id);
+    setMessage('');
 
     requestAnimationFrame(() => {
       const editable = document.querySelector(
         `[data-rich-text-id="${item.id}"]`,
       );
 
-      editable?.focus();
+      if (!editable) return;
+
+      const latestPage = (templateRef.current?.pages || []).find(
+        (pageItem) => pageItem.id === (page?.id || null),
+      );
+      const latestElement = (latestPage?.elements || []).find(
+        (elementItem) => elementItem.id === item.id,
+      ) || item;
+
+      editable.innerHTML = getTextElementHtml(latestElement);
+      editable.dataset.editSession = `${item.id}:${sessionId}`;
+      editable.focus();
+
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      range.collapse(false);
+
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      savedSelectionRef.current = range.cloneRange();
     });
   };
+
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -2376,31 +3066,73 @@ export default function ContractTemplateEditor() {
         || target?.isContentEditable
       );
 
+      const modifierPressed = event.ctrlKey || event.metaKey;
+      const shortcutKey = event.key.toLowerCase();
+
       if (
-        (event.ctrlKey || event.metaKey)
-        && event.key.toLowerCase() === 'z'
+        target?.isContentEditable
+        && editingTextId
+        && modifierPressed
+        && (shortcutKey === 'z' || shortcutKey === 'y')
       ) {
         event.preventDefault();
 
-        if (event.shiftKey) {
-          redo();
+        if (shortcutKey === 'y' || event.shiftKey) {
+          redoTextEdit();
         } else {
-          undo();
+          undoTextEdit();
         }
 
         return;
       }
 
       if (
-        (event.ctrlKey || event.metaKey)
-        && event.key.toLowerCase() === 'y'
+        isTyping
+        && modifierPressed
+        && (shortcutKey === 'z' || shortcutKey === 'y')
       ) {
+        return;
+      }
+
+      if (modifierPressed && shortcutKey === 'z') {
         event.preventDefault();
-        redo();
+
+        if (event.shiftKey) {
+          redoCurrentAction();
+        } else {
+          undoCurrentAction();
+        }
+
+        return;
+      }
+
+      if (modifierPressed && shortcutKey === 'y') {
+        event.preventDefault();
+        redoCurrentAction();
         return;
       }
 
       if (isTyping) return;
+
+      if (
+        (event.ctrlKey || event.metaKey)
+        && event.altKey
+        && event.key.toLowerCase() === 'c'
+      ) {
+        event.preventDefault();
+        copySelectedStyle();
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey)
+        && event.altKey
+        && event.key.toLowerCase() === 'v'
+      ) {
+        event.preventDefault();
+        pasteSelectedStyle();
+        return;
+      }
 
       if (
         (event.ctrlKey || event.metaKey)
@@ -2517,11 +3249,7 @@ export default function ContractTemplateEditor() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [
-    pageId,
-    selectedIds,
-    template,
-  ]);
+  });
 
   if (loading) {
     return <p>Carregando editor...</p>;
@@ -2547,8 +3275,8 @@ export default function ContractTemplateEditor() {
     <section className="contract-template-editor">
       <EditorToolbar
         template={template}
-        canUndo={Boolean(history.past.length)}
-        canRedo={Boolean(history.future.length)}
+        canUndo={Boolean(history.past.length || textHistory.past)}
+        canRedo={Boolean(history.future.length || textHistory.future)}
         onBack={() => navigate('/configuracoes/modelos-contratos')}
         onNameChange={(name) => {
           commitTemplateChange((current) => ({
@@ -2556,8 +3284,8 @@ export default function ContractTemplateEditor() {
             name,
           }));
         }}
-        onUndo={undo}
-        onRedo={redo}
+        onUndo={undoCurrentAction}
+        onRedo={redoCurrentAction}
         onApplyBlueprint={applyCompleteModel}
         onSave={save}
         onPublish={publish}
@@ -2581,6 +3309,8 @@ export default function ContractTemplateEditor() {
             setSelectedIds([]);
           }}
           onSelectPage={(id) => {
+            closeSelectionContextMenu();
+            if (editingTextId) finishTextEditing();
             setPageId(id);
             setFieldId(null);
             setSelectedIds([]);
@@ -2634,7 +3364,7 @@ export default function ContractTemplateEditor() {
             mobileTab === 'canvas'
               ? 'mobile-active'
               : ''
-          }`}
+          } ${editingTextId ? 'is-text-editing' : ''}`}
         >
           <EditorWorkspaceToolbar
             zoom={canvasZoom}
@@ -2648,20 +3378,188 @@ export default function ContractTemplateEditor() {
             onFitPage={fitPageToStage}
             onToggleView={toggleViewOption}
             onSelectAll={selectAllElements}
+            onCopy={copySelectedElements}
+            onPaste={pasteCopiedElements}
+            canPaste={clipboardCount > 0}
             onDelete={deleteSelectedElements}
             onAlign={applySelectionAlignment}
             onDistribute={applySelectionDistribution}
           />
 
+          {editingTextId && field && (
+            <section
+              className="contract-inline-text-toolbar contract-inline-text-toolbar-docked contract-inline-text-toolbar-canva"
+              aria-label="Ferramentas de edição de texto"
+              onMouseDown={(event) => {
+                const control = event.target.closest(
+                  'button, select, input',
+                );
+
+                if (control) {
+                  rememberTextSelection();
+                }
+
+                if (event.target.closest('button')) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <div className="contract-canva-toolbar-scroll">
+                <div className="contract-inline-toolbar-history contract-canva-history">
+                  <button
+                    type="button"
+                    onClick={undoCurrentAction}
+                    disabled={!textHistory.past}
+                    title="Desfazer (Ctrl+Z)"
+                    aria-label="Desfazer"
+                  >
+                    <Undo2 />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={redoCurrentAction}
+                    disabled={!textHistory.future}
+                    title="Refazer (Ctrl+Y)"
+                    aria-label="Refazer"
+                  >
+                    <Redo2 />
+                  </button>
+                </div>
+
+                <div className="contract-canva-divider" aria-hidden="true" />
+
+                <label className="contract-canva-font">
+                  <span className="sr-only">Fonte</span>
+                  <select
+                    value={field.fontFamily || 'Helvetica'}
+                    onChange={(event) => {
+                      updateWholeTextStyle({ fontFamily: event.target.value }, { recordHistory: false });
+                      applyInlineFontFamily(event.target.value);
+                    }}
+                    title="Fonte"
+                  >
+                    <option value="Helvetica">Helvetica</option>
+                    <option value="Arial">Arial</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Garamond">Garamond</option>
+                    <option value="Baskerville">Baskerville</option>
+                  </select>
+                </label>
+
+                <div className="contract-canva-size-stepper" aria-label="Tamanho da fonte">
+                  <button
+                    type="button"
+                    title="Diminuir tamanho"
+                    aria-label="Diminuir tamanho"
+                    onClick={() => {
+                      const size = Math.max(6, Number(field.fontSize || 12) - 1);
+                      updateWholeTextStyle({ fontSize: size }, { recordHistory: false });
+                      applyInlineFontSize(size);
+                    }}
+                  >
+                    <Minus />
+                  </button>
+                  <input
+                    type="number"
+                    min="6"
+                    max="96"
+                    value={field.fontSize || 12}
+                    onChange={(event) => {
+                      const size = Math.max(6, Math.min(96, Number(event.target.value) || 6));
+                      updateWholeTextStyle({ fontSize: size }, { recordHistory: false });
+                      applyInlineFontSize(size);
+                    }}
+                    title="Tamanho da fonte"
+                  />
+                  <button
+                    type="button"
+                    title="Aumentar tamanho"
+                    aria-label="Aumentar tamanho"
+                    onClick={() => {
+                      const size = Math.min(96, Number(field.fontSize || 12) + 1);
+                      updateWholeTextStyle({ fontSize: size }, { recordHistory: false });
+                      applyInlineFontSize(size);
+                    }}
+                  >
+                    <Plus />
+                  </button>
+                </div>
+
+                <label className="contract-canva-color" title="Cor do texto">
+                  <span aria-hidden="true">A</span>
+                  <i style={{ backgroundColor: field.color || '#222222' }} />
+                  <input
+                    type="color"
+                    value={field.color || '#222222'}
+                    onChange={(event) => {
+                      updateWholeTextStyle({ color: event.target.value }, { recordHistory: false });
+                      applyInlineStyle({ color: event.target.value });
+                    }}
+                    aria-label="Cor do texto"
+                  />
+                </label>
+
+                <div className="contract-canva-divider" aria-hidden="true" />
+
+                <div className="contract-inline-toolbar-group contract-canva-format" aria-label="Estilo">
+                  <button type="button" onClick={() => applyInlineCommand('bold')} title="Negrito"><Bold /></button>
+                  <button type="button" onClick={() => applyInlineCommand('italic')} title="Itálico"><Italic /></button>
+                  <button type="button" onClick={() => applyInlineCommand('underline')} title="Sublinhado"><Underline /></button>
+                  <button type="button" onClick={() => applyInlineCommand('strikeThrough')} title="Tachado"><Strikethrough /></button>
+                </div>
+
+                <div className="contract-canva-divider" aria-hidden="true" />
+
+                <div className="contract-inline-toolbar-group contract-canva-align" aria-label="Alinhamento">
+                  <button type="button" onClick={() => applyInlineCommand('justifyLeft')} title="Alinhar à esquerda"><AlignLeft /></button>
+                  <button type="button" onClick={() => applyInlineCommand('justifyCenter')} title="Centralizar"><AlignCenter /></button>
+                  <button type="button" onClick={() => applyInlineCommand('justifyRight')} title="Alinhar à direita"><AlignRight /></button>
+                  <button type="button" onClick={() => applyInlineCommand('justifyFull')} title="Justificar"><AlignJustify /></button>
+                </div>
+
+                <div className="contract-canva-divider" aria-hidden="true" />
+
+                <div className="contract-inline-toolbar-group contract-canva-lists" aria-label="Listas e recuo">
+                  <button type="button" onClick={() => applyTextListCommand(false)} title="Lista com marcadores"><List /></button>
+                  <button type="button" onClick={() => applyTextListCommand(true)} title="Lista numerada"><ListOrdered /></button>
+                  <button type="button" onClick={() => applyTextIndentCommand('out')} title="Diminuir recuo"><IndentDecrease /></button>
+                  <button type="button" onClick={() => applyTextIndentCommand('in')} title="Aumentar recuo"><IndentIncrease /></button>
+                </div>
+
+              </div>
+
+              <button
+                type="button"
+                className="contract-inline-toolbar-finish contract-canva-finish"
+                onClick={finishTextEditing}
+                title="Concluir edição do texto"
+                aria-label="Concluir edição do texto"
+              >
+                <Check aria-hidden="true" />
+                <span>Concluir edição</span>
+              </button>
+            </section>
+          )}
+
+
           <div
-            className={`contract-a4 ${viewOptions.grid ? 'show-grid' : ''}`}
-            onPointerDown={beginMarqueeSelection}
+            className="contract-a4-viewport"
+            style={{
+              width: Number(page?.width || 595.28) * canvasZoom,
+              height: Number(page?.height || 841.89) * canvasZoom,
+            }}
+          >
+            <div
+              className={`contract-a4 ${viewOptions.grid ? 'show-grid' : ''}`}
+            onPointerDown={(event) => { closeSelectionContextMenu(); beginMarqueeSelection(event); }}
+            onContextMenu={(event) => { if (selectedIds.length) openSelectionContextMenu(event); }}
             onPointerMove={moveMarqueeSelection}
             onPointerUp={endMarqueeSelection}
             onPointerCancel={endMarqueeSelection}
             style={{
               transform: `scale(${canvasZoom})`,
-              transformOrigin: 'top center',
+                transformOrigin: 'top left',
               background:
                 page?.background?.type === 'color'
                   ? page.background.color
@@ -2716,6 +3614,30 @@ export default function ContractTemplateEditor() {
               </div>
             )}
 
+            {!editingTextId && selectedIds.length > 0 && selectionBounds && (
+              <SelectionQuickToolbar
+                key={selectedIds.join(':')}
+                bounds={selectionBounds}
+                zoom={canvasZoom}
+                pageWidth={Number(page?.width || 595.28)}
+                selectedCount={selectedIds.length}
+                grouped={selectedElements.some((item) => Boolean(item.groupId))}
+                locked={selectedElements.length > 0 && selectedElements.every((item) => item.locked)}
+                canPaste={clipboardCount > 0}
+                onCopy={copySelectedElements}
+                onPaste={pasteCopiedElements}
+                onDuplicate={duplicateSelectedElements}
+                onGroup={groupSelectedElements}
+                onUngroup={ungroupSelectedElements}
+                onToggleLock={() => toggleLayerLock(selectedIds)}
+                onAlignPage={alignSelectionToPage}
+                onLayer={changeLayerOrder}
+                onOpenEffects={openSelectedElementEffects}
+                onDelete={deleteSelectedElements}
+                onOpenMore={(event) => openSelectionContextMenu(event)}
+              />
+            )}
+
             {alignmentGuides.vertical !== null && (
               <div
                 className="contract-alignment-guide vertical"
@@ -2734,220 +3656,7 @@ export default function ContractTemplateEditor() {
               />
             )}
 
-            {editingTextId && field && (
-              <div
-                className="contract-inline-text-toolbar"
-                style={{
-                  left: Math.max(
-                    8,
-                    Math.min(
-                      Number(field.x || 0),
-                      310,
-                    ),
-                  ),
-                  top: Math.max(
-                    8,
-                    Number(field.y || 0) - 52,
-                  ),
-                }}
-                onMouseDown={(event) => {
-                  const control = event.target.closest(
-                    'button, select, input',
-                  );
 
-                  if (control) {
-                    rememberTextSelection();
-                  }
-
-                  if (event.target.closest('button')) {
-                    event.preventDefault();
-                  }
-                }}
-              >
-                <select
-                  defaultValue={field.fontFamily || 'Helvetica'}
-                  onChange={(event) => {
-                    applyInlineFontFamily(
-                      event.target.value,
-                    );
-                  }}
-                  title="Fonte da seleção"
-                >
-                  <option value="Helvetica">Helvetica</option>
-                  <option value="Arial">Arial</option>
-                  <option value="Georgia">Georgia</option>
-                  <option value="Times New Roman">Times New Roman</option>
-                  <option value="Garamond">Garamond</option>
-                  <option value="Baskerville">Baskerville</option>
-                </select>
-
-                <input
-                  type="number"
-                  min="6"
-                  max="96"
-                  defaultValue={field.fontSize || 12}
-                  onInput={(event) => {
-                    applyInlineFontSize(
-                      Number(event.currentTarget.value),
-                    );
-                  }}
-                  onChange={(event) => {
-                    applyInlineFontSize(
-                      Number(event.target.value),
-                    );
-                  }}
-                  title="Tamanho da seleção"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    restoreTextSelection();
-                    document.execCommand(
-                      'bold',
-                      false,
-                      null,
-                    );
-                    rememberTextSelection();
-                  }}
-                  title="Negrito"
-                >
-                  <Bold />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    restoreTextSelection();
-                    document.execCommand(
-                      'italic',
-                      false,
-                      null,
-                    );
-                    rememberTextSelection();
-                  }}
-                  title="Itálico"
-                >
-                  <Italic />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    restoreTextSelection();
-                    document.execCommand(
-                      'underline',
-                      false,
-                      null,
-                    );
-                    rememberTextSelection();
-                  }}
-                  title="Sublinhado"
-                >
-                  <Underline />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => applyInlineCommand('strikeThrough')}
-                  title="Tachado"
-                >
-                  <Strikethrough />
-                </button>
-
-                <span className="contract-inline-toolbar-divider" />
-
-                <button
-                  type="button"
-                  onClick={() => applyTextListCommand(false)}
-                  title="Lista com marcadores"
-                >
-                  <List />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => applyTextListCommand(true)}
-                  title="Lista numerada"
-                >
-                  <ListOrdered />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => applyTextIndentCommand('out')}
-                  title="Diminuir recuo"
-                >
-                  <IndentDecrease />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => applyTextIndentCommand('in')}
-                  title="Aumentar recuo"
-                >
-                  <IndentIncrease />
-                </button>
-
-                <input
-                  type="color"
-                  defaultValue={field.color || '#222222'}
-                  onChange={(event) => {
-                    applyInlineStyle({
-                      color: event.target.value,
-                    });
-                  }}
-                  title="Cor da seleção"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyInlineCommand('justifyLeft');
-                  }}
-                  title="Alinhar à esquerda"
-                >
-                  <AlignLeft />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyInlineCommand('justifyCenter');
-                  }}
-                  title="Centralizar"
-                >
-                  <AlignCenter />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyInlineCommand('justifyRight');
-                  }}
-                  title="Alinhar à direita"
-                >
-                  <AlignRight />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyInlineCommand('justifyFull');
-                  }}
-                  title="Justificar"
-                >
-                  <AlignJustify />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={finishTextEditing}
-                >
-                  Concluir
-                </button>
-              </div>
-            )}
 
             {(page?.elements || [])
               .filter((item) => item.visible)
@@ -2967,6 +3676,7 @@ export default function ContractTemplateEditor() {
                   zIndex: item.zIndex,
                   transform:
                     `rotate(${item.rotation || 0}deg)`,
+                  boxShadow: buildElementShadow(item),
                 };
 
                 if (
@@ -2978,18 +3688,19 @@ export default function ContractTemplateEditor() {
                       key={item.id}
                       role="button"
                       tabIndex={0}
-                      className={`contract-canvas-element image-element ${
+                      className={`contract-canvas-element image-element ${item.type === 'logo' ? 'logo-element ' : ''}${
                         item.metadata?.role
                           ? `role-${item.metadata.role} `
                           : ''
                       }${
                         selectedIds.includes(item.id)
-                          ? 'selected'
+                          ? 'selected '
                           : ''
-                      }`}
+                      }${item.locked ? 'is-locked' : ''}`}
                       onClick={(event) => {
                         selectElement(item, event);
                       }}
+                      onContextMenu={(event) => openSelectionContextMenu(event, item)}
                       onPointerDown={(event) => {
                         beginElementInteraction(
                           event,
@@ -3000,7 +3711,11 @@ export default function ContractTemplateEditor() {
                       onPointerMove={moveElementInteraction}
                       onPointerUp={endElementInteraction}
                       onPointerCancel={endElementInteraction}
-                      style={commonStyle}
+                      style={{
+                        ...commonStyle,
+                        borderRadius: Number(item.borderRadius || 0),
+                        overflow: Number(item.borderRadius || 0) > 0 ? 'hidden' : 'visible',
+                      }}
                     >
                       {item.src ? (
                         <img
@@ -3045,12 +3760,13 @@ export default function ContractTemplateEditor() {
                           : ''
                       }${
                         selectedIds.includes(item.id)
-                          ? 'selected'
+                          ? 'selected '
                           : ''
-                      }`}
+                      }${item.locked ? 'is-locked' : ''}`}
                       onClick={(event) => {
                         selectElement(item, event);
                       }}
+                      onContextMenu={(event) => openSelectionContextMenu(event, item)}
                       onPointerDown={(event) => {
                         beginElementInteraction(
                           event,
@@ -3063,8 +3779,7 @@ export default function ContractTemplateEditor() {
                       onPointerCancel={endElementInteraction}
                       style={{
                         ...commonStyle,
-                        backgroundColor:
-                          item.backgroundColor,
+                        background: buildElementFill(item),
                         border:
                           `${item.borderWidth || 0}px solid ${
                             item.borderColor
@@ -3085,8 +3800,9 @@ export default function ContractTemplateEditor() {
                       key={item.id}
                       role="button"
                       tabIndex={0}
-                      className={`contract-canvas-element advanced-object ${item.type}-element ${selectedIds.includes(item.id) ? 'selected' : ''}`}
+                      className={`contract-canvas-element advanced-object ${item.type}-element ${selectedIds.includes(item.id) ? 'selected ' : ''}${item.locked ? 'is-locked' : ''}`}
                       onClick={(event) => selectElement(item, event)}
+                      onContextMenu={(event) => openSelectionContextMenu(event, item)}
                       onPointerDown={(event) => beginElementInteraction(event, item, 'move')}
                       onPointerMove={moveElementInteraction}
                       onPointerUp={endElementInteraction}
@@ -3095,7 +3811,7 @@ export default function ContractTemplateEditor() {
                     >
                       {item.type === 'qrcode' && <img src={item.src} alt={item.alt || 'QR Code'} draggable="false" />}
                       {item.type === 'polygon' && (
-                        <span style={{ backgroundColor: item.backgroundColor, borderColor: item.borderColor, borderWidth: item.borderWidth }} />
+                        <span style={{ background: buildElementFill(item), borderColor: item.borderColor, borderWidth: item.borderWidth, boxShadow: buildElementShadow(item) }} />
                       )}
                       {(item.type === 'line' || item.type === 'arrow') && (
                         <span style={{ borderTopColor: item.strokeColor, borderTopWidth: item.strokeWidth, borderTopStyle: item.strokeStyle }}>
@@ -3127,15 +3843,16 @@ export default function ContractTemplateEditor() {
                         : ''
                     }${
                       selectedIds.includes(item.id)
-                        ? 'selected'
+                        ? 'selected '
                         : ''
-                    }`}
+                    }${item.locked ? 'is-locked' : ''}`}
                     onClick={(event) => {
                       selectElement(item, event);
                     }}
                     onDoubleClick={() => {
                       editCanvasText(item);
                     }}
+                    onContextMenu={(event) => openSelectionContextMenu(event, item)}
                     onPointerDown={(event) => {
                       if (
                         editingTextId === item.id
@@ -3174,6 +3891,10 @@ export default function ContractTemplateEditor() {
                       lineHeight: item.lineHeight,
                       letterSpacing:
                         item.letterSpacing,
+                      textShadow: buildTextShadow(item),
+                      background: buildElementFill(item, { textBackground: true }),
+                      padding: item.backgroundEnabled ? Number(item.textPadding ?? 8) : 0,
+                      borderRadius: item.backgroundEnabled ? Number(item.backgroundRadius ?? 6) : 0,
                     }}
                   >
                     {item.type === 'text' ? (
@@ -3184,21 +3905,22 @@ export default function ContractTemplateEditor() {
                           contentEditable
                           suppressContentEditableWarning
                           ref={(node) => {
-                            if (
-                              node
-                              && !node.dataset.initialized
-                            ) {
-                              node.innerHTML =
-                                item.htmlContent
-                                || String(item.content || '')
-                                  .replace(/\n/g, '<br>');
+                            if (!node) return;
 
-                              node.dataset.initialized = 'true';
+                            const sessionKey = `${item.id}:${textEditSessionRef.current}`;
+
+                            if (node.dataset.editSession !== sessionKey) {
+                              node.innerHTML = getTextElementHtml(item);
+                              node.dataset.editSession = sessionKey;
                             }
                           }}
                           onMouseUp={rememberTextSelection}
                           onKeyUp={rememberTextSelection}
-                          onInput={rememberTextSelection}
+                          onKeyDown={handleRichTextKeyDown}
+                          onInput={(event) => {
+                            rememberTextSelection();
+                            syncRichTextDraft(item.id, event.currentTarget);
+                          }}
                           onBlur={rememberTextSelection}
                         />
                       ) : (
@@ -3206,10 +3928,7 @@ export default function ContractTemplateEditor() {
                           className="contract-rich-text-content"
                           data-rich-text-id={item.id}
                           dangerouslySetInnerHTML={{
-                            __html:
-                              item.htmlContent
-                              || String(item.content || '')
-                                .replace(/\n/g, '<br>'),
+                            __html: getTextElementHtml(item),
                           }}
                         />
                       )
@@ -3221,6 +3940,7 @@ export default function ContractTemplateEditor() {
                   </div>
                 );
               })}
+            </div>
           </div>
         </main>
 
@@ -3528,8 +4248,17 @@ export default function ContractTemplateEditor() {
 
               {field.type === 'text' && (
                 <>
+                  <button
+                    type="button"
+                    className="contract-edit-text-primary"
+                    onClick={() => editCanvasText(field)}
+                  >
+                    <Type />
+                    Editar diretamente na página
+                  </button>
+
                   <label>
-                    Texto
+                    Texto completo
                     <textarea
                       rows="8"
                       value={field.content || ''}
@@ -3619,32 +4348,33 @@ export default function ContractTemplateEditor() {
               )}
 
               {['logo', 'image'].includes(field.type) && (
-                <>
-                  <label>
-                    URL da imagem
-                    <input
-                      value={field.src || ''}
-                      onChange={(event) => {
-                        updateField({
-                          src: event.target.value,
-                        });
-                      }}
-                      onBlur={(event) => {
-                        const sourceValue =
-                          event.target.value.trim();
+                <section className="contract-image-properties">
+                  <div className="contract-image-properties-heading">
+                    <div className="contract-image-preview">
+                      {field.src ? (
+                        <img src={field.src} alt="Prévia do elemento" />
+                      ) : (
+                        <ImagePlus />
+                      )}
+                    </div>
 
-                        if (sourceValue) {
-                          void applyProcessedImage(
-                            sourceValue,
-                          );
-                        }
-                      }}
-                      placeholder="/minha-logomarca.png"
-                    />
-                  </label>
+                    <div>
+                      <strong>
+                        {field.type === 'logo' ? 'Logomarca' : 'Imagem'}
+                      </strong>
+                      <small>
+                        Arraste o elemento diretamente na página para mover.
+                        Use os pontos das bordas para redimensionar.
+                      </small>
+                    </div>
+                  </div>
 
-                  <label className="contract-upload-label">
-                    Carregar arquivo
+                  <label className="contract-image-upload-button">
+                    <ImagePlus />
+                    <span>
+                      <strong>Escolher arquivo</strong>
+                      <small>PNG, JPG, WEBP ou SVG</small>
+                    </span>
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp,image/svg+xml"
@@ -3652,141 +4382,166 @@ export default function ContractTemplateEditor() {
                     />
                   </label>
 
-                  <label>
-                    Ajuste
-                    <select
-                      value={
-                        field.objectFit || 'contain'
-                      }
-                      onChange={(event) => {
+                  <div className="contract-image-quick-actions">
+                    <button
+                      type="button"
+                      onClick={() => centerSelectedElement('both')}
+                    >
+                      <Move />
+                      Centralizar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateField({ rotation: 0 })}
+                    >
+                      <RotateCcw />
+                      Endireitar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={trimCurrentImage}
+                      disabled={!field.src}
+                    >
+                      Remover margens
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={fitImageBoxToContent}
+                      disabled={!field.src}
+                    >
+                      Ajustar caixa
+                    </button>
+                  </div>
+
+                  <details className="contract-image-advanced">
+                    <summary>Ajustes avançados</summary>
+
+                    <label>
+                      URL da imagem
+                      <input
+                        value={field.src || ''}
+                        onChange={(event) => {
+                          updateField({ src: event.target.value });
+                        }}
+                        onBlur={(event) => {
+                          const sourceValue = event.target.value.trim();
+                          if (sourceValue) void applyProcessedImage(sourceValue);
+                        }}
+                        placeholder="/minha-logomarca.png"
+                      />
+                    </label>
+
+                    <div className="contract-image-control-grid">
+                      <label>
+                        Ajuste
+                        <select
+                          value={field.objectFit || 'contain'}
+                          onChange={(event) => {
+                            updateField({ objectFit: event.target.value });
+                          }}
+                        >
+                          <option value="contain">Imagem inteira</option>
+                          <option value="cover">Preencher a área</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        Escala interna
+                        <input
+                          type="range"
+                          min="0.2"
+                          max="3"
+                          step="0.05"
+                          value={field.imageScale || 1}
+                          onChange={(event) => {
+                            updateField({ imageScale: Number(event.target.value) });
+                          }}
+                        />
+                        <span>{Math.round((field.imageScale || 1) * 100)}%</span>
+                      </label>
+
+                      <label>
+                        Posição horizontal
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={field.objectPositionX ?? 50}
+                          onChange={(event) => {
+                            updateField({ objectPositionX: Number(event.target.value) });
+                          }}
+                        />
+                      </label>
+
+                      <label>
+                        Posição vertical
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={field.objectPositionY ?? 50}
+                          onChange={(event) => {
+                            updateField({ objectPositionY: Number(event.target.value) });
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
                         updateField({
-                          objectFit:
-                            event.target.value,
+                          objectFit: 'contain',
+                          objectPositionX: 50,
+                          objectPositionY: 50,
+                          imageScale: 1,
                         });
                       }}
                     >
-                      <option value="contain">
-                        Mostrar imagem inteira
-                      </option>
-                      <option value="cover">
-                        Preencher a área
-                      </option>
-                    </select>
-                  </label>
+                      Restaurar enquadramento
+                    </button>
 
-                  <label>
-                    Tamanho interno da imagem
-                    <input
-                      type="range"
-                      min="0.2"
-                      max="3"
-                      step="0.05"
-                      value={field.imageScale || 1}
-                      onChange={(event) => {
-                        updateField({
-                          imageScale: Number(
-                            event.target.value,
-                          ),
-                        });
-                      }}
-                    />
-                    <span>
-                      {Math.round(
-                        (field.imageScale || 1) * 100,
-                      )}%
-                    </span>
-                  </label>
-
-                  <label>
-                    Posição horizontal
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={
-                        field.objectPositionX ?? 50
-                      }
-                      onChange={(event) => {
-                        updateField({
-                          objectPositionX: Number(
-                            event.target.value,
-                          ),
-                        });
-                      }}
-                    />
-                  </label>
-
-                  <label>
-                    Posição vertical
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={
-                        field.objectPositionY ?? 50
-                      }
-                      onChange={(event) => {
-                        updateField({
-                          objectPositionY: Number(
-                            event.target.value,
-                          ),
-                        });
-                      }}
-                    />
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      updateField({
-                        objectFit: 'contain',
-                        objectPositionX: 50,
-                        objectPositionY: 50,
-                        imageScale: 1,
-                      });
-                    }}
-                  >
-                    Ajustar imagem inteira
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={trimCurrentImage}
-                    disabled={!field.src}
-                  >
-                    Remover margens transparentes
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={fitImageBoxToContent}
-                    disabled={!field.src}
-                  >
-                    Ajustar caixa à logomarca
-                  </button>
-
-                  <label className="contract-visible-toggle">
-                    <input
-                      type="checkbox"
-                      checked={
-                        field.preserveAspectRatio !== false
-                      }
-                      onChange={(event) => {
-                        updateField({
-                          preserveAspectRatio:
-                            event.target.checked,
-                        });
-                      }}
-                    />
-                    Manter proporção ao redimensionar
-                  </label>
-                </>
+                    <label className="contract-visible-toggle">
+                      <input
+                        type="checkbox"
+                        checked={field.preserveAspectRatio !== false}
+                        onChange={(event) => {
+                          updateField({ preserveAspectRatio: event.target.checked });
+                        }}
+                      />
+                      Manter proporção ao redimensionar
+                    </label>
+                  </details>
+                </section>
               )}
+
 
               <section className="contract-element-actions">
                 <h3>Organização</h3>
 
                 <div>
+                  <button
+                    type="button"
+                    onClick={copySelectedElements}
+                    title="Copiar (Ctrl+C)"
+                  >
+                    <ClipboardCopy />
+                    Copiar
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={pasteCopiedElements}
+                    disabled={!clipboardCount}
+                    title="Colar no ponto marcado (Ctrl+V)"
+                  >
+                    <ClipboardPaste />
+                    Colar
+                  </button>
+
                   <button
                     type="button"
                     onClick={duplicateSelectedElements}
@@ -3945,11 +4700,21 @@ export default function ContractTemplateEditor() {
                     }
                     value={field[key] ?? 0}
                     onChange={(event) => {
-                      updateField({
-                        [key]: Number(
-                          event.target.value,
-                        ),
-                      });
+                      const numericValue = Number(
+                        event.target.value,
+                      );
+                      const patch = {
+                        [key]: numericValue,
+                      };
+
+                      if (
+                        ['width', 'height'].includes(key)
+                        && ['text', 'dynamicField'].includes(field.type)
+                      ) {
+                        patch.autoFitText = false;
+                      }
+
+                      updateField(patch);
                     }}
                   />
                 </label>
@@ -3959,6 +4724,19 @@ export default function ContractTemplateEditor() {
                 field.type,
               ) && (
                 <>
+                  <div className="contract-text-size-controls">
+                    <button
+                      type="button"
+                      onClick={fitSelectedTextToContent}
+                      title="Ajustar a altura da caixa ao conteúdo atual"
+                    >
+                      Ajustar ao texto
+                    </button>
+                    <span>
+                      Arraste qualquer alça da caixa para definir largura e altura manualmente.
+                    </span>
+                  </div>
+
                   <label>
                     Fonte
                     <select
@@ -4283,6 +5061,14 @@ export default function ContractTemplateEditor() {
                 </>
               )}
 
+              <ElementDesignPanel
+                field={field}
+                onUpdate={(patch) => updateField(patch)}
+                onAlignPage={alignSelectionToPage}
+                onLayer={changeLayerOrder}
+                onToggleLock={() => toggleLayerLock([field.id])}
+              />
+
               <label className="contract-visible-toggle">
                 <input
                   type="checkbox"
@@ -4332,6 +5118,28 @@ export default function ContractTemplateEditor() {
           )}
         </aside>
       </div>
+
+      <SelectionContextMenu
+        menu={selectionContextMenu}
+        selectedCount={selectedIds.length}
+        grouped={selectedElements.some((item) => Boolean(item.groupId))}
+        locked={selectedElements.length > 0 && selectedElements.every((item) => item.locked)}
+        canPaste={clipboardCount > 0}
+        canPasteStyle={hasStyleClipboard}
+        onClose={closeSelectionContextMenu}
+        onCopy={copySelectedElements}
+        onPaste={pasteCopiedElements}
+        onCopyStyle={copySelectedStyle}
+        onPasteStyle={pasteSelectedStyle}
+        onDuplicate={duplicateSelectedElements}
+        onGroup={groupSelectedElements}
+        onUngroup={ungroupSelectedElements}
+        onToggleLock={() => toggleLayerLock(selectedIds)}
+        onAlignPage={alignSelectionToPage}
+        onLayer={changeLayerOrder}
+        onOpenEffects={openSelectedElementEffects}
+        onDelete={deleteSelectedElements}
+      />
 
       {message && (
         <div className="contract-editor-message">

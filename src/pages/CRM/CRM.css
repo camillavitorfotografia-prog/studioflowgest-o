@@ -427,3 +427,41 @@ overflow-x:auto;
     border-radius: 10px !important;
   }
 }
+
+/* V5 — CRM mobile denso. */
+@media (max-width: 600px) {
+  .crm-responsive-header {
+    margin-bottom: 10px !important;
+  }
+
+  .crm-responsive-header h1 { font-size: 1.18rem !important; }
+  .crm-responsive-header p { font-size: 0.7rem; line-height: 1.4; }
+
+  .crm-stats-panel {
+    margin-bottom: 10px !important;
+    padding: 9px !important;
+  }
+
+  .crm-stats-header { margin-bottom: 8px !important; }
+
+  .crm-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .crm-stat-card {
+    min-height: 64px !important;
+    padding: 8px !important;
+  }
+
+  .crm-stat-card > div:first-child { font-size: 0.62rem !important; }
+  .crm-stat-card > div:last-child { font-size: 0.94rem !important; }
+
+  .crm-kanban { gap: 9px !important; }
+  .crm-kanban-column { flex-basis: min(278px, 82vw); }
+  .crm-kanban-card { padding: 9px !important; }
+}
+
+@media (max-width: 359px) {
+  .crm-stats-grid { grid-template-columns: 1fr !important; }
+}

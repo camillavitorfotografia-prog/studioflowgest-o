@@ -23,7 +23,8 @@ function LegacyProposalEditor({ incoming }) {
   const settings = loadSettings();
   const normalizedIncomingOptions = useMemo(() => enrichPricingOptions(incoming.pricingOptions || []), [incoming.pricingOptions]);
   const [modelId, setModelId] = useState(incoming.modelId || PROPOSAL_TEMPLATES[0].id);
-  const template = getProposalTemplate(modelId);
+  const template = getProposalTemplate(modelId) || PROPOSAL_TEMPLATES[0] || { id: 'empty', name: 'Proposta', version: 1, pages: [] };
+  const templatePages = Array.isArray(template?.pages) ? template.pages : [];
   const [clientId, setClientId] = useState(String(incoming.lead?.id || ''));
   const [pricing, setPricing] = useState(() => normalizedIncomingOptions[0]
     ? { id: normalizedIncomingOptions[0].id, state: normalizedIncomingOptions[0].state, config: readStorage('cv_studio_precificacao_config', {}), capturedAt: normalizedIncomingOptions[0].createdAt }
@@ -34,10 +35,11 @@ function LegacyProposalEditor({ incoming }) {
   const [status, setStatus] = useState('rascunho');
   const [zoom, setZoom] = useState(.72);
   const [message, setMessage] = useState('');
-  const page = template.pages[pageIndex];
+  const safePageIndex = Math.min(pageIndex, Math.max(0, templatePages.length - 1));
+  const page = templatePages[safePageIndex] || null;
   const client = clients.find((item) => String(item.id) === clientId);
-  const missing = useMemo(() => template.pages.flatMap((item) => item.imageSlots.filter((slot) => slot.required && !assets[slot.id]).map(() => `${item.title}: imagem ausente`)), [assets, template.pages]);
-  const pagePackageOption = useMemo(() => getPackageOptionForPage(page, template.pages, normalizedIncomingOptions), [page, template.pages, normalizedIncomingOptions]);
+  const missing = useMemo(() => templatePages.flatMap((item) => (Array.isArray(item?.imageSlots) ? item.imageSlots : []).filter((slot) => slot?.required && !assets[slot.id]).map(() => `${item?.title || 'Página'}: imagem ausente`)), [assets, templatePages]);
+  const pagePackageOption = useMemo(() => getPackageOptionForPage(page, templatePages, normalizedIncomingOptions), [page, templatePages, normalizedIncomingOptions]);
 
   const build = () => ({
     modelId,
@@ -51,7 +53,7 @@ function LegacyProposalEditor({ incoming }) {
     logo,
     status,
     validityDays: 15,
-    pageCount: template.pages.length,
+    pageCount: templatePages.length,
   });
 
   const save = () => {
@@ -94,12 +96,12 @@ function LegacyProposalEditor({ incoming }) {
 
       <div className="proposal-workspace">
         <aside className="proposal-thumbnails">
-          {template.pages.map((item, index) => (
+          {templatePages.map((item, index) => (
             <button key={item.id} className={index === pageIndex ? 'active' : ''} onClick={() => setPageIndex(index)}>
               <span>{index + 1}</span>
               <div>
                 <strong>{item.title}</strong>
-                <small>{item.imageSlots.every((slot) => assets[slot.id]) ? 'Completa' : 'Imagem pendente'}</small>
+                <small>{(Array.isArray(item?.imageSlots) ? item.imageSlots : []).every((slot) => assets[slot.id]) ? 'Completa' : 'Imagem pendente'}</small>
               </div>
             </button>
           ))}
@@ -108,13 +110,13 @@ function LegacyProposalEditor({ incoming }) {
         <main className="proposal-stage">
           <div className="proposal-stage-tools">
             <button onClick={() => setPageIndex((index) => Math.max(0, index - 1))}><ChevronLeft /></button>
-            <span>Página {pageIndex + 1} de {template.pages.length}</span>
+            <span>Página {templatePages.length ? safePageIndex + 1 : 0} de {templatePages.length}</span>
             <input aria-label="Zoom" type="range" min=".45" max="1" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
-            <button onClick={() => setPageIndex((index) => Math.min(template.pages.length - 1, index + 1))}><ChevronRight /></button>
+            <button disabled={!templatePages.length} onClick={() => setPageIndex((index) => Math.min(Math.max(0, templatePages.length - 1), index + 1))}><ChevronRight /></button>
           </div>
           <ProposalPageCanvas
             page={page}
-            pages={template.pages}
+            pages={templatePages}
             assets={assets}
             pricing={pricing}
             pricingOptions={normalizedIncomingOptions}
@@ -126,8 +128,8 @@ function LegacyProposalEditor({ incoming }) {
         </main>
 
         <aside className="proposal-inspector">
-          <h2>{page.title}</h2>
-          {page.imageSlots.map((slot) => <ImageSlot key={slot.id} slot={slot} asset={assets[slot.id]} onChange={(value) => setAssets((current) => ({ ...current, [slot.id]: value }))} />)}
+          <h2>{page?.title || 'Nenhuma página disponível'}</h2>
+          {(Array.isArray(page?.imageSlots) ? page.imageSlots : []).map((slot) => <ImageSlot key={slot.id} slot={slot} asset={assets[slot.id]} onChange={(value) => setAssets((current) => ({ ...current, [slot.id]: value }))} />)}
           <label className="proposal-logo-upload">Logo da proposta<input type="file" accept="image/png,image/webp" onChange={(event) => {
             const file = event.target.files[0];
             if (file) {
@@ -138,8 +140,8 @@ function LegacyProposalEditor({ incoming }) {
           }} /></label>
           <div className="proposal-pricing-readonly">
             <strong>Snapshot da Precificação</strong>
-            <span>{pricing.state.categoria || 'Categoria não definida'}</span>
-            <span>{pricing.state.service || pricing.state.ensaioTipo || ''}</span>
+            <span>{pricing?.state?.categoria || 'Categoria não definida'}</span>
+            <span>{pricing?.state?.service || pricing?.state?.ensaioTipo || ''}</span>
             <small>{normalizedIncomingOptions.length || 1} opção(ões) · Capturado em {new Date(pricing.capturedAt).toLocaleString('pt-BR')}</small>
           </div>
           {pagePackageOption?.proposalPackage && (
@@ -147,7 +149,7 @@ function LegacyProposalEditor({ incoming }) {
               <strong>Pacote desta página</strong>
               <span>{pagePackageOption.proposalPackage.packageName}</span>
               <span>{pagePackageOption.proposalPackage.priceLabel}</span>
-              <small>{pagePackageOption.proposalPackage.bullets.length} item(ns) automáticos nesta oferta.</small>
+              <small>{Array.isArray(pagePackageOption.proposalPackage.bullets) ? pagePackageOption.proposalPackage.bullets.length : 0} item(ns) automáticos nesta oferta.</small>
             </div>
           )}
           {missing.length > 0 && <details><summary>{missing.length} pendências</summary>{missing.slice(0, 8).map((item) => <p key={item}>{item}</p>)}</details>}

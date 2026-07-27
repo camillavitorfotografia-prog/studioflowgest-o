@@ -1,6 +1,6 @@
 import { createId } from '../utils/documentIds';
 
-export const CONTRACT_BLUEPRINT_VERSION = 9;
+export const CONTRACT_BLUEPRINT_VERSION = 12;
 
 export const CONTRACT_FIELD_OPTIONS = [
   'client.name','client.document','client.rg','client.phone','client.email','client.address',
@@ -179,9 +179,20 @@ const page = (name, order, elements) => ({
     fixedLegalContent: false,
     editableLegalContent: true,
     preservesOriginalText: true,
-    designSystem: 'editorial-premium-v8',
+    designSystem: 'editorial-premium-v12',
   },
 });
+
+const escapeRegularExpression = (value = '') => (
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+);
+
+const findFlexibleMarkerIndex = (content, marker) => {
+  const pattern = escapeRegularExpression(marker)
+    .replace(/\s+/g, '\\s+');
+  const match = new RegExp(pattern, 'i').exec(content);
+  return match?.index ?? -1;
+};
 
 const exactSections = (
   content,
@@ -190,7 +201,7 @@ const exactSections = (
   const found = markers
     .map((marker) => ({
       marker,
-      index: content.indexOf(marker),
+      index: findFlexibleMarkerIndex(content, marker),
     }))
     .filter((item) => item.index >= 0)
     .sort((a, b) => a.index - b.index);
@@ -216,20 +227,109 @@ const exactSections = (
   return result.filter(Boolean);
 };
 
-const fitFont = (
+const estimateWrappedLines = (
   value,
-  min = 9,
-  max = 11,
+  width,
+  fontSize,
 ) => {
-  const length = String(value || '').length;
-
-  if (length <= 850) return max;
-  if (length >= 2400) return min;
-
-  const ratio = (2400 - length) / 1550;
-  return Number(
-    (min + ((max - min) * ratio)).toFixed(2),
+  const averageCharacterWidth = Math.max(3.2, fontSize * 0.52);
+  const charactersPerLine = Math.max(
+    12,
+    Math.floor(width / averageCharacterWidth),
   );
+
+  return String(value || '')
+    .split('\n')
+    .reduce((total, lineValue) => {
+      const line = lineValue.trimEnd();
+
+      if (!line.trim()) {
+        return total + 0.72;
+      }
+
+      return total + Math.max(
+        1,
+        Math.ceil(line.length / charactersPerLine),
+      );
+    }, 0);
+};
+
+const fitTextToBox = (
+  value,
+  options = {},
+) => {
+  const width = Math.max(20, Number(options.width || 100));
+  const height = Math.max(20, Number(options.height || 100));
+  const min = Number(options.min ?? 7.2);
+  const max = Number(options.max ?? 11);
+  const lineHeight = Number(options.lineHeight ?? 1.38);
+  const safety = Number(options.safety ?? 8);
+
+  for (
+    let size = max;
+    size >= min;
+    size = Number((size - 0.1).toFixed(2))
+  ) {
+    const lines = estimateWrappedLines(value, width, size);
+    const requiredHeight = (lines * size * lineHeight) + safety;
+
+    if (requiredHeight <= height) {
+      return Number(size.toFixed(2));
+    }
+  }
+
+  return min;
+};
+
+const distributeSectionHeights = (
+  sectionData,
+  usableHeight,
+) => {
+  if (sectionData.length <= 1) {
+    return [usableHeight];
+  }
+
+  const minimum = sectionData.length >= 3 ? 142 : 184;
+  const minimumHeights = sectionData.map((item) => (
+    minimum + (item.title ? 18 : 0)
+  ));
+  const minimumTotal = minimumHeights.reduce(
+    (total, value) => total + value,
+    0,
+  );
+  const remaining = Math.max(0, usableHeight - minimumTotal);
+  const weights = sectionData.map((item) => {
+    const body = item.body || item.section;
+    const bodyLines = estimateWrappedLines(body, 443, 10);
+    const titleLines = item.title
+      ? estimateWrappedLines(item.title, 405, 15)
+      : 0;
+
+    return Math.max(1, bodyLines + (titleLines * 1.8));
+  });
+  const weightTotal = weights.reduce(
+    (total, value) => total + value,
+    0,
+  );
+
+  const heights = minimumHeights.map((value, index) => (
+    value + (
+      weightTotal
+        ? (remaining * (weights[index] / weightTotal))
+        : 0
+    )
+  ));
+
+  const currentTotal = heights.reduce(
+    (total, value) => total + value,
+    0,
+  );
+
+  if (heights.length && currentTotal !== usableHeight) {
+    heights[heights.length - 1] += usableHeight - currentTotal;
+  }
+
+  return heights;
 };
 
 const extractSectionTitle = (section) => {
@@ -269,6 +369,319 @@ const extractSectionTitle = (section) => {
   return {
     title,
     body,
+  };
+};
+
+
+const LEGAL_PARAGRAPH_NAMES = [
+  'PRIMEIRO',
+  'SEGUNDO',
+  'TERCEIRO',
+  'QUARTO',
+  'QUINTO',
+  'SEXTO',
+  'SÉTIMO',
+  'OITAVO',
+  'NONO',
+  'DÉCIMO',
+  'ÚNICO',
+];
+
+const cleanLegalDisplayText = (value = '') => {
+  const lines = String(value)
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((lineValue) => lineValue.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  return lines.reduce((result, lineValue) => {
+    const startsNewParagraph = (
+      /^[a-z]\)/i.test(lineValue)
+      || /^\d+\.\d+\b/.test(lineValue)
+      || /^Parágrafo\b/i.test(lineValue)
+    );
+
+    if (!result) return lineValue;
+    return `${result}${startsNewParagraph ? '\n' : ' '}${lineValue}`;
+  }, '');
+};
+
+const extractLegalLabel = (chunk = '') => {
+  let working = String(chunk || '').trim();
+  let label = '';
+
+  const clauseWord = working.match(/CL[ÁA]USULA/i);
+  const ordinal = working.match(/(\d+)\s*([ªº])/i);
+
+  if (clauseWord && ordinal) {
+    label = `CLÁUSULA ${ordinal[1]}${ordinal[2]}`;
+    working = working
+      .replace(clauseWord[0], ' ')
+      .replace(ordinal[0], ' ');
+  } else {
+    const paragraphWord = working.match(/PAR[ÁA]GRAFO/i);
+    const paragraphName = LEGAL_PARAGRAPH_NAMES.find((name) => (
+      new RegExp(`\\b${name}\\b`, 'i').test(working)
+    ));
+
+    if (paragraphWord && paragraphName) {
+      label = `PARÁGRAFO ${paragraphName}`;
+      working = working
+        .replace(paragraphWord[0], ' ')
+        .replace(new RegExp(`\\b${paragraphName}\\b`, 'i'), ' ');
+    } else {
+      const numberedItem = working.match(/^\s*(\d+\.\d+)\s*/);
+      if (numberedItem) {
+        label = numberedItem[1];
+        working = working.slice(numberedItem[0].length);
+      }
+    }
+  }
+
+  const body = cleanLegalDisplayText(working);
+  const compactBody = body.replace(/\s+/g, ' ').trim();
+  const isSubtitle = Boolean(
+    !label
+    && compactBody.length > 2
+    && compactBody.length <= 86
+    && /[A-ZÀ-Ú]/.test(compactBody)
+    && compactBody === compactBody.toLocaleUpperCase('pt-BR')
+  );
+
+  return {
+    label,
+    body,
+    kind: isSubtitle ? 'subtitle' : 'copy',
+    original: String(chunk || ''),
+  };
+};
+
+const parseLegalBodyBlocks = (content = '') => {
+  const chunks = String(content || '')
+    .replace(/\r/g, '')
+    .split(/\n\s*\n+/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+
+  const parsed = (chunks.length ? chunks : [String(content || '')])
+    .map(extractLegalLabel)
+    .filter((item) => item.label || item.body);
+
+  return parsed.length
+    ? parsed
+    : [{ label: '', body: cleanLegalDisplayText(content), original: content }];
+};
+
+const distributeLegalRows = (blocks, width, height) => {
+  const gap = blocks.length > 1 ? 9 : 0;
+  const usableHeight = Math.max(28, height - (gap * (blocks.length - 1)));
+  const weights = blocks.map((block) => {
+    const bodyWidth = block.label ? Math.max(120, width - 108) : width;
+    const lines = estimateWrappedLines(block.body || block.label, bodyWidth, 9.2);
+    return Math.max(1.35, lines + (block.label ? 0.7 : 0));
+  });
+  const total = weights.reduce((sum, value) => sum + value, 0) || 1;
+
+  const minimumRowHeight = Math.min(
+    26,
+    usableHeight / Math.max(1, blocks.length),
+  );
+  const rawHeights = weights.map((weight) => Math.max(
+    minimumRowHeight,
+    usableHeight * (weight / total),
+  ));
+  const rawTotal = rawHeights.reduce((sum, value) => sum + value, 0) || 1;
+
+  return {
+    gap,
+    heights: rawHeights.map((value) => value * (usableHeight / rawTotal)),
+  };
+};
+
+const structuredLegalBodyElements = (
+  content,
+  options = {},
+) => {
+  const x = Number(options.x || 72);
+  const y = Number(options.y || 100);
+  const width = Number(options.width || 443);
+  const height = Number(options.height || 200);
+  const zIndex = Number(options.zIndex || 6);
+  const blocks = parseLegalBodyBlocks(content);
+  const { gap, heights } = distributeLegalRows(blocks, width, height);
+  const elements = [];
+  let cursorY = y;
+
+  blocks.forEach((block, index) => {
+    const rowHeight = heights[index];
+    const groupId = createId('legal-row');
+    const labelWidth = block.label ? Math.min(94, Math.max(72, width * 0.22)) : 0;
+    const bodyX = block.label ? x + labelWidth + 12 : x;
+    const bodyWidth = block.label ? width - labelWidth - 12 : width;
+    const labelHeight = Math.min(44, Math.max(30, rowHeight));
+
+    if (block.kind === 'subtitle') {
+      elements.push(
+        text(block.body, {
+          x,
+          y: cursorY,
+          width,
+          height: rowHeight,
+          fontFamily: 'Georgia',
+          fontSize: fitTextToBox(block.body, {
+            width,
+            height: rowHeight,
+            min: 10.5,
+            max: 14.5,
+            lineHeight: 1.14,
+            safety: 2,
+          }),
+          fontWeight: '400',
+          color: COLORS.terracottaDark,
+          align: 'center',
+          lineHeight: 1.14,
+          letterSpacing: 0.2,
+          zIndex: zIndex + 1,
+          metadata: {
+            role: 'legal-subtitle',
+            structuredLegal: true,
+            preserveFullText: true,
+            groupId,
+            originalText: block.body,
+          },
+        }),
+      );
+
+      cursorY += rowHeight + gap;
+      return;
+    }
+
+    if (block.label) {
+      elements.push(
+        shape({
+          x,
+          y: cursorY,
+          width: labelWidth,
+          height: labelHeight,
+          backgroundColor: '#f3e2d6',
+          borderColor: '#dfc7b7',
+          borderWidth: 1,
+          borderRadius: 10,
+          zIndex,
+          metadata: {
+            role: 'legal-label-background',
+            structuredLegal: true,
+            groupId,
+          },
+        }),
+        text(block.label, {
+          x: x + 6,
+          y: cursorY + 4,
+          width: labelWidth - 12,
+          height: labelHeight - 8,
+          fontSize: fitTextToBox(block.label, {
+            width: labelWidth - 12,
+            height: labelHeight - 8,
+            min: 7.2,
+            max: 8.8,
+            lineHeight: 1.08,
+            safety: 1,
+          }),
+          fontWeight: '700',
+          color: COLORS.terracottaDark,
+          align: 'center',
+          lineHeight: 1.08,
+          zIndex: zIndex + 1,
+          metadata: {
+            role: 'legal-label',
+            structuredLegal: true,
+            groupId,
+            originalText: block.label,
+          },
+        }),
+      );
+    }
+
+    elements.push(
+      text(block.body, {
+        x: bodyX,
+        y: cursorY,
+        width: bodyWidth,
+        height: rowHeight,
+        fontSize: fitTextToBox(block.body, {
+          width: bodyWidth,
+          height: rowHeight,
+          min: 7.2,
+          max: Number(options.maxFontSize || 10.1),
+          lineHeight: 1.36,
+          safety: 4,
+        }),
+        color: COLORS.ink,
+        align: 'left',
+        lineHeight: 1.36,
+        zIndex: zIndex + 1,
+        metadata: {
+          role: 'legal-copy',
+          structuredLegal: true,
+          preserveFullText: true,
+          groupId,
+          originalText: block.body,
+        },
+      }),
+    );
+
+    cursorY += rowHeight + gap;
+  });
+
+  return elements;
+};
+
+const structureExistingLegalPage = (pageItem = {}) => {
+  const sourceElements = Array.isArray(pageItem.elements)
+    ? pageItem.elements
+    : [];
+  const legacyBodies = sourceElements.filter((element) => (
+    element.type === 'text'
+    && element.metadata?.role === 'legal-body'
+    && !element.metadata?.structuredLegal
+  ));
+
+  if (!legacyBodies.length) {
+    return {
+      ...pageItem,
+      metadata: {
+        ...(pageItem.metadata || {}),
+        structuredLegalLayoutVersion: 1,
+      },
+    };
+  }
+
+  const legacyIds = new Set(legacyBodies.map((element) => element.id));
+  const structuredElements = legacyBodies.flatMap((element) => (
+    structuredLegalBodyElements(
+      element.content || '',
+      {
+        x: element.x,
+        y: element.y,
+        width: element.width,
+        height: element.height,
+        maxFontSize: element.fontSize || 10.1,
+        zIndex: element.zIndex || 6,
+      },
+    )
+  ));
+
+  return {
+    ...pageItem,
+    elements: [
+      ...sourceElements.filter((element) => !legacyIds.has(element.id)),
+      ...structuredElements,
+    ],
+    metadata: {
+      ...(pageItem.metadata || {}),
+      structuredLegalLayoutVersion: 1,
+      fullTextPreserved: true,
+    },
   };
 };
 
@@ -338,7 +751,13 @@ const coverPage = (content, index) => {
       width: 400,
       height: 210,
       fontFamily: 'Georgia',
-      fontSize: 30,
+      fontSize: fitTextToBox(title, {
+        width: 400,
+        height: 210,
+        min: 22,
+        max: 30,
+        lineHeight: 1.18,
+      }),
       color: COLORS.ink,
       align: 'center',
       lineHeight: 1.18,
@@ -404,7 +823,13 @@ const summaryPage = (content, index) => page(
       y: 164,
       width: 451,
       height: 578,
-      fontSize: 10.25,
+      fontSize: fitTextToBox(content, {
+        width: 451,
+        height: 578,
+        min: 8.2,
+        max: 10.25,
+        lineHeight: 1.52,
+      }),
       lineHeight: 1.52,
     }),
   ],
@@ -453,7 +878,13 @@ const partiesPage = (content, index) => {
         y: 156,
         width: 405,
         height: 228,
-        fontSize: 11,
+        fontSize: fitTextToBox(first, {
+          width: 405,
+          height: 228,
+          min: 8.4,
+          max: 11,
+          lineHeight: 1.42,
+        }),
         lineHeight: 1.42,
       }),
       shape({
@@ -472,7 +903,13 @@ const partiesPage = (content, index) => {
         y: 469,
         width: 405,
         height: 228,
-        fontSize: 11,
+        fontSize: fitTextToBox(second, {
+          width: 405,
+          height: 228,
+          min: 8.4,
+          max: 11,
+          lineHeight: 1.42,
+        }),
         lineHeight: 1.42,
       }),
     ],
@@ -487,8 +924,8 @@ const packagePage = (content, index) => {
     'As partes acima entendem como justas',
   ];
   const sections = exactSections(content, markers);
-  const ys = [120, 315, 560, 720];
-  const heights = [155, 205, 120, 70];
+  const ys = [120, 315, 560, 704];
+  const heights = [155, 205, 120, 92];
 
   const elements = [
     text('DADOS DO EVENTO E PACOTE CONTRATADO', {
@@ -531,11 +968,13 @@ const packagePage = (content, index) => {
         y: y + 20,
         width: 398,
         height: height - 36,
-        fontSize: fitFont(
-          section,
-          9.4,
-          10.7,
-        ),
+        fontSize: fitTextToBox(section, {
+          width: 398,
+          height: height - 36,
+          min: 7.8,
+          max: 10.7,
+          lineHeight: 1.38,
+        }),
         lineHeight: 1.38,
       }),
     );
@@ -631,19 +1070,26 @@ const legalPage = (
   content,
   index,
 ) => {
-  const sections = exactSections(
+  const rawSections = exactSections(
     content,
     MARKERS[category]?.[index] || [],
   );
+  const sectionData = rawSections.map((section) => ({
+    section,
+    ...extractSectionTitle(section),
+  }));
 
-  const gap = 16;
+  const gap = 14;
   const top = 52;
   const bottom = 38;
   const usable = H
     - top
     - bottom
-    - (gap * (sections.length - 1));
-  const sectionHeight = usable / sections.length;
+    - (gap * (sectionData.length - 1));
+  const sectionHeights = distributeSectionHeights(
+    sectionData,
+    usable,
+  );
   const elements = [
     text('CONTRATO DE PRESTAÇÃO DE SERVIÇOS', {
       x: 48,
@@ -659,18 +1105,46 @@ const legalPage = (
     line(48, 32, 499, COLORS.line),
   ];
 
-  sections.forEach((section, sectionIndex) => {
-    const y = top
-      + (
-        sectionIndex
-        * (sectionHeight + gap)
-      );
+  let cursorY = top;
 
-    const { title, body } = extractSectionTitle(section);
+  sectionData.forEach((item, sectionIndex) => {
+    const sectionHeight = sectionHeights[sectionIndex];
+    const y = cursorY;
+    const title = item.title;
+    const body = item.body || item.section;
     const hasTitle = Boolean(title);
-    const headerHeight = hasTitle ? 82 : 22;
+    const titleLineCount = hasTitle
+      ? estimateWrappedLines(title, 405, 15)
+      : 0;
+    const titleFontSize = hasTitle
+      ? fitTextToBox(title, {
+          width: 405,
+          height: Math.min(76, Math.max(38, titleLineCount * 19)),
+          min: 12.4,
+          max: sectionData.length > 2 ? 14.4 : 16,
+          lineHeight: 1.16,
+          safety: 2,
+        })
+      : 0;
+    const titleHeight = hasTitle
+      ? Math.max(
+          38,
+          Math.min(
+            76,
+            (titleLineCount * titleFontSize * 1.16) + 8,
+          ),
+        )
+      : 0;
+    const headerHeight = hasTitle
+      ? titleHeight + 28
+      : 20;
+    const bodyX = hasTitle ? 72 : 112;
+    const bodyWidth = hasTitle ? 443 : 405;
     const bodyY = y + headerHeight;
-    const bodyHeight = sectionHeight - headerHeight - 24;
+    const bodyHeight = Math.max(
+      36,
+      sectionHeight - headerHeight - 18,
+    );
 
     elements.push(
       shape({
@@ -694,29 +1168,29 @@ const legalPage = (
         backgroundColor: COLORS.terracotta,
         borderRadius: 14,
       }),
-      ...sectionNumber(sectionIndex + 1, 63, y + 22),
+      ...sectionNumber(sectionIndex + 1, 63, y + 18),
     );
 
     if (hasTitle) {
       elements.push(
         text(title, {
           x: 112,
-          y: y + 18,
+          y: y + 16,
           width: 405,
-          height: 52,
+          height: titleHeight,
           fontFamily: 'Georgia',
-          fontSize:
-            sections.length > 2
-              ? 15
-              : 16.5,
+          fontSize: titleFontSize,
           color: COLORS.terracottaDark,
           align: 'left',
-          lineHeight: 1.18,
-          letterSpacing: 0.3,
+          lineHeight: 1.16,
+          letterSpacing: 0.2,
+          metadata: {
+            role: 'section-title',
+          },
         }),
         line(
           112,
-          y + 72,
+          y + titleHeight + 19,
           405,
           COLORS.line,
         ),
@@ -724,19 +1198,17 @@ const legalPage = (
     }
 
     elements.push(
-      text(body || section, {
-        x: 72,
+      ...structuredLegalBodyElements(body, {
+        x: bodyX,
         y: bodyY,
-        width: 443,
+        width: bodyWidth,
         height: bodyHeight,
-        fontSize: fitFont(
-          body || section,
-          sections.length > 1 ? 9.1 : 9.5,
-          sections.length > 1 ? 10.3 : 11,
-        ),
-        lineHeight: 1.38,
+        maxFontSize: sectionData.length > 1 ? 10.1 : 10.8,
+        zIndex: 6,
       }),
     );
+
+    cursorY += sectionHeight + gap;
   });
 
   elements.push(
@@ -753,8 +1225,15 @@ const legalPage = (
     }),
   );
 
+  const normalizedTitles = sectionData
+    .map((item) => String(item.title || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const pageName = normalizedTitles.some((title) => title.includes('SOBRE OS ÁLBUNS'))
+    ? (normalizedTitles.length > 1 ? 'Procedimento e álbuns' : 'Sobre os álbuns')
+    : (normalizedTitles[0] || `Página ${index + 1}`);
+
   return page(
-    `Página ${index + 1}`,
+    pageName,
     index,
     elements,
   );
@@ -793,7 +1272,13 @@ const signaturePage = (content, index) => page(
       y: 172,
       width: 415,
       height: 520,
-      fontSize: 11,
+      fontSize: fitTextToBox(content, {
+        width: 415,
+        height: 520,
+        min: 8.5,
+        max: 11,
+        lineHeight: 1.6,
+      }),
       align: 'center',
       lineHeight: 1.6,
     }),
@@ -902,6 +1387,167 @@ export const buildContractBlueprint = (
   }
 
   return buildPages('casamento', CASAMENTO_TEXTS);
+};
+
+const normalizeLegalText = (value = '') => (
+  String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+);
+
+const getTemplateText = (pages = []) => (
+  pages
+    .flatMap((pageItem) => pageItem.elements || [])
+    .filter((element) => ['text', 'dynamicField'].includes(element.type))
+    .map((element) => element.content || element.label || '')
+    .join('\n')
+);
+
+const sourceForCategory = (category) => {
+  if (category === 'ensaio') return ENSAIO_TEXTS;
+  if (category === 'formatura') return FORMATURA_TEXTS;
+  return CASAMENTO_TEXTS;
+};
+
+const albumClauseForCategory = (category) => {
+  const source = sourceForCategory(category)
+    .find((content) => content.includes('SOBRE OS ÁLBUNS'));
+
+  if (!source) return '';
+
+  const start = source.indexOf('SOBRE OS ÁLBUNS');
+  return source.slice(start).trim();
+};
+
+const inferPageNameFromContent = (pageItem = {}) => {
+  const titleElements = (pageItem.elements || []).filter((element) => (
+    element.type === 'text'
+    && element.metadata?.role === 'section-title'
+    && element.content
+  ));
+  const normalizedTitles = titleElements.map((element) => (
+    normalizeLegalText(element.content)
+  ));
+  const hasAlbumTitle = normalizedTitles.some((title) => (
+    title.includes('sobre os albuns')
+  ));
+  const hasProcedureTitle = normalizedTitles.some((title) => (
+    title.includes('disponibilizacao das fotos')
+  ));
+
+  if (hasAlbumTitle) {
+    return hasProcedureTitle
+      ? 'Procedimento e álbuns'
+      : 'Sobre os álbuns';
+  }
+
+  const titleElement = titleElements[0];
+
+  return titleElement?.content
+    ? String(titleElement.content).replace(/\s+/g, ' ').trim()
+    : pageItem.name;
+};
+
+const createAlbumRecoveryPage = (category, order) => {
+  const clause = albumClauseForCategory(category);
+  if (!clause) return null;
+
+  const recovered = legalPage(category, clause, order);
+  return {
+    ...recovered,
+    name: 'Sobre os álbuns',
+    metadata: {
+      ...(recovered.metadata || {}),
+      recoveredLegalContent: true,
+      recoveryReason: 'album-clause-missing',
+      preservesOriginalText: true,
+    },
+  };
+};
+
+const ensureRequiredLegalContent = (pages = [], category) => {
+  const currentText = normalizeLegalText(getTemplateText(pages));
+  const hasAlbumClause = (
+    currentText.includes('sobre os albuns')
+    && currentText.includes('os albuns sao contratados a parte')
+  );
+
+  if (hasAlbumClause) return pages;
+
+  const recoveryPage = createAlbumRecoveryPage(category, pages.length);
+  if (!recoveryPage) return pages;
+
+  const procedureIndex = pages.findIndex((pageItem) => (
+    normalizeLegalText(getTemplateText([pageItem]))
+      .includes('disponibilizacao das fotos')
+  ));
+  const insertionIndex = procedureIndex >= 0
+    ? procedureIndex + 1
+    : Math.min(6, pages.length);
+
+  return [
+    ...pages.slice(0, insertionIndex),
+    recoveryPage,
+    ...pages.slice(insertionIndex),
+  ];
+};
+
+const preserveExistingPages = (template = {}) => {
+  const pages = Array.isArray(template.pages)
+    ? template.pages.map((pageItem) => ({
+        ...pageItem,
+        elements: (pageItem.elements || []).map((element) => ({ ...element })),
+      }))
+    : [];
+
+  if (!pages.length) {
+    return buildContractBlueprint(template.category);
+  }
+
+  return ensureRequiredLegalContent(pages, template.category)
+    .map((pageItem, index) => {
+      const structuredPage = structureExistingLegalPage(pageItem);
+
+      return {
+        ...structuredPage,
+        order: index,
+        name: inferPageNameFromContent(structuredPage) || `Página ${index + 1}`,
+        metadata: {
+          ...(structuredPage.metadata || {}),
+          editableLegalContent: true,
+          preservesOriginalText: true,
+          structuredLegalLayoutVersion: 1,
+        },
+      };
+    });
+};
+
+export const upgradeContractTemplateBlueprint = (
+  template = {},
+) => {
+  const nextPages = preserveExistingPages(template);
+
+  return {
+    ...template,
+    pages: nextPages,
+    metadata: {
+      ...(template.metadata || {}),
+      blueprintVersion: CONTRACT_BLUEPRINT_VERSION,
+      pageCount: nextPages.length,
+      generatedInsideEditor: true,
+      editableText: true,
+      supportsLogo: true,
+      fullTextPreserved: true,
+      nonDestructiveUpgrade: true,
+      structuredLegalLayout: true,
+      editorHistoryVersion: 2,
+      layoutUpgradedAt: new Date().toISOString(),
+    },
+    updatedAt: new Date().toISOString(),
+  };
 };
 
 export const isDefaultContractTemplate = (

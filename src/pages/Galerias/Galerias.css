@@ -97,3 +97,400 @@
     min-height: 54px;
   }
 }
+
+/* =========================================================
+   CV113 — editor de galeria responsivo para desktop, iPad e celular
+   ========================================================= */
+.gallery-workspace-title-copy { min-width: 0; }
+.gallery-workspace-title-copy h1 { max-width: min(42vw, 520px); }
+.gallery-workspace-actions .action-label-short { display: none; }
+.gallery-back-button {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0 !important;
+  border-radius: 50% !important;
+}
+.gallery-workspace-nav button span { min-width: 0; }
+
+/* A mensagem de retorno deixa de ocupar uma faixa inteira do editor. */
+.gallery-workspace .workspace-message {
+  position: fixed;
+  top: 82px;
+  right: 24px;
+  z-index: 70;
+  width: min(360px, calc(100vw - 32px));
+  margin: 0;
+  padding: 11px 14px;
+  box-shadow: 0 16px 46px rgba(0, 0, 0, .36);
+  backdrop-filter: blur(14px);
+}
+
+/* Notebooks menores e iPad horizontal: melhor aproveitamento sem apertar os cards. */
+@media (min-width: 1181px) and (max-width: 1439px) {
+  .gallery-admin-page { padding: 18px; }
+  .gallery-workspace { margin: -18px; }
+  .gallery-workspace-header { padding: 14px 18px; gap: 18px; }
+  .gallery-workspace-title-copy h1 { max-width: 330px; }
+  .gallery-workspace-actions { flex-wrap: nowrap; gap: 7px; }
+  .gallery-workspace-actions button { min-height: 42px; padding: 9px 12px; white-space: nowrap; }
+  .gallery-workspace-layout { grid-template-columns: 188px minmax(0, 1fr); }
+  .gallery-workspace-nav { padding: 14px 10px; }
+  .gallery-workspace-nav button { padding: 10px 11px !important; font-size: 12px; }
+  .gallery-workspace-content { padding: 24px 22px; }
+  .overview-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .overview-card { min-width: 0; }
+  .overview-card p { min-height: 0; }
+}
+
+/* iPad horizontal/vertical e tablets: menu interno continua com ícone + nome. */
+@media (min-width: 761px) and (max-width: 1180px) {
+  .gallery-admin-page { padding: 14px; }
+  .gallery-workspace { margin: -14px; }
+  .gallery-workspace-header {
+    position: sticky;
+    top: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+  .gallery-workspace-title { min-width: 0; }
+  .gallery-workspace-title-copy h1 {
+    max-width: 300px;
+    font-size: 18px;
+  }
+  .gallery-workspace-actions {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+  .gallery-workspace-actions button {
+    min-width: 42px;
+    min-height: 40px;
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+  .gallery-workspace-actions .action-label-long { display: none; }
+  .gallery-workspace-actions .action-label-short { display: inline; }
+  .gallery-production-strip {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+  }
+  .gallery-production-strip article {
+    flex: 1 0 142px;
+    min-height: 72px;
+    padding: 13px 14px;
+  }
+  .gallery-workspace-layout {
+    grid-template-columns: 168px minmax(0, 1fr) !important;
+  }
+  .gallery-workspace-nav {
+    position: sticky;
+    top: 69px;
+    align-self: start;
+    height: calc(100dvh - 69px);
+    overflow-y: auto;
+    padding: 12px 8px;
+  }
+  .gallery-workspace-nav button {
+    width: 100%;
+    min-height: 43px;
+    justify-content: flex-start !important;
+    gap: 9px;
+    padding: 10px 11px !important;
+    margin-bottom: 3px;
+    font-size: 11px !important;
+    white-space: nowrap;
+  }
+  .gallery-workspace-nav button svg { flex: 0 0 auto; margin: 0; }
+  .gallery-workspace-nav button span {
+    display: inline !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gallery-workspace-content { padding: 22px 18px; }
+  .workspace-tab { width: 100%; }
+  .tab-heading { align-items: flex-start; }
+  .tab-heading h2 { font-size: 26px; }
+  .overview-cards { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .overview-card { min-width: 0; padding: 18px; }
+  .overview-card p { min-height: 0; }
+  .gallery-photo-manager { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cover-editor-grid,
+  .appearance-editor,
+  .gallery-protection-layout { grid-template-columns: 1fr !important; }
+  .cover-live-preview,
+  .appearance-preview,
+  .gallery-watermark-sample { position: relative; top: auto; }
+  .gallery-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Tablets estreitos em modo vertical. */
+@media (min-width: 761px) and (max-width: 900px) {
+  .gallery-workspace-header {
+    grid-template-columns: 1fr;
+  }
+  .gallery-workspace-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+  }
+  .gallery-workspace-actions button { width: 100%; }
+  .gallery-workspace-nav { top: 126px; height: calc(100dvh - 126px); }
+  .gallery-workspace-layout { grid-template-columns: 156px minmax(0, 1fr) !important; }
+  .gallery-workspace-content { padding: 20px 16px; }
+  .gallery-photo-manager { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Celular: cabeçalho limpo, ações organizadas e abas horizontais com nome. */
+@media (max-width: 760px) {
+  .gallery-admin-page { padding: 10px !important; }
+  .gallery-workspace { margin: -10px !important; min-height: 100dvh; }
+  .gallery-workspace-header {
+    position: relative;
+    top: auto;
+    display: grid !important;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 14px 12px 12px;
+  }
+  .gallery-workspace-title {
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+  }
+  .gallery-back-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50% !important;
+  }
+  .gallery-workspace-title-copy h1 {
+    max-width: calc(100vw - 92px);
+    margin: 2px 0;
+    font-size: 18px;
+  }
+  .gallery-workspace-title-copy small { font-size: 9px; }
+  .save-indicator { font-size: 10px; }
+  .gallery-workspace-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .gallery-workspace-actions button {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding: 8px 7px;
+    gap: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .gallery-workspace-actions button svg { width: 16px; height: 16px; }
+  .gallery-workspace-actions .action-label-long { display: none; }
+  .gallery-workspace-actions .action-label-short { display: inline; }
+  .gallery-action-publish { grid-column: span 2; }
+  .gallery-action-save { grid-column: span 1; }
+
+  .gallery-workspace .workspace-message {
+    position: fixed;
+    top: 66px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    font-size: 11px;
+  }
+
+  .gallery-production-strip {
+    display: flex !important;
+    grid-template-columns: none !important;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+  .gallery-production-strip::-webkit-scrollbar { display: none; }
+  .gallery-production-strip article {
+    flex: 0 0 126px;
+    min-height: 66px;
+    scroll-snap-align: start;
+    padding: 11px 12px;
+    gap: 9px;
+  }
+  .gallery-production-strip article svg { width: 20px; height: 20px; }
+  .gallery-production-strip strong { font-size: 18px; }
+  .gallery-production-strip small { font-size: 10px; }
+
+  .gallery-workspace-layout { display: block !important; min-height: 0; }
+  .gallery-workspace-nav {
+    position: sticky;
+    top: 0;
+    z-index: 19;
+    width: 100%;
+    height: auto;
+    display: flex !important;
+    gap: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid #29292f;
+    background: rgba(19, 19, 22, .97);
+    backdrop-filter: blur(14px);
+    scrollbar-width: none;
+  }
+  .gallery-workspace-nav::-webkit-scrollbar { display: none; }
+  .gallery-workspace-nav button {
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: max-content;
+    min-height: 42px;
+    justify-content: center !important;
+    gap: 7px;
+    margin: 0;
+    padding: 9px 12px !important;
+    font-size: 11px !important;
+    white-space: nowrap;
+    border-radius: 10px;
+  }
+  .gallery-workspace-nav button svg { width: 16px; height: 16px; margin: 0; }
+  .gallery-workspace-nav button span { display: inline !important; }
+
+  .gallery-workspace-content { padding: 18px 12px 96px !important; }
+  .tab-heading {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .tab-heading h2 { margin: 4px 0; font-size: 24px; }
+  .tab-heading p { font-size: 12px; line-height: 1.55; }
+  .tab-heading > button { width: 100%; }
+  .overview-cards,
+  .delivery-summary { grid-template-columns: 1fr !important; }
+  .overview-card {
+    padding: 17px;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    column-gap: 12px;
+    align-items: start;
+  }
+  .overview-card > svg { grid-row: 1 / span 4; margin-top: 2px; }
+  .overview-card small,
+  .overview-card strong,
+  .overview-card p,
+  .overview-card button { grid-column: 2; }
+  .overview-card small { margin-top: 0; }
+  .overview-card strong { font-size: 25px; }
+  .overview-card p { min-height: 0; margin: 2px 0 12px; }
+  .overview-card button { width: 100%; }
+  .gallery-photo-manager { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 9px; }
+  .manager-photo-media { height: 150px; }
+  .gallery-form-grid { grid-template-columns: 1fr !important; }
+  .gallery-form-grid label.full,
+  .gallery-theme-field { grid-column: auto !important; }
+  .cover-editor-grid,
+  .appearance-editor,
+  .gallery-protection-layout { grid-template-columns: 1fr !important; gap: 16px; }
+  .cover-live-preview { height: 430px; }
+  .appearance-preview { min-height: 380px; padding: 22px; }
+  .sharing-card { padding: 18px; }
+  .sharing-card > div:last-child { display: grid; grid-template-columns: 1fr; }
+  .sharing-card button { width: 100%; }
+  .danger-zone { padding: 18px; }
+}
+
+@media (max-width: 430px) {
+  .gallery-workspace-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gallery-action-preview,
+  .gallery-action-link { grid-column: span 1; }
+  .gallery-action-publish { grid-column: 1 / -1; }
+  .gallery-action-save { grid-column: 1 / -1; }
+  .gallery-photo-manager { grid-template-columns: 1fr !important; }
+  .manager-photo-media { height: 210px; }
+}
+
+/* V5 — Galerias mobile denso, mantendo preview, publicação e proteção acessíveis. */
+@media (max-width: 760px) {
+  .gallery-admin-page { padding: 0 !important; }
+
+  .gallery-admin-heading {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .gallery-admin-heading h1 { font-size: 1.25rem !important; }
+  .gallery-admin-heading p { font-size: 0.7rem; line-height: 1.4; }
+
+  .gallery-workspace-header {
+    gap: 8px;
+    padding: 9px 8px;
+  }
+
+  .gallery-workspace-title-copy h1 { font-size: 1rem; }
+  .gallery-workspace-title-copy small { font-size: 0.55rem; }
+
+  .gallery-workspace-actions {
+    gap: 5px;
+  }
+
+  .gallery-workspace-actions button,
+  .gallery-workspace-actions a {
+    min-height: 34px !important;
+    padding: 6px 7px !important;
+    font-size: 0.64rem !important;
+  }
+
+  .gallery-production-strip {
+    padding: 8px 9px;
+    gap: 8px;
+  }
+
+  .gallery-production-strip strong { font-size: 0.95rem; }
+  .gallery-production-strip small { font-size: 0.56rem; }
+
+  .gallery-workspace-nav {
+    gap: 4px;
+    padding: 6px 7px;
+  }
+
+  .gallery-workspace-nav button {
+    min-height: 33px;
+    padding: 6px 8px !important;
+    font-size: 0.64rem !important;
+  }
+
+  .gallery-workspace-content { padding: 11px 8px 72px !important; }
+
+  .tab-heading { gap: 5px; }
+  .tab-heading h2 { font-size: 1.22rem; }
+  .tab-heading p { font-size: 0.68rem; line-height: 1.4; }
+
+  .overview-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px;
+  }
+
+  .overview-card {
+    min-height: 78px;
+    padding: 10px;
+  }
+
+  .overview-card strong { font-size: 1.18rem; }
+  .overview-card small { font-size: 0.58rem; }
+
+  .gallery-form-section,
+  .sharing-card,
+  .danger-zone {
+    padding: 11px;
+  }
+
+  .appearance-preview { min-height: 280px; padding: 14px; }
+}
+
+@media (max-width: 359px) {
+  .overview-cards { grid-template-columns: 1fr !important; }
+}

@@ -15,6 +15,21 @@ const STORAGE_KEYS = {
   documents: 'studioflow.documentInstances.v1',
 };
 
+const TEMPLATE_SUMMARY_CACHE_TTL = 5 * 60 * 1000;
+let templateSummaryCache = {
+  key: '',
+  expiresAt: 0,
+  items: [],
+};
+
+const invalidateTemplateSummaryCache = () => {
+  templateSummaryCache = {
+    key: '',
+    expiresAt: 0,
+    items: [],
+  };
+};
+
 const TEMPLATE_TABLE = 'document_templates';
 const DOCUMENT_TABLE = 'document_instances';
 const DOCUMENT_ASSET_BUCKET = 'studioflow-files';
@@ -89,11 +104,17 @@ const normalizeTemplateRecord = (
       Array.isArray(template.pages)
         ? template.pages
         : [],
-    metadata:
-      typeof template.metadata === 'object'
-      && template.metadata !== null
-        ? template.metadata
-        : {},
+    metadata: {
+      ...(
+        typeof template.metadata === 'object'
+        && template.metadata !== null
+          ? template.metadata
+          : {}
+      ),
+      pageCount: Array.isArray(template.pages)
+        ? template.pages.length
+        : Number(template.metadata?.pageCount || 0),
+    },
     createdAt:
       normalizeDateField(template.createdAt)
       || currentDate,
@@ -383,28 +404,47 @@ const persistTemplateAssets = async (template) => {
 
 const hydrateTemplateAssets = async (template) => {
   if (!template || !isSupabaseConfigured) return template;
+
   const next = JSON.parse(JSON.stringify(template));
   const pages = Array.isArray(next.pages) ? next.pages : [];
-  for (const page of pages) {
+  const tasks = [];
+
+  pages.forEach((page) => {
     const background = page.background || {};
+
     if (background.storagePath && !isDataUrl(background.url)) {
-      page.background = {
-        ...background,
-        url: await createAssetUrl(background.storagePath, background.bucket),
-      };
+      tasks.push(
+        createAssetUrl(background.storagePath, background.bucket)
+          .then((url) => {
+            page.background = {
+              ...background,
+              url,
+            };
+          }),
+      );
     }
+
     const elements = Array.isArray(page.elements) ? page.elements : [];
-    for (const element of elements) {
+
+    elements.forEach((element) => {
       if (element.storagePath && !isDataUrl(element.src)) {
-        element.src = await createAssetUrl(element.storagePath, element.bucket);
+        tasks.push(
+          createAssetUrl(element.storagePath, element.bucket)
+            .then((url) => {
+              element.src = url;
+            }),
+        );
       }
-    }
-  }
+    });
+  });
+
+  await Promise.all(tasks);
   return next;
 };
 
 const templatePayloadWithoutPages = (record) => {
-  const { pages, ...payload } = record;
+  const payload = { ...record };
+  delete payload.pages;
   return payload;
 };
 
@@ -733,6 +773,62 @@ const loadRemoteAll = async (table) => {
     : transformed;
 };
 
+const TEMPLATE_SUMMARY_COLUMNS = [
+  'id',
+  'document_type',
+  'name',
+  'slug',
+  'category',
+  'version',
+  'status',
+  'is_published',
+  'is_latest',
+  'base_template_id',
+  'metadata',
+  'published_at',
+  'created_at',
+  'updated_at',
+].join(',');
+
+const loadRemoteTemplateSummaries = async (filters = null) => {
+  let query = supabase
+    .from(TEMPLATE_TABLE)
+    .select(TEMPLATE_SUMMARY_COLUMNS)
+    .order('updated_at', { ascending: false });
+
+  if (filters?.documentType) {
+    query = query.eq('document_type', filters.documentType);
+  }
+
+  if (filters?.category) {
+    query = query.eq('category', filters.category);
+  }
+
+  if (filters?.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+  if (!Array.isArray(data)) return [];
+
+  return data.map((row) => {
+    const item = transformRemoteRecord(row, TEMPLATE_TABLE);
+    const pageCount = Number(
+      item.metadata?.pageCount
+      || item.metadata?.originalPageCount
+      || 0,
+    );
+
+    return {
+      ...item,
+      pages: [],
+      pageCount,
+    };
+  });
+};
+
 const local = {
   saveTemplate: async (template) => {
     const record =
@@ -749,6 +845,7 @@ const local = {
     }
 
     setLocalTemplates(list);
+    invalidateTemplateSummaryCache();
 
     return record;
   },
@@ -777,11 +874,31 @@ const local = {
       ));
   },
 
+  listTemplateSummaries: async (
+    filters = null,
+  ) => {
+    const matcher = createMatcher(filters);
+
+    return getLocalTemplates()
+      .filter(matcher)
+      .map((item) => ({
+        ...JSON.parse(JSON.stringify(item)),
+        pages: [],
+        pageCount: Number(
+          item.metadata?.pageCount
+          || item.metadata?.originalPageCount
+          || item.pages?.length
+          || 0,
+        ),
+      }));
+  },
+
   deleteTemplate: async (id) => {
     const list = getLocalTemplates()
       .filter((item) => item.id !== id);
 
     setLocalTemplates(list);
+    invalidateTemplateSummaryCache();
 
     return true;
   },
@@ -877,6 +994,16 @@ const supabaseAdapter = {
     )
   ),
 
+  listTemplateSummaries: async (
+    filters = null,
+  ) => (
+    handleSupabase(
+      TEMPLATE_TABLE,
+      () => loadRemoteTemplateSummaries(filters),
+      () => local.listTemplateSummaries(filters),
+    )
+  ),
+
   deleteTemplate: async (id) => (
     handleSupabase(
       TEMPLATE_TABLE,
@@ -964,7 +1091,9 @@ const adapter = isSupabaseConfigured
 export async function saveTemplate(
   template,
 ) {
-  return adapter.saveTemplate(template);
+  const saved = await adapter.saveTemplate(template);
+  invalidateTemplateSummaryCache();
+  return saved;
 }
 
 export async function getTemplate(
@@ -979,12 +1108,39 @@ export async function listTemplates(
   return adapter.listTemplates(filters);
 }
 
+export async function listTemplateSummaries(
+  filters = null,
+  options = {},
+) {
+  const key = JSON.stringify(filters || {});
+  const now = Date.now();
+
+  if (
+    !options.force
+    && templateSummaryCache.key === key
+    && templateSummaryCache.expiresAt > now
+  ) {
+    return JSON.parse(JSON.stringify(templateSummaryCache.items));
+  }
+
+  const items = await adapter.listTemplateSummaries(filters);
+  templateSummaryCache = {
+    key,
+    expiresAt: now + TEMPLATE_SUMMARY_CACHE_TTL,
+    items: JSON.parse(JSON.stringify(items)),
+  };
+
+  return items;
+}
+
 export async function deleteTemplate(
   templateId,
 ) {
-  return adapter.deleteTemplate(
+  const deleted = await adapter.deleteTemplate(
     templateId,
   );
+  invalidateTemplateSummaryCache();
+  return deleted;
 }
 
 export async function saveDocument(
@@ -1017,6 +1173,7 @@ export default {
   saveTemplate,
   getTemplate,
   listTemplates,
+  listTemplateSummaries,
   deleteTemplate,
   saveDocument,
   getDocument,

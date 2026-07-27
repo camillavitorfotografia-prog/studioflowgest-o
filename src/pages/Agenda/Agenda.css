@@ -620,3 +620,106 @@
     width: 100%;
   }
 }
+/* V5 — Agenda mobile: controles compactos e calendário com rolagem interna. */
+@media (max-width: 560px) {
+  .agenda-page { gap: 10px; }
+
+  .agenda-header {
+    gap: 8px;
+  }
+
+  .agenda-header h1 {
+    margin: 2px 0;
+    font-size: 1.3rem !important;
+  }
+
+  .agenda-header p {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  .agenda-primary {
+    min-height: 36px;
+    padding: 7px 10px;
+    font-size: 0.73rem;
+  }
+
+  .agenda-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px;
+  }
+
+  .agenda-summary-card {
+    min-height: 70px;
+    gap: 8px;
+    padding: 9px;
+    border-radius: 9px;
+  }
+
+  .agenda-summary-card > span {
+    width: 31px;
+    height: 31px;
+    border-radius: 8px;
+  }
+
+  .agenda-summary-card svg { width: 15px; }
+  .agenda-summary-card small { font-size: 0.6rem; }
+  .agenda-summary-card strong { font-size: 0.98rem; }
+
+  .agenda-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px;
+  }
+
+  .agenda-search { grid-column: 1 / -1 !important; }
+  .agenda-filters label,
+  .agenda-filters button { min-height: 36px; }
+
+  .agenda-controls {
+    gap: 7px;
+  }
+
+  .agenda-controls > div {
+    min-width: 0;
+    padding: 2px;
+  }
+
+  .agenda-controls button {
+    min-height: 34px;
+    padding: 6px 9px;
+    font-size: 0.69rem;
+  }
+
+  .agenda-controls > div:first-child button {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .agenda-legend {
+    gap: 10px;
+    font-size: 0.63rem;
+  }
+
+  .agenda-calendar {
+    height: min(500px, 62dvh) !important;
+    min-height: 420px;
+    padding: 5px;
+    overflow: hidden;
+  }
+
+  .agenda-calendar .rbc-calendar { min-width: 610px; }
+  .agenda-calendar .rbc-time-view { height: 100%; }
+  .agenda-calendar .rbc-time-content {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .agenda-list { padding: 6px; }
+  .agenda-list section > button { padding: 9px 7px; gap: 8px; }
+}
+
+@media (max-width: 359px) {
+  .agenda-summary-grid,
+  .agenda-filters { grid-template-columns: 1fr !important; }
+}

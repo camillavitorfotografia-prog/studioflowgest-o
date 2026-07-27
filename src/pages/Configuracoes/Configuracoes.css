@@ -183,3 +183,36 @@
     grid-column: 2;
   }
 }
+/* Configurações no tema claro. Escopo local para evitar regressões em outros módulos. */
+:root[data-theme="light"] .settings-heading { background: linear-gradient(#f5f3ef 75%, transparent); }
+:root[data-theme="light"] .settings-tabs,
+:root[data-theme="light"] .settings-panel,
+:root[data-theme="light"] .template-card,
+:root[data-theme="light"] .settings-sidebar-item,
+:root[data-theme="light"] .integration-grid article,
+:root[data-theme="light"] .role-grid article,
+:root[data-theme="light"] .danger-zone {
+  background: #fff;
+  border-color: rgba(36,33,29,.12);
+  color: #24211d;
+}
+:root[data-theme="light"] .settings-tabs { background: #fbfaf8; }
+:root[data-theme="light"] .settings-field input,
+:root[data-theme="light"] .settings-field select,
+:root[data-theme="light"] .settings-field textarea,
+:root[data-theme="light"] .integration-grid article button,
+:root[data-theme="light"] .role-grid article button,
+:root[data-theme="light"] .danger-zone button {
+  background: #fff;
+  color: #24211d;
+  border-color: rgba(36,33,29,.14);
+}
+:root[data-theme="light"] .settings-field > span,
+:root[data-theme="light"] .settings-toggle,
+:root[data-theme="light"] .settings-heading p,
+:root[data-theme="light"] .settings-panel-title p,
+:root[data-theme="light"] .danger-zone p,
+:root[data-theme="light"] .role-grid span { color: #68635d; }
+:root[data-theme="light"] .settings-layout,
+:root[data-theme="light"] .settings-panel-title,
+:root[data-theme="light"] .sidebar-settings-heading { border-color: rgba(36,33,29,.1); }

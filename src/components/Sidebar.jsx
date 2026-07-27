@@ -164,16 +164,24 @@ export default function Sidebar() {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, []);
 
+  useEffect(() => {
+    document.body.classList.toggle('sidebar-mobile-is-open', isMobileOpen);
+
+    return () => {
+      document.body.classList.remove('sidebar-mobile-is-open');
+    };
+  }, [isMobileOpen]);
+
   return (
     <>
       <button
         type="button"
-        className="sidebar-mobile-toggle"
+        className={`sidebar-mobile-toggle${isMobileOpen ? ' is-open' : ''}`}
         onClick={() => setIsMobileOpen((open) => !open)}
         aria-label={isMobileOpen ? 'Fechar menu' : 'Abrir menu'}
         aria-expanded={isMobileOpen}
       >
-        {isMobileOpen ? <X /> : <Menu />}
+        <Menu />
       </button>
       <button
         type="button"
@@ -181,11 +189,12 @@ export default function Sidebar() {
         onClick={() => setIsMobileOpen(false)}
         aria-label="Fechar menu"
       />
-      <aside className={`sidebar${isMobileOpen ? ' mobile-open' : ''}${sidebarSettings.compact ? ' compact' : ''}${sidebarSettings.showLabels ? '' : ' hide-labels'}${sidebarSettings.showAvatar ? '' : ' no-avatar'}`}>
+      <aside className={`sf-app-sidebar${isMobileOpen ? ' mobile-open' : ''}${sidebarSettings.compact ? ' compact' : ''}${sidebarSettings.showLabels ? '' : ' hide-labels'}${sidebarSettings.showAvatar ? '' : ' no-avatar'}`}>
+      <button type="button" className="sidebar-drawer-close" onClick={() => setIsMobileOpen(false)} aria-label="Fechar menu"><X /></button>
       <div className="sidebar-main">
         <div className="sidebar-logo" aria-label="StudioFlow">
           <picture className="sidebar-logo-picture">
-            <source srcSet={LogoIcon} media="(max-width: 1024px)" />
+            <source srcSet={LogoIcon} media="(min-width: 769px) and (max-width: 1366px)" />
             <img src={LogoFull} alt="StudioFlow" className="sidebar-logo-image" />
           </picture>
         </div>

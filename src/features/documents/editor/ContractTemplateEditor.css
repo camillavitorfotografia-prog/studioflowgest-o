@@ -40,7 +40,7 @@
   height: 15px;
 }
 
-.contract-template-editor > header > div {
+.contract-editor-title {
   min-width: 180px;
   margin-right: auto;
 }
@@ -54,7 +54,7 @@
   font-weight: 600;
 }
 
-.contract-template-editor > header span {
+.contract-editor-title > span {
   color: #777;
   font-size: .68rem;
 }
@@ -1323,4 +1323,3016 @@
     width: 100%;
     margin-left: 0;
   }
+}
+
+/* CV114 — responsividade isolada do editor de contratos */
+.contract-editor-toolbar {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.contract-editor-title {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.contract-editor-title input {
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.contract-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.contract-editor-actions .contract-toolbar-label,
+.contract-editor-back .contract-toolbar-label {
+  color: inherit;
+  font-size: inherit;
+}
+
+.contract-toolbar-label-short,
+.contract-workspace-text-short {
+  display: none;
+}
+
+.contract-a4-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.contract-a4-viewport {
+  position: relative;
+  flex: 0 0 auto;
+  margin-inline: auto;
+}
+
+.contract-a4-viewport > .contract-a4 {
+  position: absolute;
+  inset: 0 auto auto 0;
+  margin: 0;
+}
+
+.contract-workspace-toolbar {
+  width: max-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.contract-workspace-toolbar > *,
+.contract-workspace-toolbar .contract-toolbar-group {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 861px) and (max-width: 1180px) {
+  .contract-template-editor > header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 10px;
+    padding: 8px 10px;
+    overflow: visible;
+  }
+
+  .contract-editor-back {
+    min-width: 38px;
+  }
+
+  .contract-editor-title {
+    margin-right: 0;
+  }
+
+  .contract-editor-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .contract-editor-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .contract-editor-actions button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 7px 9px;
+    white-space: nowrap;
+  }
+
+  .contract-toolbar-label-full {
+    display: none;
+  }
+
+  .contract-toolbar-label-short {
+    display: inline;
+  }
+
+  .contract-editor-grid {
+    display: grid !important;
+    grid-template-columns: 176px minmax(0, 1fr) 250px !important;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .contract-pages,
+  .contract-field-panel {
+    padding: 9px;
+  }
+
+  .contract-pages article {
+    grid-template-columns: 20px minmax(0, 1fr) 18px;
+    padding: 7px;
+  }
+
+  .contract-pages article > div {
+    flex-wrap: wrap;
+  }
+
+  .contract-pages article > div button {
+    flex: 1 1 30px;
+    min-width: 30px;
+  }
+
+  .contract-a4-stage {
+    padding: 12px 12px 28px;
+  }
+
+  .contract-canvas-toolbar {
+    position: sticky;
+    top: 0;
+    margin-bottom: 12px;
+  }
+
+  .contract-field-panel h2 {
+    font-size: .92rem;
+  }
+
+  .contract-field-panel input,
+  .contract-field-panel select,
+  .contract-field-panel textarea {
+    padding: 7px;
+  }
+
+  .contract-add-elements > div {
+    grid-template-columns: 1fr;
+  }
+
+  .contract-autosave-status {
+    width: auto;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1020px) {
+  .contract-editor-grid {
+    grid-template-columns: 154px minmax(0, 1fr) 222px !important;
+  }
+
+  .contract-editor-actions .contract-toolbar-label:not(.contract-toolbar-label-short) {
+    display: none;
+  }
+
+  .contract-editor-actions .contract-toolbar-label-short {
+    display: inline;
+  }
+
+  .contract-pages > button {
+    font-size: .72rem;
+  }
+
+  .contract-field-panel {
+    font-size: .92rem;
+  }
+}
+
+@media (max-width: 860px) {
+  .contract-template-editor {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .contract-template-editor > header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 10px;
+    padding: 8px 10px;
+    overflow: visible;
+  }
+
+  .contract-editor-back {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 10px;
+  }
+
+  .contract-editor-back .contract-toolbar-label {
+    display: none;
+  }
+
+  .contract-editor-title {
+    margin: 0;
+  }
+
+  .contract-editor-title input {
+    font-size: .94rem;
+  }
+
+  .contract-editor-title > span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .contract-editor-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .contract-editor-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .contract-editor-actions button {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 7px 10px;
+    white-space: nowrap;
+  }
+
+  .contract-editor-actions .contract-toolbar-label-full {
+    display: none;
+  }
+
+  .contract-editor-actions .contract-toolbar-label-short {
+    display: inline;
+  }
+
+  .contract-mobile-tabs {
+    position: relative;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 6px 8px;
+    overflow: visible;
+    border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+
+  .contract-mobile-tabs button {
+    min-width: 0;
+    min-height: 40px;
+    padding: 7px 8px;
+    gap: 6px;
+    border-radius: 9px;
+    white-space: nowrap;
+  }
+
+  .contract-mobile-tabs button svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .contract-mobile-tabs button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .contract-mobile-tabs button.active {
+    color: #f0cf98;
+    border-color: rgba(201,160,108,.42);
+    background: rgba(201,160,108,.12);
+  }
+
+  .contract-editor-grid {
+    display: block !important;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .contract-pages,
+  .contract-a4-stage,
+  .contract-field-panel {
+    display: none;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    box-sizing: border-box;
+  }
+
+  .contract-pages.mobile-active,
+  .contract-field-panel.mobile-active {
+    display: block;
+    overflow: auto;
+  }
+
+  .contract-a4-stage.mobile-active {
+    display: flex;
+    overflow: auto;
+    padding: 8px 8px 28px;
+  }
+
+  .contract-pages {
+    padding: 10px;
+  }
+
+  .contract-pages article {
+    grid-template-columns: 26px minmax(0, 1fr) 22px;
+    padding: 10px;
+  }
+
+  .contract-pages article > div {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .contract-pages article > div button {
+    min-height: 36px;
+  }
+
+  .contract-field-panel {
+    padding: 12px;
+  }
+
+  .contract-canvas-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 0 10px;
+    border-radius: 9px;
+  }
+
+  .contract-workspace-toolbar {
+    padding: 5px;
+  }
+
+  .contract-workspace-toolbar button {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 6px 7px;
+  }
+
+  .contract-workspace-text-full {
+    display: none;
+  }
+
+  .contract-workspace-text-short {
+    display: inline;
+  }
+
+  .contract-autosave-status {
+    width: auto;
+    margin-left: 0;
+    padding: 6px 9px;
+    white-space: nowrap;
+  }
+
+  .contract-a4 {
+    margin: 0 !important;
+  }
+
+  .contract-inline-text-toolbar {
+    position: fixed;
+    left: 8px !important;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    top: auto !important;
+    width: auto;
+    max-width: none;
+    max-height: 42vh;
+    overflow: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .contract-template-editor > header {
+    gap: 6px 8px;
+    padding: 7px 8px;
+  }
+
+  .contract-editor-actions button {
+    min-height: 34px;
+    padding: 6px 8px;
+  }
+
+  .contract-editor-actions button:not(.publish):not(.apply-blueprint) .contract-toolbar-label {
+    display: none;
+  }
+
+  .contract-mobile-tabs {
+    padding-inline: 6px;
+  }
+
+  .contract-mobile-tabs button {
+    min-height: 38px;
+    padding: 6px;
+    font-size: .72rem;
+  }
+
+  .contract-mobile-tabs button svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .contract-field-panel {
+    padding: 10px;
+  }
+
+  .contract-add-elements > div,
+  .contract-text-formatting,
+  .contract-text-alignment,
+  .contract-text-case {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* CV115 — revisão completa dos modelos de contrato */
+.contract-canvas-element.role-section-number {
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  line-height: 1 !important;
+}
+
+.contract-canvas-element.role-section-number .contract-rich-text-content {
+  display: grid !important;
+  place-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  line-height: 1 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+
+.contract-canvas-element.role-section-title,
+.contract-canvas-element.role-legal-body {
+  text-rendering: optimizeLegibility;
+}
+
+.contract-canvas-element.role-section-title .contract-rich-text-content,
+.contract-canvas-element.role-legal-body .contract-rich-text-content {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.contract-canvas-element.role-legal-body .contract-rich-text-content {
+  overflow: hidden;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: auto;
+}
+
+.contract-canvas-element.role-legal-body.selected .contract-rich-text-content,
+.contract-canvas-element.role-legal-body .contract-rich-text-content[contenteditable="true"] {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+  position: sticky !important;
+  inset: auto !important;
+  top: 58px !important;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: fit-content;
+  max-width: min(760px, calc(100% - 24px));
+  min-height: 48px;
+  margin: 0 auto 14px;
+  padding: 8px 10px;
+  color: #e8e3dc;
+  background: rgba(18, 19, 19, .97);
+  border: 1px solid rgba(201, 160, 108, .28);
+  border-radius: 14px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .38);
+  backdrop-filter: blur(18px);
+  transform: none !important;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked::before {
+  content: 'EDITAR TEXTO';
+  flex: 0 0 auto;
+  padding: 0 4px;
+  color: #c9a06c;
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: .12em;
+  white-space: nowrap;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked select {
+  width: 132px;
+  min-width: 112px;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked input[type="number"] {
+  width: 62px;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked select,
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked input,
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked button {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked button:last-child {
+  min-width: 78px;
+  padding-inline: 14px;
+  color: #17120c;
+  font-weight: 750;
+  background: linear-gradient(180deg, #e5bd78, #c99a50);
+  border-color: rgba(229, 189, 120, .72);
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked button:hover,
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked select:hover,
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked input:hover {
+  border-color: rgba(201, 160, 108, .52);
+}
+
+@media (min-width: 861px) and (max-width: 1180px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    top: 54px !important;
+    max-width: calc(100% - 18px);
+    padding: 7px 8px;
+  }
+}
+
+@media (max-width: 860px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    position: sticky !important;
+    left: auto !important;
+    right: auto !important;
+    top: 52px !important;
+    bottom: auto !important;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: calc(100% - 4px);
+    max-width: calc(100% - 4px);
+    min-height: 46px;
+    max-height: none;
+    margin: 0 auto 10px;
+    padding: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked::-webkit-scrollbar {
+    display: none;
+  }
+
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked::before,
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked > * {
+    flex: 0 0 auto;
+  }
+
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked select {
+    width: 118px;
+  }
+}
+
+/* CV116 — controles de imagem/logomarca mais claros e estáveis */
+.contract-image-properties {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  margin: 10px 0 14px;
+  border: 1px solid rgba(192, 139, 110, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(192, 139, 110, 0.08), rgba(255, 255, 255, 0.025));
+}
+
+.contract-image-properties-heading {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.contract-image-properties-heading > div:last-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.contract-image-properties-heading strong {
+  color: #f2eee9;
+  font-size: 0.88rem;
+}
+
+.contract-image-properties-heading small {
+  color: #9f9993;
+  font-size: 0.69rem;
+  line-height: 1.45;
+}
+
+.contract-image-preview {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: #111211;
+}
+
+.contract-image-preview img {
+  width: 86%;
+  height: 86%;
+  object-fit: contain;
+}
+
+.contract-image-preview svg {
+  width: 24px;
+  height: 24px;
+  color: #c99b56;
+}
+
+.contract-image-upload-button {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px !important;
+  overflow: hidden;
+  border: 1px dashed rgba(201, 155, 86, 0.58) !important;
+  border-radius: 11px;
+  background: rgba(201, 155, 86, 0.07);
+  color: #e7dfd5;
+  cursor: pointer;
+}
+
+.contract-image-upload-button:hover {
+  border-color: rgba(224, 181, 104, 0.88) !important;
+  background: rgba(201, 155, 86, 0.12);
+}
+
+.contract-image-upload-button > svg {
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  color: #d4a24a;
+}
+
+.contract-image-upload-button > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.contract-image-upload-button strong {
+  font-size: 0.78rem;
+}
+
+.contract-image-upload-button small {
+  color: #99938d;
+  font-size: 0.65rem;
+}
+
+.contract-image-upload-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.contract-image-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.contract-image-quick-actions button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.contract-image-quick-actions button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.contract-image-advanced {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 8px;
+}
+
+.contract-image-advanced > summary {
+  padding: 7px 2px;
+  color: #b9b2aa;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+
+.contract-image-advanced[open] > summary {
+  margin-bottom: 8px;
+  color: #d7ad67;
+}
+
+.contract-image-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.contract-image-control-grid label {
+  min-width: 0;
+}
+
+.contract-canvas-element.logo-element {
+  cursor: grab;
+}
+
+.contract-canvas-element.logo-element:active {
+  cursor: grabbing;
+}
+
+.contract-canvas-element.logo-element.selected {
+  outline-width: 2px;
+  outline-color: #8b5cf6;
+}
+
+/* O giro da logomarca é feito pelo campo Rotação/Endireitar, evitando o travamento no iPad. */
+.contract-canvas-element.logo-element .contract-rotation-handle {
+  display: none !important;
+}
+
+/* Centralização exata dos números das cláusulas. */
+.contract-canvas-element.role-section-number {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  text-align: center !important;
+  line-height: 1 !important;
+}
+
+.contract-canvas-element.role-section-number .contract-rich-text-content {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  text-align: center !important;
+  line-height: 1 !important;
+}
+
+@media (pointer: coarse) {
+  .contract-canvas-element.logo-element .contract-resize-handle {
+    width: 15px !important;
+    height: 15px !important;
+    min-width: 15px !important;
+    min-height: 15px !important;
+  }
+
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-nw,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-n,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-ne {
+    top: -8px;
+  }
+
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-se,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-s,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-sw {
+    bottom: -8px;
+  }
+
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-nw,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-w,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-sw {
+    left: -8px;
+  }
+
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-ne,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-e,
+  .contract-canvas-element.logo-element .contract-resize-handle.handle-se {
+    right: -8px;
+  }
+}
+
+@media (max-width: 860px) {
+  .contract-image-properties {
+    padding: 11px;
+  }
+
+  .contract-image-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contract-image-quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* CV117 — editor jurídico totalmente editável, estruturado e responsivo */
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+  position: sticky !important;
+  inset: auto !important;
+  top: 52px !important;
+  z-index: 70 !important;
+  display: grid !important;
+  width: min(920px, calc(100% - 20px)) !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 auto 14px !important;
+  padding: 10px !important;
+  overflow: visible !important;
+  color: #ece7df !important;
+  background: rgba(16, 17, 17, .985) !important;
+  border: 1px solid rgba(211, 169, 93, .28) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .36) !important;
+  backdrop-filter: blur(18px);
+  transform: none !important;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked::before {
+  display: none !important;
+  content: none !important;
+}
+
+.contract-inline-toolbar-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+
+.contract-inline-toolbar-heading > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.contract-inline-toolbar-heading small {
+  color: #cfa75f;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.contract-inline-toolbar-heading strong {
+  overflow: hidden;
+  color: #f4f0ea;
+  font-size: .78rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contract-inline-toolbar-history,
+.contract-inline-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.contract-inline-toolbar-history button,
+.contract-inline-toolbar-group button,
+.contract-inline-toolbar-finish {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: #d7d2cb;
+  background: #202120;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 9px;
+}
+
+.contract-inline-toolbar-history button:hover,
+.contract-inline-toolbar-group button:hover {
+  color: #fff;
+  border-color: rgba(211, 169, 93, .4);
+  background: #292a29;
+}
+
+.contract-inline-toolbar-history svg,
+.contract-inline-toolbar-group svg {
+  width: 15px;
+  height: 15px;
+}
+
+.contract-inline-toolbar-history span {
+  font-size: .68rem;
+  font-weight: 650;
+}
+
+.contract-inline-toolbar-finish {
+  min-width: 122px;
+  color: #17130d !important;
+  font-size: .72rem;
+  font-weight: 800;
+  background: linear-gradient(180deg, #e9c36f, #c9993c) !important;
+  border-color: rgba(237, 199, 116, .8) !important;
+}
+
+.contract-inline-toolbar-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding-top: 9px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.contract-inline-toolbar-group {
+  flex: 0 0 auto;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, .065);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.contract-inline-toolbar-group-fields {
+  align-items: flex-end;
+  gap: 7px;
+  padding: 5px 7px;
+}
+
+.contract-inline-toolbar-group-fields label {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  color: #aaa49d;
+  font-size: .59rem;
+  font-weight: 700;
+}
+
+.contract-inline-toolbar-group-fields select,
+.contract-inline-toolbar-group-fields input[type="number"] {
+  min-height: 34px !important;
+  margin: 0;
+  color: #eee9e2 !important;
+  background: #111212 !important;
+  border: 1px solid #353635 !important;
+  border-radius: 8px !important;
+}
+
+.contract-inline-toolbar-group-fields select {
+  width: 144px !important;
+  padding-inline: 9px 28px;
+}
+
+.contract-inline-size-field input {
+  width: 68px !important;
+}
+
+.contract-inline-color-field input[type="color"] {
+  width: 38px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 3px !important;
+  border-radius: 8px !important;
+}
+
+.contract-edit-text-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  margin-bottom: 10px;
+  color: #19140d !important;
+  font-size: .75rem;
+  font-weight: 800;
+  background: linear-gradient(180deg, #e8c16d, #c69639) !important;
+  border: 1px solid rgba(230, 190, 104, .72) !important;
+  border-radius: 10px !important;
+}
+
+.contract-edit-text-primary svg {
+  width: 16px;
+  height: 16px;
+}
+
+.contract-field-properties textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* Cada rótulo jurídico e cada parágrafo são elementos independentes e editáveis. */
+.contract-canvas-element.role-legal-label {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 4px 6px !important;
+  overflow: hidden !important;
+  text-align: center !important;
+}
+
+.contract-canvas-element.role-legal-label .contract-rich-text-content {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  text-align: center !important;
+  white-space: normal !important;
+}
+
+.contract-canvas-element.role-legal-copy {
+  padding: 0 !important;
+  text-rendering: optimizeLegibility;
+}
+
+.contract-canvas-element.role-legal-copy .contract-rich-text-content {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre-wrap;
+  hyphens: auto;
+}
+
+.contract-canvas-element.role-legal-copy.selected .contract-rich-text-content,
+.contract-canvas-element.role-legal-copy .contract-rich-text-content[contenteditable="true"] {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.contract-rich-text-content[contenteditable="true"] {
+  min-height: 100%;
+  padding: 3px !important;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .35);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, .18);
+}
+
+@media (min-width: 861px) and (max-width: 1180px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    top: 50px !important;
+    width: calc(100% - 16px) !important;
+    padding: 9px !important;
+  }
+
+  .contract-inline-toolbar-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .contract-inline-toolbar-history {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .contract-inline-toolbar-finish {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 860px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    position: sticky !important;
+    left: auto !important;
+    right: auto !important;
+    top: 48px !important;
+    bottom: auto !important;
+    width: calc(100% - 8px) !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 auto 10px !important;
+    padding: 8px !important;
+    overflow: visible !important;
+    border-radius: 13px !important;
+  }
+
+  .contract-inline-toolbar-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+    padding-bottom: 7px;
+  }
+
+  .contract-inline-toolbar-heading strong {
+    font-size: .7rem;
+  }
+
+  .contract-inline-toolbar-history {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .contract-inline-toolbar-history button {
+    flex: 1;
+  }
+
+  .contract-inline-toolbar-finish {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 108px;
+    padding-inline: 8px;
+  }
+
+  .contract-inline-toolbar-controls {
+    gap: 6px;
+    padding-top: 7px;
+  }
+
+  .contract-inline-toolbar-group-fields select {
+    width: 128px !important;
+  }
+
+  .contract-inline-toolbar-history span {
+    display: inline;
+  }
+
+  .contract-field-properties textarea {
+    min-height: 180px;
+  }
+}
+
+@media (max-width: 520px) {
+  .contract-inline-toolbar-heading > div:first-child strong {
+    max-width: 44vw;
+  }
+
+  .contract-inline-toolbar-history span {
+    display: none;
+  }
+
+  .contract-inline-toolbar-finish {
+    min-width: 94px;
+    font-size: .66rem;
+  }
+
+  .contract-inline-toolbar-group-fields select {
+    width: 116px !important;
+  }
+}
+
+.contract-canvas-element.role-legal-subtitle {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 4px 12px !important;
+  text-align: center !important;
+}
+
+.contract-canvas-element.role-legal-subtitle .contract-rich-text-content {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  text-align: center !important;
+  white-space: pre-wrap !important;
+}
+
+/* CV118 — barra de edição de texto compacta, limpa e sem sobrepor o documento */
+.contract-a4-stage.is-text-editing .contract-workspace-toolbar {
+  display: none !important;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+  position: relative !important;
+  inset: auto !important;
+  top: auto !important;
+  z-index: 12 !important;
+  display: block !important;
+  width: min(720px, calc(100% - 28px)) !important;
+  max-width: 720px !important;
+  margin: 0 auto 18px !important;
+  padding: 8px !important;
+  overflow: hidden !important;
+  color: #eee9e2 !important;
+  background: #111212 !important;
+  border: 1px solid rgba(211, 169, 93, .24) !important;
+  border-radius: 13px !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .28) !important;
+  backdrop-filter: none !important;
+  transform: none !important;
+}
+
+.contract-inline-toolbar-heading {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 36px !important;
+  padding: 0 2px 7px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, .075) !important;
+}
+
+.contract-inline-toolbar-heading > div:first-child {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  margin-right: auto !important;
+}
+
+.contract-inline-toolbar-heading small {
+  flex: 0 0 auto !important;
+  color: #d4aa60 !important;
+  font-size: .62rem !important;
+  font-weight: 850 !important;
+  letter-spacing: .13em !important;
+}
+
+.contract-inline-toolbar-heading strong {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  color: #aaa59e !important;
+  font-size: .7rem !important;
+  font-weight: 550 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-history {
+  display: inline-flex !important;
+  gap: 4px !important;
+  flex: 0 0 auto !important;
+}
+
+.contract-inline-toolbar-history button,
+.contract-inline-toolbar-group button,
+.contract-inline-toolbar-finish {
+  min-width: 34px !important;
+  width: 34px !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  color: #c9c5bf !important;
+  background: #1a1b1b !important;
+  border: 1px solid rgba(255, 255, 255, .075) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.contract-inline-toolbar-history button:hover,
+.contract-inline-toolbar-group button:hover {
+  color: #fff !important;
+  background: #242525 !important;
+  border-color: rgba(211, 169, 93, .34) !important;
+}
+
+.contract-inline-toolbar-history svg,
+.contract-inline-toolbar-group svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.contract-inline-history-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-finish {
+  width: auto !important;
+  min-width: 84px !important;
+  padding: 0 13px !important;
+  color: #17130d !important;
+  font-size: .7rem !important;
+  font-weight: 850 !important;
+  background: linear-gradient(180deg, #e8c36f, #c9983b) !important;
+  border-color: rgba(234, 196, 111, .72) !important;
+}
+
+.contract-inline-toolbar-controls {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  width: 100% !important;
+  padding: 7px 0 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-inline: contain !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(211, 169, 93, .34) transparent !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.contract-inline-toolbar-controls::-webkit-scrollbar {
+  height: 4px;
+}
+
+.contract-inline-toolbar-controls::-webkit-scrollbar-thumb {
+  background: rgba(211, 169, 93, .3);
+  border-radius: 999px;
+}
+
+.contract-inline-toolbar-group {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  flex: 0 0 auto !important;
+  padding: 0 6px 0 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(255, 255, 255, .08) !important;
+  border-radius: 0 !important;
+}
+
+.contract-inline-toolbar-group:last-child {
+  padding-right: 0 !important;
+  border-right: 0 !important;
+}
+
+.contract-inline-toolbar-group-fields {
+  gap: 5px !important;
+  padding: 0 7px 0 0 !important;
+}
+
+.contract-inline-toolbar-group-fields label {
+  position: relative !important;
+  display: block !important;
+  margin: 0 !important;
+}
+
+.contract-inline-toolbar-group-fields label > span {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-group-fields select,
+.contract-inline-toolbar-group-fields input[type="number"] {
+  min-height: 34px !important;
+  height: 34px !important;
+  margin: 0 !important;
+  color: #eee9e2 !important;
+  background: #191a1a !important;
+  border: 1px solid rgba(255, 255, 255, .09) !important;
+  border-radius: 8px !important;
+}
+
+.contract-inline-toolbar-group-fields select {
+  width: 126px !important;
+  padding: 0 28px 0 10px !important;
+}
+
+.contract-inline-size-field input {
+  width: 58px !important;
+  padding: 0 7px !important;
+  text-align: center !important;
+}
+
+.contract-inline-color-field input[type="color"] {
+  width: 34px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 3px !important;
+  background: #191a1a !important;
+  border: 1px solid rgba(255, 255, 255, .09) !important;
+  border-radius: 8px !important;
+}
+
+@media (max-width: 860px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    position: relative !important;
+    top: auto !important;
+    width: calc(100% - 10px) !important;
+    max-width: none !important;
+    margin: 0 auto 12px !important;
+    padding: 7px !important;
+    border-radius: 11px !important;
+  }
+
+  .contract-inline-toolbar-heading {
+    min-height: 34px !important;
+    gap: 5px !important;
+    padding-bottom: 6px !important;
+  }
+
+  .contract-inline-toolbar-heading strong {
+    display: none !important;
+  }
+
+  .contract-inline-toolbar-heading > div:first-child {
+    gap: 0 !important;
+  }
+
+  .contract-inline-toolbar-finish {
+    min-width: 76px !important;
+    padding-inline: 10px !important;
+  }
+
+  .contract-inline-toolbar-controls {
+    padding-top: 6px !important;
+    padding-bottom: 2px !important;
+  }
+
+  .contract-inline-toolbar-group-fields select {
+    width: 116px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    width: 100% !important;
+    margin-bottom: 10px !important;
+    border-radius: 10px !important;
+  }
+
+  .contract-inline-toolbar-heading small {
+    font-size: .58rem !important;
+  }
+
+  .contract-inline-toolbar-history button,
+  .contract-inline-toolbar-group button,
+  .contract-inline-toolbar-finish {
+    min-height: 32px !important;
+    height: 32px !important;
+  }
+
+  .contract-inline-toolbar-history button,
+  .contract-inline-toolbar-group button {
+    min-width: 32px !important;
+    width: 32px !important;
+  }
+
+  .contract-inline-toolbar-group-fields select,
+  .contract-inline-toolbar-group-fields input[type="number"],
+  .contract-inline-color-field input[type="color"] {
+    min-height: 32px !important;
+    height: 32px !important;
+  }
+}
+
+/* CV119 — restaura todas as funções e organiza a barra de edição sem esconder controles */
+.contract-a4-stage.is-text-editing {
+  grid-auto-rows: max-content;
+  align-content: start;
+  row-gap: 14px;
+  padding-top: 18px;
+}
+
+.contract-a4-stage.is-text-editing .contract-workspace-toolbar {
+  display: none !important;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+  position: sticky !important;
+  inset: auto !important;
+  top: 10px !important;
+  z-index: 90 !important;
+  display: grid !important;
+  grid-template-rows: auto auto !important;
+  width: min(980px, calc(100% - 24px)) !important;
+  max-width: 980px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  padding: 10px !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  color: #eee9e2 !important;
+  background: rgba(15, 16, 16, .985) !important;
+  border: 1px solid rgba(211, 169, 93, .28) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, .34) !important;
+  backdrop-filter: blur(16px) !important;
+  transform: none !important;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked::before {
+  display: none !important;
+  content: none !important;
+}
+
+.contract-inline-toolbar-heading {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 38px !important;
+  padding: 0 0 9px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, .075) !important;
+}
+
+.contract-inline-toolbar-heading > div:first-child {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  margin-right: auto !important;
+}
+
+.contract-inline-toolbar-heading small {
+  flex: 0 0 auto !important;
+  color: #d5aa5f !important;
+  font-size: .62rem !important;
+  font-weight: 850 !important;
+  letter-spacing: .13em !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-heading strong {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  color: #aaa59d !important;
+  font-size: .7rem !important;
+  font-weight: 560 !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-history {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex: 0 0 auto !important;
+}
+
+.contract-inline-toolbar-history button,
+.contract-inline-toolbar-group button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 34px !important;
+  width: 34px !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  color: #cbc7c1 !important;
+  background: #1b1c1c !important;
+  border: 1px solid rgba(255, 255, 255, .08) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.contract-inline-toolbar-history button:hover,
+.contract-inline-toolbar-group button:hover {
+  color: #fff !important;
+  background: #262727 !important;
+  border-color: rgba(211, 169, 93, .42) !important;
+}
+
+.contract-inline-toolbar-history button svg,
+.contract-inline-toolbar-group button svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.contract-inline-history-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-finish {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 92px !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  padding: 0 14px !important;
+  color: #17130d !important;
+  font-size: .7rem !important;
+  font-weight: 850 !important;
+  background: linear-gradient(180deg, #ebc975, #cf9e40) !important;
+  border: 1px solid rgba(235, 201, 117, .78) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.contract-inline-toolbar-controls {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 42px !important;
+  height: auto !important;
+  max-height: none !important;
+  padding: 9px 0 0 !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.contract-inline-toolbar-group {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+  min-height: 38px !important;
+  padding: 2px 6px 2px 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-right: 1px solid rgba(255, 255, 255, .08) !important;
+  border-radius: 0 !important;
+}
+
+.contract-inline-toolbar-group:last-child {
+  padding-right: 0 !important;
+  border-right: 0 !important;
+}
+
+.contract-inline-toolbar-group-fields {
+  display: inline-flex !important;
+  align-items: flex-end !important;
+  gap: 5px !important;
+  padding-right: 7px !important;
+}
+
+.contract-inline-toolbar-group-fields label {
+  position: relative !important;
+  display: block !important;
+  margin: 0 !important;
+}
+
+.contract-inline-toolbar-group-fields label > span {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+
+.contract-inline-toolbar-group-fields select,
+.contract-inline-toolbar-group-fields input[type="number"] {
+  display: block !important;
+  min-height: 34px !important;
+  height: 34px !important;
+  margin: 0 !important;
+  color: #eee9e2 !important;
+  background: #1a1b1b !important;
+  border: 1px solid rgba(255, 255, 255, .1) !important;
+  border-radius: 8px !important;
+}
+
+.contract-inline-toolbar-group-fields select {
+  width: 142px !important;
+  min-width: 142px !important;
+  padding: 0 28px 0 10px !important;
+}
+
+.contract-inline-size-field input[type="number"] {
+  width: 62px !important;
+  min-width: 62px !important;
+  padding: 0 7px !important;
+  text-align: center !important;
+}
+
+.contract-inline-color-field input[type="color"] {
+  display: block !important;
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 3px !important;
+  margin: 0 !important;
+  background: #1a1b1b !important;
+  border: 1px solid rgba(255, 255, 255, .1) !important;
+  border-radius: 8px !important;
+}
+
+@media (min-width: 861px) and (max-width: 1180px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    width: calc(100% - 16px) !important;
+    max-width: none !important;
+  }
+
+  .contract-inline-toolbar-controls {
+    flex-wrap: nowrap !important;
+    padding-bottom: 3px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: thin !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+}
+
+@media (max-width: 860px) {
+  .contract-a4-stage.is-text-editing {
+    padding-top: 8px !important;
+    row-gap: 10px !important;
+  }
+
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked {
+    top: 6px !important;
+    width: calc(100% - 8px) !important;
+    max-width: none !important;
+    padding: 8px !important;
+    border-radius: 12px !important;
+  }
+
+  .contract-inline-toolbar-heading {
+    gap: 5px !important;
+    min-height: 34px !important;
+    padding-bottom: 7px !important;
+  }
+
+  .contract-inline-toolbar-heading strong {
+    display: none !important;
+  }
+
+  .contract-inline-toolbar-finish {
+    min-width: 78px !important;
+    padding-inline: 10px !important;
+  }
+
+  .contract-inline-toolbar-controls {
+    flex-wrap: nowrap !important;
+    min-height: 40px !important;
+    padding-top: 7px !important;
+    padding-bottom: 3px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    overscroll-behavior-inline: contain !important;
+    scrollbar-width: thin !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .contract-inline-toolbar-group-fields select {
+    width: 122px !important;
+    min-width: 122px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .contract-inline-toolbar-heading small {
+    font-size: .57rem !important;
+  }
+
+  .contract-inline-toolbar-history button,
+  .contract-inline-toolbar-group button,
+  .contract-inline-toolbar-finish,
+  .contract-inline-toolbar-group-fields select,
+  .contract-inline-toolbar-group-fields input[type="number"],
+  .contract-inline-color-field input[type="color"] {
+    min-height: 32px !important;
+    height: 32px !important;
+  }
+
+  .contract-inline-toolbar-history button,
+  .contract-inline-toolbar-group button {
+    min-width: 32px !important;
+    width: 32px !important;
+  }
+
+  .contract-inline-toolbar-finish {
+    min-width: 72px !important;
+    font-size: .65rem !important;
+  }
+}
+
+/* CV121 — caixas de texto com tamanho realmente manual e alças mais fáceis de usar */
+.contract-text-size-controls {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(200, 169, 106, 0.24);
+  border-radius: 10px;
+  background: rgba(200, 169, 106, 0.055);
+}
+
+.contract-text-size-controls button {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid rgba(200, 169, 106, 0.42);
+  border-radius: 8px;
+  background: rgba(200, 169, 106, 0.1);
+  color: #e5c987;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.contract-text-size-controls button:hover {
+  background: rgba(200, 169, 106, 0.18);
+}
+
+.contract-text-size-controls span {
+  color: #999;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.contract-canvas-element.text-element.selected,
+.contract-canvas-element.text-element:has(.contract-rich-text-content[contenteditable="true"]) {
+  min-width: 24px !important;
+  min-height: 18px !important;
+}
+
+.contract-canvas-element.text-element.selected .contract-resize-handle {
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+}
+
+.contract-canvas-element.text-element.selected .contract-resize-handle.handle-n,
+.contract-canvas-element.text-element.selected .contract-resize-handle.handle-s {
+  width: 28px !important;
+  border-radius: 999px !important;
+}
+
+.contract-canvas-element.text-element.selected .contract-resize-handle.handle-e,
+.contract-canvas-element.text-element.selected .contract-resize-handle.handle-w {
+  height: 28px !important;
+  border-radius: 999px !important;
+}
+
+.contract-canvas-element.text-element .contract-rich-text-content[contenteditable="true"] {
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+
+@media (pointer: coarse) {
+  .contract-canvas-element.text-element.selected .contract-resize-handle {
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+  }
+
+  .contract-canvas-element.text-element.selected .contract-resize-handle.handle-n,
+  .contract-canvas-element.text-element.selected .contract-resize-handle.handle-s {
+    width: 36px !important;
+  }
+
+  .contract-canvas-element.text-element.selected .contract-resize-handle.handle-e,
+  .contract-canvas-element.text-element.selected .contract-resize-handle.handle-w {
+    height: 36px !important;
+  }
+}
+
+/* CV122 — editor de texto compacto, previsível e inspirado em ferramentas editoriais */
+.contract-template-editor .sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.contract-a4-stage.is-text-editing .contract-canvas-toolbar {
+  display: none !important;
+}
+
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked.contract-inline-text-toolbar-canva {
+  position: sticky !important;
+  top: 10px !important;
+  left: auto !important;
+  right: auto !important;
+  z-index: 80 !important;
+  display: block !important;
+  width: min(980px, calc(100% - 12px)) !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  padding: 4px !important;
+  margin: 0 auto 14px !important;
+  color: #f4f4f4 !important;
+  background: rgba(24, 25, 28, 0.97) !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.42) !important;
+  backdrop-filter: blur(18px) !important;
+  box-sizing: border-box !important;
+}
+
+.contract-inline-text-toolbar-canva::before,
+.contract-inline-text-toolbar-canva .contract-inline-toolbar-heading,
+.contract-inline-text-toolbar-canva .contract-inline-toolbar-controls {
+  display: none !important;
+}
+
+.contract-canva-toolbar-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  overscroll-behavior-x: contain;
+}
+
+.contract-canva-toolbar-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.contract-canva-toolbar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+.contract-inline-text-toolbar-canva button,
+.contract-inline-text-toolbar-canva select,
+.contract-inline-text-toolbar-canva input[type="number"] {
+  min-height: 36px !important;
+  height: 36px !important;
+  box-sizing: border-box !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: #f3f3f3 !important;
+  box-shadow: none !important;
+  font: inherit !important;
+}
+
+.contract-inline-text-toolbar-canva button {
+  flex: 0 0 36px;
+  width: 36px;
+  padding: 0 !important;
+}
+
+.contract-inline-text-toolbar-canva button:hover:not(:disabled),
+.contract-inline-text-toolbar-canva select:hover,
+.contract-inline-text-toolbar-canva input[type="number"]:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+.contract-inline-text-toolbar-canva button:focus-visible,
+.contract-inline-text-toolbar-canva select:focus-visible,
+.contract-inline-text-toolbar-canva input:focus-visible {
+  outline: 2px solid rgba(222, 178, 91, 0.9) !important;
+  outline-offset: 1px !important;
+}
+
+.contract-inline-text-toolbar-canva button:disabled {
+  opacity: 0.35 !important;
+}
+
+.contract-inline-text-toolbar-canva svg {
+  width: 17px !important;
+  height: 17px !important;
+}
+
+.contract-canva-history,
+.contract-canva-format,
+.contract-canva-align,
+.contract-canva-lists {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  flex: 0 0 auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.contract-canva-divider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  width: 1px;
+  min-height: 26px;
+  margin: 5px 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.contract-canva-font {
+  flex: 0 0 156px;
+  width: 156px;
+}
+
+.contract-canva-font select {
+  width: 100% !important;
+  padding: 0 32px 0 12px !important;
+  appearance: auto;
+  cursor: pointer;
+}
+
+.contract-canva-size-stepper {
+  display: inline-grid;
+  grid-template-columns: 32px 54px 32px;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 36px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.contract-canva-size-stepper button,
+.contract-canva-size-stepper input[type="number"] {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+
+.contract-canva-size-stepper input[type="number"] {
+  padding: 0 4px !important;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+
+.contract-canva-size-stepper input[type="number"]::-webkit-inner-spin-button,
+.contract-canva-size-stepper input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.contract-canva-color {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.contract-canva-color > span {
+  color: #f4f4f4;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.contract-canva-color > i {
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.contract-canva-color input[type="color"] {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  opacity: 0 !important;
+  cursor: pointer !important;
+}
+
+.contract-inline-toolbar-finish.contract-canva-finish {
+  position: sticky;
+  right: 0;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 92px !important;
+  padding: 0 16px !important;
+  margin-left: 4px;
+  color: #17120c !important;
+  background: linear-gradient(180deg, #eccb78 0%, #d2a34b 100%) !important;
+  border-color: rgba(244, 204, 119, 0.85) !important;
+  font-weight: 750 !important;
+  box-shadow: -10px 0 16px rgba(24, 25, 28, 0.96) !important;
+}
+
+.contract-inline-toolbar-finish.contract-canva-finish:hover {
+  background: linear-gradient(180deg, #f3d58b 0%, #dbad55 100%) !important;
+}
+
+/* A área editável nunca deve sumir ao alternar entre seleção e edição. */
+.contract-rich-text-content[contenteditable="true"] {
+  display: block !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  overflow: auto !important;
+  color: inherit !important;
+  background: rgba(255, 255, 255, 0.01) !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Mensagens rápidas: não permanecem cobrindo o documento. */
+.contract-editor-message {
+  bottom: 22px !important;
+  z-index: 1800 !important;
+  max-width: min(480px, calc(100vw - 28px)) !important;
+  padding: 10px 14px !important;
+  color: #f2e8d6 !important;
+  background: rgba(28, 27, 25, 0.96) !important;
+  border: 1px solid rgba(214, 168, 82, 0.34) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45) !important;
+  font-size: 0.82rem !important;
+  line-height: 1.35 !important;
+  pointer-events: none !important;
+}
+
+@media (max-width: 1180px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked.contract-inline-text-toolbar-canva {
+    width: calc(100% - 8px) !important;
+    top: 6px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .contract-canva-font {
+    flex-basis: 132px;
+    width: 132px;
+  }
+
+  .contract-inline-toolbar-finish.contract-canva-finish {
+    min-width: 82px !important;
+    padding-inline: 12px !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .contract-a4-stage.is-text-editing {
+    padding-top: 8px !important;
+  }
+
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked.contract-inline-text-toolbar-canva {
+    width: 100% !important;
+    max-width: 100% !important;
+    top: 0 !important;
+    border-radius: 10px !important;
+    padding: 3px !important;
+  }
+
+  .contract-canva-toolbar-scroll {
+    min-height: 40px;
+    padding-bottom: 2px;
+  }
+
+  .contract-inline-text-toolbar-canva button,
+  .contract-inline-text-toolbar-canva select,
+  .contract-inline-text-toolbar-canva input[type="number"],
+  .contract-canva-color {
+    min-height: 34px !important;
+    height: 34px !important;
+  }
+
+  .contract-inline-text-toolbar-canva button {
+    flex-basis: 34px;
+    width: 34px;
+  }
+
+  .contract-canva-font {
+    flex-basis: 124px;
+    width: 124px;
+  }
+
+  .contract-canva-size-stepper {
+    grid-template-columns: 30px 48px 30px;
+    height: 34px;
+  }
+
+  .contract-inline-toolbar-finish.contract-canva-finish {
+    min-width: 76px !important;
+    padding-inline: 10px !important;
+    font-size: 0.78rem !important;
+  }
+}
+
+/* CV123 — acabamento da barra de texto e ação de conclusão */
+.contract-inline-text-toolbar.contract-inline-text-toolbar-docked.contract-inline-text-toolbar-canva {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 5px !important;
+}
+
+.contract-inline-text-toolbar-canva .contract-canva-toolbar-scroll {
+  min-width: 0 !important;
+  border-radius: 10px !important;
+}
+
+.contract-inline-toolbar-finish.contract-canva-finish {
+  position: static !important;
+  right: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 7px !important;
+  width: auto !important;
+  min-width: 134px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  padding: 0 13px !important;
+  margin: 0 !important;
+  color: #f0c86e !important;
+  background: rgba(221, 174, 82, 0.08) !important;
+  border: 1px solid rgba(221, 174, 82, 0.42) !important;
+  border-radius: 9px !important;
+  box-shadow: none !important;
+  font-size: 0.78rem !important;
+  font-weight: 760 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease !important;
+}
+
+.contract-inline-toolbar-finish.contract-canva-finish svg {
+  width: 15px !important;
+  height: 15px !important;
+  stroke-width: 2.4 !important;
+}
+
+.contract-inline-toolbar-finish.contract-canva-finish:hover {
+  color: #19130b !important;
+  background: linear-gradient(180deg, #edcd80 0%, #d6a84f 100%) !important;
+  border-color: #edcd80 !important;
+  transform: translateY(-1px) !important;
+}
+
+.contract-inline-toolbar-finish.contract-canva-finish:active {
+  transform: translateY(0) !important;
+}
+
+@media (max-width: 1180px) {
+  .contract-inline-toolbar-finish.contract-canva-finish {
+    min-width: 112px !important;
+    padding-inline: 11px !important;
+  }
+
+  .contract-inline-toolbar-finish.contract-canva-finish span {
+    font-size: 0.74rem !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .contract-inline-text-toolbar.contract-inline-text-toolbar-docked.contract-inline-text-toolbar-canva {
+    grid-template-columns: minmax(0, 1fr) 38px !important;
+    gap: 4px !important;
+    padding: 3px !important;
+  }
+
+  .contract-inline-toolbar-finish.contract-canva-finish {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 !important;
+    border-radius: 8px !important;
+  }
+
+  .contract-inline-toolbar-finish.contract-canva-finish span {
+    display: none !important;
+  }
+
+  .contract-inline-toolbar-finish.contract-canva-finish svg {
+    width: 17px !important;
+    height: 17px !important;
+  }
+}
+
+/* =========================================================
+   CV118 — seleção e personalização inspiradas em editores visuais
+   ========================================================= */
+
+.contract-selection-quickbar {
+  --selection-toolbar-scale: 1;
+  position: absolute;
+  z-index: 10030;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: max-content;
+  max-width: 520px;
+  min-height: 42px;
+  padding: 4px;
+  color: #f4f1eb;
+  background: rgba(25, 26, 31, .97);
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 12px;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, .38);
+  backdrop-filter: blur(18px);
+  transform: translate(-50%, -100%) scale(var(--selection-toolbar-scale));
+  transform-origin: center bottom;
+  pointer-events: auto;
+}
+
+.contract-selection-quickbar.is-below {
+  transform: translate(-50%, 0) scale(var(--selection-toolbar-scale));
+  transform-origin: center top;
+}
+
+.contract-selection-quickbar > button,
+.contract-selection-popover-anchor > button {
+  min-width: 38px;
+  min-height: 34px;
+  padding: 0 9px;
+  gap: 6px;
+  color: #dedfe4;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.contract-selection-quickbar > button:hover,
+.contract-selection-popover-anchor > button:hover,
+.contract-selection-popover-anchor > button.is-active {
+  color: #fff;
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(255, 255, 255, .08);
+}
+
+.contract-selection-quickbar button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.contract-selection-popover-anchor {
+  position: relative;
+  display: flex;
+}
+
+.contract-selection-popover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 9px);
+  z-index: 10040;
+  width: 278px;
+  padding: 12px;
+  color: #eeeeef;
+  background: #22232a;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
+  transform: translateX(-50%);
+}
+
+.contract-selection-quickbar.is-below .contract-selection-popover {
+  top: calc(100% + 9px);
+  bottom: auto;
+}
+
+.contract-selection-popover > strong {
+  display: block;
+  margin: 0 0 10px;
+  color: #f1e2c7;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.contract-selection-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.contract-selection-action-grid button {
+  min-width: 0;
+  min-height: 42px;
+  justify-content: flex-start;
+  padding: 8px 9px;
+  gap: 8px;
+  color: #d9d9dc;
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid rgba(255, 255, 255, .065);
+  border-radius: 8px;
+  font-size: 11px;
+  text-align: left;
+}
+
+.contract-selection-action-grid button:hover {
+  color: #fff;
+  background: rgba(202, 161, 99, .12);
+  border-color: rgba(202, 161, 99, .28);
+}
+
+.contract-selection-delete-button {
+  color: #e9aaa7 !important;
+}
+
+.contract-selection-delete-button:hover {
+  color: #ffd2cf !important;
+  background: rgba(178, 70, 65, .15) !important;
+}
+
+.contract-selection-paste-shortcut {
+  display: none !important;
+}
+
+.contract-selection-context-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1705;
+  background: transparent;
+}
+
+.contract-selection-context-menu {
+  position: fixed;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 24px));
+  overflow: auto;
+  padding: 10px;
+  color: #ececef;
+  background: rgba(32, 33, 39, .985);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 15px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+  backdrop-filter: blur(20px);
+}
+
+.contract-selection-context-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 10px;
+}
+
+.contract-selection-context-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.contract-selection-context-heading strong {
+  color: #f5ead8;
+  font-size: 13px;
+}
+
+.contract-selection-context-heading span {
+  color: #8f9199;
+  font-size: 10px;
+}
+
+.contract-selection-context-heading button {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  color: #9b9da4;
+  background: transparent;
+  border-color: transparent;
+  font-size: 20px;
+}
+
+.contract-selection-context-primary {
+  display: grid;
+  gap: 3px;
+}
+
+.contract-selection-context-primary button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  width: 100%;
+  min-height: 38px;
+  justify-content: initial;
+  padding: 7px 9px;
+  color: #e6e6e8;
+  background: transparent;
+  border-color: transparent;
+  text-align: left;
+}
+
+.contract-selection-context-primary button:hover,
+.contract-selection-context-row button:hover,
+.contract-selection-context-menu summary:hover {
+  background: rgba(255, 255, 255, .065);
+}
+
+.contract-selection-context-primary button.danger {
+  color: #f0adab;
+}
+
+.contract-selection-context-primary kbd {
+  padding: 3px 6px;
+  color: #b8bac1;
+  background: #4a4c54;
+  border-radius: 5px;
+  font: 600 9px/1 Inter, system-ui, sans-serif;
+}
+
+.contract-selection-context-divider,
+.contract-design-divider {
+  height: 1px;
+  margin: 8px 0;
+  background: rgba(255, 255, 255, .08);
+}
+
+.contract-selection-context-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 4px 0 8px;
+}
+
+.contract-selection-context-row button {
+  min-width: 0;
+  min-height: 58px;
+  flex-direction: column;
+  padding: 7px 5px;
+  color: #d7d8dc;
+  background: rgba(255, 255, 255, .025);
+  border-color: rgba(255, 255, 255, .055);
+  font-size: 9px;
+}
+
+.contract-selection-context-menu details {
+  border-top: 1px solid rgba(255, 255, 255, .07);
+}
+
+.contract-selection-context-menu summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 7px 8px;
+  color: #e1e1e4;
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.contract-selection-context-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.contract-selection-context-menu details .contract-selection-action-grid {
+  padding: 3px 4px 10px;
+}
+
+/* Painel de posição, camadas e efeitos */
+.contract-design-properties {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  scroll-margin-top: 18px;
+}
+
+.contract-design-properties > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 2px 2px 8px;
+}
+
+.contract-design-properties > header > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  color: #d4ab70;
+  background: rgba(201, 160, 108, .1);
+  border: 1px solid rgba(201, 160, 108, .2);
+  border-radius: 9px;
+}
+
+.contract-design-properties > header svg {
+  width: 16px;
+  height: 16px;
+}
+
+.contract-design-properties > header h3 {
+  margin: 0 0 2px;
+  color: #f0eee9;
+  font-size: 13px;
+}
+
+.contract-design-properties > header p {
+  margin: 0;
+  color: #777a80;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.contract-design-properties details {
+  overflow: hidden;
+  background: rgba(255, 255, 255, .024);
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 11px;
+}
+
+.contract-design-properties summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 11px;
+  color: #dedddd;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.contract-design-properties summary::-webkit-details-marker {
+  display: none;
+}
+
+.contract-design-properties summary svg {
+  width: 14px;
+  height: 14px;
+  color: #b9935e;
+}
+
+.contract-design-section-body {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+}
+
+.contract-design-label {
+  color: #7f8187;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.contract-design-icon-grid {
+  display: grid;
+  gap: 5px;
+}
+
+.contract-design-icon-grid.six-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.contract-design-icon-grid.four-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.contract-design-icon-grid button {
+  min-width: 0;
+  min-height: 48px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px;
+  color: #c5c6ca;
+  background: #161718;
+  border-color: rgba(255, 255, 255, .07);
+  font-size: 8px;
+}
+
+.contract-design-icon-grid button:hover {
+  color: #f1dfc3;
+  border-color: rgba(201, 160, 108, .3);
+  background: rgba(201, 160, 108, .08);
+}
+
+.contract-design-lock {
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr);
+  justify-content: initial !important;
+  width: 100%;
+  padding: 9px !important;
+  text-align: left;
+}
+
+.contract-design-lock svg {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.contract-design-lock span,
+.contract-design-lock small {
+  grid-column: 2;
+}
+
+.contract-design-lock span {
+  color: #dedddd;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.contract-design-lock small {
+  color: #777a80;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.contract-design-switch-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 !important;
+}
+
+.contract-design-switch-row > span {
+  display: grid;
+  gap: 2px;
+}
+
+.contract-design-switch-row strong {
+  color: #dddde0;
+  font-size: 10px;
+}
+
+.contract-design-switch-row small {
+  color: #777a80;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.contract-design-switch-row input[type="checkbox"] {
+  width: 36px;
+  height: 20px;
+  flex: 0 0 36px;
+  appearance: none;
+  background: #292b2d;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: .18s ease;
+}
+
+.contract-design-switch-row input[type="checkbox"]::before {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  background: #898b90;
+  border-radius: 50%;
+  transition: .18s ease;
+}
+
+.contract-design-switch-row input[type="checkbox"]:checked {
+  background: rgba(201, 160, 108, .25);
+  border-color: rgba(201, 160, 108, .5);
+}
+
+.contract-design-switch-row input[type="checkbox"]:checked::before {
+  background: #dbb87f;
+  transform: translateX(16px);
+}
+
+.contract-design-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  padding: 3px;
+  background: #111213;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 9px;
+}
+
+.contract-design-segmented button {
+  min-height: 30px;
+  padding: 5px;
+  background: transparent;
+  border-color: transparent;
+  font-size: 9px;
+}
+
+.contract-design-segmented button.active {
+  color: #f0dfc4;
+  background: #292621;
+  border-color: rgba(201, 160, 108, .18);
+}
+
+.contract-design-color-grid,
+.contract-design-two-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.contract-design-color,
+.contract-design-range,
+.contract-design-two-columns label {
+  display: grid !important;
+  gap: 6px;
+  margin: 0 !important;
+  color: #8b8d92;
+  font-size: 9px;
+}
+
+.contract-design-color-input {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 7px;
+  background: #111213;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 8px;
+}
+
+.contract-design-color-input i {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 6px;
+}
+
+.contract-design-color-input input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.contract-design-color-input code {
+  min-width: 0;
+  overflow: hidden;
+  color: #bfc0c4;
+  font-size: 8px;
+  text-overflow: ellipsis;
+}
+
+.contract-design-range > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.contract-design-range b {
+  color: #d6bb91;
+  font-size: 9px;
+}
+
+.contract-design-range input[type="range"] {
+  width: 100%;
+  accent-color: #c9a06c;
+}
+
+.contract-design-two-columns input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  color: #d8d8da;
+  background: #111213;
+  border: 1px solid rgba(255, 255, 255, .075);
+  border-radius: 8px;
+}
+
+/* Elementos bloqueados ficam identificados, mas não recebem eventos de transformação. */
+.contract-canvas-element.is-locked,
+.contract-canvas-element[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.contract-canvas-element.selected {
+  outline-color: #8b5cf6;
+}
+
+@media (max-width: 1180px) {
+  .contract-selection-quickbar > button span,
+  .contract-selection-popover-anchor > button span {
+    display: none;
+  }
+
+  .contract-selection-quickbar > button,
+  .contract-selection-popover-anchor > button {
+    width: 36px;
+    padding-inline: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .contract-selection-quickbar {
+    max-width: 310px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .contract-selection-quickbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .contract-selection-context-layer {
+    background: rgba(0, 0, 0, .36);
+    backdrop-filter: blur(3px);
+  }
+
+  .contract-selection-context-menu {
+    left: 8px !important;
+    right: 8px;
+    top: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: min(78vh, 620px);
+    border-radius: 18px;
+  }
+
+  .contract-selection-context-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .contract-design-icon-grid.six-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.contract-selection-quickbar.is-compact {
+  max-width: 278px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.contract-selection-quickbar.is-compact::-webkit-scrollbar {
+  display: none;
+}
+
+.contract-selection-quickbar.is-compact > button span,
+.contract-selection-quickbar.is-compact .contract-selection-popover-anchor > button span {
+  display: none;
+}
+
+.contract-selection-quickbar.is-compact > button,
+.contract-selection-quickbar.is-compact .contract-selection-popover-anchor > button {
+  width: 36px;
+  min-width: 36px;
+  padding-inline: 0;
 }

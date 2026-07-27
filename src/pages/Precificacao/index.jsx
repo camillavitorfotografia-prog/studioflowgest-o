@@ -871,7 +871,7 @@ export default function Precificacao() {
   const [savedOptions, setSavedOptions] = useState(() => enrichPricingOption ? (readLocalJson('cv_studio_pricing_options', []) || []).map((option, index) => enrichPricingOption(option, index)) : []);
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedScenario, setSelectedScenario] = useState(() => localStorage.getItem(scenarioStorageKey) || scenarioOptions[0]);
-  const [capacity, setCapacity] = useState(() => JSON.parse(localStorage.getItem(capacityStorageKey) || 'null') || defaultCapacity);
+  const [capacity, setCapacity] = useState(() => readLocalJson(capacityStorageKey, defaultCapacity) || defaultCapacity);
   const [selectedRowId, setSelectedRowId] = useState('casamento-6h');
   const [commercialPrice, setCommercialPrice] = useState('');
 
@@ -886,8 +886,8 @@ export default function Precificacao() {
         clients: db.clients || [],
         transactions: db.transactions || [],
         equipment,
-        balances: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.balances) || '{"salario":0,"empresa":0,"reserva":0}'),
-        config: JSON.parse(localStorage.getItem(FINANCE_STORAGE_KEYS.config) || '{"salario":35,"empresa":45,"reserva":20}'),
+        balances: readLocalJson(FINANCE_STORAGE_KEYS.balances, { salario: 0, empresa: 0, reserva: 0 }) || { salario: 0, empresa: 0, reserva: 0 },
+        config: readLocalJson(FINANCE_STORAGE_KEYS.config, { salario: 35, empresa: 45, reserva: 20 }) || { salario: 35, empresa: 45, reserva: 20 },
       });
       setState((current) => ({
         ...current,
