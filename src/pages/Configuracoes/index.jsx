@@ -240,26 +240,31 @@ export default function Configuracoes() {
     );
   };
 
-  const exportData = () => {
-    const payload = createBackupPayload();
+  const exportData = async () => {
+    setMessage('Preparando exportação da conta...');
 
-    const file = new Blob(
-      [JSON.stringify(payload, null, 2)],
-      {
-        type: 'application/json',
-      },
-    );
+    try {
+      const payload = await createBackupPayload();
+      const file = new Blob(
+        [JSON.stringify(payload, null, 2)],
+        { type: 'application/json' },
+      );
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
 
-    const url = URL.createObjectURL(file);
-    const anchor = document.createElement('a');
-
-    anchor.href = url;
-    anchor.download = `studioflow-backup-${new Date()
-      .toISOString()
-      .slice(0, 10)}.json`;
-
-    anchor.click();
-    URL.revokeObjectURL(url);
+      anchor.href = url;
+      anchor.download = `studioflow-backup-${new Date()
+        .toISOString()
+        .slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage('Exportação da conta concluída.');
+    } catch (exportError) {
+      setMessage(
+        exportError?.message
+        || 'Não foi possível preparar a exportação da conta.',
+      );
+    }
   };
 
   const importData = async (event) => {
@@ -271,11 +276,13 @@ export default function Configuracoes() {
 
     try {
       const payload = JSON.parse(await file.text());
-      if (!window.confirm('Restaurar este backup? Os dados atuais das áreas presentes no arquivo serão substituídos.')) return;
-      restoreBackupPayload(payload);
+      if (!window.confirm('Restaurar este backup na conta atual? Registros com o mesmo ID serão atualizados e os demais serão adicionados.')) return;
+      const result = await restoreBackupPayload(payload);
 
       setSettings(loadSettings());
-      setMessage('Backup importado com sucesso.');
+      setMessage(
+        `Backup restaurado: ${result.localSections} área(s) local(is), ${result.remoteRows} registro(s) do Supabase.`,
+      );
     } catch (error) {
       setMessage(error?.message || 'Não foi possível importar este arquivo.');
     }

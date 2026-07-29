@@ -833,9 +833,7 @@ const unavailableTables = new Set();
  * Enquanto não forem criadas, o StudioFlow usa somente o
  * armazenamento local e não realiza requisições que gerariam 404.
  */
-const LOCAL_ONLY_TABLES = new Set([
-  'leads',
-]);
+const LOCAL_ONLY_TABLES = new Set();
 
 const readLocalArray = (key) => {
   try {

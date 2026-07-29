@@ -195,25 +195,43 @@ const areLikelySameLead = (first = {}, second = {}) => {
     return true;
   }
 
+  // Nome isolado nunca é suficiente para apagar ou mesclar um lead. A
+  // comparação por nome só é aceita quando serviço e data do evento também
+  // estão preenchidos e são exatamente iguais.
+  return Boolean(
+    a.name
+    && b.name
+    && a.name === b.name
+    && a.service
+    && b.service
+    && a.service === b.service
+    && a.eventDate
+    && b.eventDate
+    && a.eventDate === b.eventDate
+  );
+};
+
+const areConfirmedDuplicateLead = (first = {}, second = {}) => {
+  const a = getLeadIdentityParts(first);
+  const b = getLeadIdentityParts(second);
+
+  if (a.id && b.id && a.id === b.id) return true;
+
+  const samePhone = a.phone.length >= 8 && b.phone.length >= 8 && a.phone === b.phone;
+  const sameEmail = Boolean(a.email && b.email && a.email === b.email);
   const sameName = Boolean(a.name && b.name && a.name === b.name);
-  const hasCommercialMatch = (
-    (a.service && b.service && a.service === b.service)
-    || (a.eventDate && b.eventDate && a.eventDate === b.eventDate)
-  );
-  const hasSparseLegacyRecord = (
-    (!a.phone && !a.email)
-    || (!b.phone && !b.email)
-  ) && (
-    !a.service
-    || !b.service
-    || !a.eventDate
-    || !b.eventDate
-  );
+  const sameService = Boolean(a.service && b.service && a.service === b.service);
+  const sameEvent = Boolean(a.eventDate && b.eventDate && a.eventDate === b.eventDate);
+  const compatibleService = !a.service || !b.service || sameService;
+  const compatibleEvent = !a.eventDate || !b.eventDate || sameEvent;
 
   return sameName
     && compatibleService
     && compatibleEvent
-    && (hasCommercialMatch || hasSparseLegacyRecord);
+    && (
+      ((samePhone || sameEmail) && (sameService || sameEvent))
+      || (sameService && sameEvent)
+    );
 };
 
 const getLeadRecordTimestamp = (lead = {}) => {
@@ -246,7 +264,7 @@ const deduplicateLeadRecords = (rows = []) => {
     if (!lead || typeof lead !== 'object' || !String(lead.id || '').trim()) return;
 
     const matchingIndex = uniqueRows.findIndex((current) => (
-      areLikelySameLead(current, lead)
+      areConfirmedDuplicateLead(current, lead)
     ));
 
     if (matchingIndex < 0) {
@@ -1079,7 +1097,7 @@ const saveCanonicalLeadLocal = ({
     if (idsToReplace.has(rowId) || rowId === targetId) return false;
 
     try {
-      return !areLikelySameLead(mapLeadFromDb(row), candidate);
+      return !areConfirmedDuplicateLead(mapLeadFromDb(row), candidate);
     } catch {
       return true;
     }
@@ -1100,16 +1118,47 @@ const saveCanonicalLeadLocal = ({
 const fetchRemoteLeadCluster = async (candidate = {}) => {
   if (!isSupabaseConfigured) return [];
 
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*');
+  const identity = getLeadIdentityParts(candidate);
+  const rawPhoneValues = [candidate.whatsapp, candidate.telefone]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const queries = [];
 
-  if (error) {
-    if (isMissingRelationError(error, 'leads')) return [];
-    throw error;
+  if (isUuidValue(candidate.id)) {
+    queries.push(supabase.from('leads').select('*').eq('id', candidate.id));
+  }
+  if (identity.email) {
+    queries.push(supabase.from('leads').select('*').ilike('email', identity.email));
+  }
+  rawPhoneValues.forEach((phone) => {
+    queries.push(supabase.from('leads').select('*').eq('telefone', phone));
+    queries.push(supabase.from('leads').select('*').eq('whatsapp', phone));
+  });
+  if (identity.phone.length >= 8) {
+    const suffix = identity.phone.slice(-8);
+    queries.push(supabase.from('leads').select('*').ilike('telefone', `%${suffix}%`));
+    queries.push(supabase.from('leads').select('*').ilike('whatsapp', `%${suffix}%`));
+  }
+  if (!queries.length && identity.name && identity.service && identity.eventDate) {
+    queries.push(supabase.from('leads').select('*').ilike('nome', candidate.nome || identity.name));
   }
 
-  return (Array.isArray(data) ? data : [])
+  if (!queries.length) return [];
+
+  const results = await Promise.all(queries);
+  const rowsById = new Map();
+
+  results.forEach(({ data, error }) => {
+    if (error) {
+      if (isMissingRelationError(error, 'leads')) return;
+      throw error;
+    }
+    (Array.isArray(data) ? data : []).forEach((row) => {
+      if (row?.id) rowsById.set(String(row.id), row);
+    });
+  });
+
+  return [...rowsById.values()]
     .map((row) => ({ row, lead: mapLeadFromDb(row) }))
     .filter(({ lead }) => (
       !isLeadInTrash(lead)
@@ -1213,6 +1262,7 @@ const saveLeadCanonicalRemote = async ({ candidate, payload }) => {
 
   const savedId = String(savedRow?.id || '');
   const duplicateIds = cluster
+    .filter(({ lead }) => areConfirmedDuplicateLead(lead, candidate))
     .map(({ lead }) => lead.id)
     .filter((id) => String(id) !== savedId);
 
@@ -2647,7 +2697,7 @@ export default function CRM() {
         persistedLead,
         ...current.filter((lead) => (
           !replacedIds.some((id) => String(id) === String(lead.id))
-          && !areLikelySameLead(lead, persistedLead)
+          && !areConfirmedDuplicateLead(lead, persistedLead)
         )),
       ]));
 
@@ -2691,6 +2741,10 @@ export default function CRM() {
       if (isSupabaseConfigured) {
         const cluster = await fetchRemoteLeadCluster(lead);
         remoteIds = cluster
+          .filter(({ lead: remoteLead }) => (
+            String(remoteLead.id) === String(lead.id)
+            || areConfirmedDuplicateLead(remoteLead, lead)
+          ))
           .map(({ lead: remoteLead }) => remoteLead.id)
           .filter(isUuidValue);
 
@@ -2739,7 +2793,7 @@ export default function CRM() {
         if (remoteIds.some((id) => String(id) === itemId)) return false;
 
         try {
-          return !areLikelySameLead(mapLeadFromDb(item), lead);
+          return !areConfirmedDuplicateLead(mapLeadFromDb(item), lead);
         } catch {
           return itemId !== String(lead.id);
         }
@@ -2752,7 +2806,7 @@ export default function CRM() {
       }
 
       setLeads((current) => current.filter((item) => (
-        !areLikelySameLead(item, lead)
+        !areConfirmedDuplicateLead(item, lead)
         && !remoteIds.some((id) => String(id) === String(item.id))
       )));
       setSelectedLead(null);
@@ -3137,7 +3191,7 @@ export default function CRM() {
         persistedLead,
         ...current.filter((lead) => (
           !replacedIds.some((id) => String(id) === String(lead.id))
-          && !areLikelySameLead(lead, persistedLead)
+          && !areConfirmedDuplicateLead(lead, persistedLead)
         )),
       ]));
 

@@ -588,13 +588,10 @@ const hasFinanceSnapshot = (state = {}) => [
 ].some((items) => Array.isArray(items) && items.length > 0);
 
 function useFinanceData() {
-  const initialDataRef = useRef(null);
-  if (!initialDataRef.current) {
-    initialDataRef.current = readInitialFinanceDataState();
-  }
+  const [initialData] = useState(readInitialFinanceDataState);
 
   const [loading, setLoading] = useState(
-    () => !hasFinanceSnapshot(initialDataRef.current),
+    () => !hasFinanceSnapshot(initialData),
   );
   const [refreshing, setRefreshing] = useState(false);
   const hasLoadedRef = useRef(false);
@@ -607,13 +604,13 @@ function useFinanceData() {
       : { salario: 35, empresa: 45, reserva: 20 };
   });
   
-  const [dataState, setDataState] = useState(initialDataRef.current);
+  const [dataState, setDataState] = useState(initialData);
 
   const loadAll = useCallback(async () => {
     if (requestRef.current) return requestRef.current;
 
     const shouldBlock = !hasLoadedRef.current
-      && !hasFinanceSnapshot(initialDataRef.current);
+      && !hasFinanceSnapshot(initialData);
 
     if (shouldBlock) setLoading(true);
     else setRefreshing(true);
@@ -764,7 +761,6 @@ function useFinanceData() {
         canonicalRows,
       };
 
-      initialDataRef.current = nextState;
       setDataState(nextState);
       hasLoadedRef.current = true;
     })()
@@ -781,7 +777,7 @@ function useFinanceData() {
 
     requestRef.current = request;
     return request;
-  }, []);
+  }, [initialData]);
 
   useEffect(() => {
     mountedRef.current = true;

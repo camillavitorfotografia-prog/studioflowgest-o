@@ -7,21 +7,31 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Dependencies and generated builds
+node_modules/
+dist/
+dist-ssr/
+.vercel/
 
-# Editor directories and files
+# Environment files (keep only the public example)
+.env
+.env.local
+.env.*
+!.env.example
+
+# Local backups, database dumps and temporary work
+/tmp/
+*.dump.sql
+studioflow-*-before-multitenant.sql
+
+# Editor and OS files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-.vercel
-.env*

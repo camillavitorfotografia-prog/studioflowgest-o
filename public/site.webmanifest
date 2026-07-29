@@ -2,11 +2,13 @@
   "name": "StudioFlow",
   "short_name": "StudioFlow",
   "description": "Gestão completa para estúdios de fotografia e filme.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#000000",
   "theme_color": "#000000",
-  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/icon-192.png",

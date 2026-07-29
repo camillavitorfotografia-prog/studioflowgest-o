@@ -144,6 +144,22 @@ const normalizeTemplateRecord = (
   return record;
 };
 
+const LEGACY_DOCUMENT_TYPE_MAP = {
+  proposta: 'proposal',
+  contrato: 'contract',
+  recibo: 'receipt',
+  autorizacao: 'document',
+  certificado: 'certificate',
+  relatorio: 'report',
+};
+
+const normalizeDocumentType = (document = {}) => {
+  const explicit = String(document.documentType || '').trim().toLowerCase();
+  if (explicit) return LEGACY_DOCUMENT_TYPE_MAP[explicit] || explicit;
+  const legacy = String(document.type || '').trim().toLowerCase();
+  return LEGACY_DOCUMENT_TYPE_MAP[legacy] || legacy || 'document';
+};
+
 const normalizeDocumentRecord = (
   document,
 ) => {
@@ -155,9 +171,7 @@ const normalizeDocumentRecord = (
     id:
       document.id
       || createId('document'),
-    documentType:
-      document.documentType
-      || 'proposal',
+    documentType: normalizeDocumentType(document),
     templateId:
       document.templateId
       || null,
@@ -717,32 +731,32 @@ const saveRemoteRecord = async (
 };
 
 const validateDocument = (document) => {
-  if (
-    !document
-    || !document.documentType
-  ) {
-    throw new Error(
-      'Document must contain documentType',
-    );
+  const allowedTypes = new Set([
+    'proposal',
+    'contract',
+    'pdf',
+    'form',
+    'document',
+    'certificate',
+    'report',
+    'receipt',
+    'presentation',
+    'internal',
+  ]);
+
+  if (!document || !allowedTypes.has(document.documentType)) {
+    throw new Error('Tipo de documento inválido.');
   }
 
-  if (
-    document.documentType === 'proposal'
-  ) {
+  // Instâncias legadas podem não apontar para um template visual. Elas são
+  // preservadas no payload e continuam editáveis; os editores modernos ainda
+  // aplicam as validações completas quando template e versão estão presentes.
+  if (document.documentType === 'proposal' && document.templateId) {
     validateProposal(document);
-    return;
   }
-
-  if (
-    document.documentType === 'contract'
-  ) {
+  if (document.documentType === 'contract' && document.templateId) {
     validateContract(document);
-    return;
   }
-
-  throw new Error(
-    'documentType must be proposal or contract',
-  );
 };
 
 const loadRemoteById = async (

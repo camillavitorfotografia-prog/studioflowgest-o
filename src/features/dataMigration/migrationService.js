@@ -434,11 +434,38 @@ export const executeMigration = async (candidates, sourceNames) => {
     emitDbUpdate();
     return summary;
   } catch (error) {
+    // A importação é composta por várias tabelas. Em caso de falha, remove
+    // todos os registros identificados pelo lote para não deixar um estado
+    // parcialmente importado.
+    const rollbackResults = await Promise.allSettled([
+      supabase.from('financas').delete().contains('detalhes', { importBatchId: batch.id }),
+      supabase.from('projetos').delete().eq('import_batch_id', batch.id),
+      supabase.from('equipamentos').delete().eq('import_batch_id', batch.id),
+    ]);
+    const rollbackErrors = rollbackResults
+      .filter((result) => result.status === 'rejected' || result.value?.error)
+      .map((result) => (
+        result.status === 'rejected'
+          ? result.reason?.message
+          : result.value?.error?.message
+      ))
+      .filter(Boolean);
+
     await supabase.from('import_batches').update({
       status: 'failed',
-      summary: { ...summary, error: error?.message || 'Falha desconhecida' },
+      summary: {
+        ...summary,
+        rolledBack: rollbackErrors.length === 0,
+        rollbackErrors,
+        error: error?.message || 'Falha desconhecida',
+      },
     }).eq('id', batch.id);
-    throw error;
+    throw new Error(
+      rollbackErrors.length
+        ? `${error?.message || 'Falha na importação'}; a reversão também encontrou problemas: ${rollbackErrors.join('; ')}`
+        : error?.message || 'Falha na importação. As alterações parciais foram revertidas.',
+      { cause: error },
+    );
   }
 };
 

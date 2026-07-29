@@ -365,6 +365,24 @@ export const writeStorage = (key, value, options = {}) => {
         },
       }));
     }
+
+    if (options?.remoteSync !== false && [
+      STORAGE_KEYS.recurrences,
+      STORAGE_KEYS.contracts,
+    ].includes(key)) {
+      queueMicrotask(() => {
+        import('./accountDataSync.js')
+          .then(({ syncAccountStorageSection }) => (
+            syncAccountStorageSection(key, value)
+          ))
+          .catch((syncError) => {
+            console.warn(
+              `StudioFlow: não foi possível sincronizar [${key}] com a conta.`,
+              syncError,
+            );
+          });
+      });
+    }
   };
 
   try {

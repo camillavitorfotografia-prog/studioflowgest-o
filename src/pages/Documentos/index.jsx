@@ -28,6 +28,18 @@ import {
   generateInstallments,
   normalizeContract,
 } from '../../utils/contractEngine';
+import {
+  deleteDocument as deleteStoredDocument,
+  listDocuments as listStoredDocuments,
+  saveDocument as saveStoredDocument,
+} from '../../features/documents/storage/documentStorageAdapter';
+import {
+  getDbStudioData,
+  isUuidValue,
+  mapProjectFromDb,
+  saveRow,
+} from '../../utils/dbData';
+import { isSupabaseConfigured } from '../../utils/supabase';
 import './Documentos.css';
 
 const EMPTY_DRAFT = {
@@ -112,60 +124,146 @@ export default function Documentos() {
   const [selected, setSelected] = useState(null);
   const [contractProposal, setContractProposal] = useState(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const refresh = () => {
-      setClients(
-        readStorage(STORAGE_KEYS.clients, []),
-      );
+    let active = true;
+    let requestId = 0;
+    let initialized = false;
+    let refreshTimer = null;
 
-      setProjects(
-        readStorage(STORAGE_KEYS.projects, []),
-      );
+    const refresh = async () => {
+      const currentRequest = ++requestId;
+      if (!initialized) setLoading(true);
 
-      setDocuments(
-        readStorage(STORAGE_KEYS.documents, []),
-      );
+      try {
+        const localDocuments = readStorage(STORAGE_KEYS.documents, []);
+        const localContracts = readStorage(STORAGE_KEYS.contracts, [])
+          .map(normalizeContract);
+        const [studioResult, remoteDocumentsResult] = await Promise.allSettled([
+          getDbStudioData({ force: true }),
+          listStoredDocuments(),
+        ]);
 
-      setContracts(
-        readStorage(STORAGE_KEYS.contracts, [])
-          .map(normalizeContract),
-      );
+        if (!active || currentRequest !== requestId) return;
+
+        const studioData = studioResult.status === 'fulfilled'
+          ? studioResult.value
+          : null;
+        const remoteDocuments = remoteDocumentsResult.status === 'fulfilled'
+          ? remoteDocumentsResult.value
+          : [];
+        const nextClients = studioData?.clients?.length
+          ? studioData.clients
+          : readStorage(STORAGE_KEYS.clients, []);
+        const nextProjects = studioData?.projects?.length
+          ? studioData.projects
+          : readStorage(STORAGE_KEYS.projects, []);
+        const mergedById = new Map();
+
+        [...localDocuments, ...remoteDocuments].forEach((document) => {
+          if (!document?.id) return;
+          const current = mergedById.get(String(document.id));
+          const currentTime = new Date(current?.updatedAt || current?.updated_at || 0).getTime();
+          const nextTime = new Date(document.updatedAt || document.updated_at || 0).getTime();
+          if (!current || nextTime >= currentTime) {
+            mergedById.set(String(document.id), document);
+          }
+        });
+
+        const mergedDocuments = [...mergedById.values()]
+          .sort((first, second) => (
+            new Date(second.updatedAt || second.createdAt || 0).getTime()
+            - new Date(first.updatedAt || first.createdAt || 0).getTime()
+          ));
+
+        setClients(nextClients);
+        setProjects(nextProjects);
+        setContracts(localContracts);
+        setDocuments(mergedDocuments);
+        writeStorage(STORAGE_KEYS.clients, nextClients, { emit: false });
+        writeStorage(STORAGE_KEYS.projects, nextProjects, { emit: false });
+        writeStorage(STORAGE_KEYS.documents, mergedDocuments, { emit: false });
+
+        // Migra documentos legados para a tabela oficial sem bloquear a tela.
+        const remoteIds = new Set(remoteDocuments.map((item) => String(item.id)));
+        const legacyOnly = localDocuments.filter((item) => (
+          item?.id && !remoteIds.has(String(item.id))
+        ));
+        if (legacyOnly.length) {
+          Promise.allSettled(legacyOnly.map((item) => saveStoredDocument(item)))
+            .then((results) => {
+              const failures = results.filter((item) => item.status === 'rejected');
+              if (failures.length) {
+                console.warn('Alguns documentos legados ainda não foram sincronizados.', failures);
+              }
+            });
+        }
+      } catch (refreshError) {
+        if (active) {
+          console.error('Erro ao carregar documentos:', refreshError);
+          setError('Não foi possível sincronizar os documentos agora. Os dados locais foram preservados.');
+        }
+      } finally {
+        if (active && currentRequest === requestId) {
+          initialized = true;
+          setLoading(false);
+        }
+      }
     };
 
-    window.addEventListener(
-      'sf_storage_update',
-      refresh,
-    );
-    window.addEventListener(
-      'storage',
-      refresh,
-    );
-    window.addEventListener(
-      'focus',
-      refresh,
-    );
+    const handleRefresh = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void refresh();
+      }, 180);
+    };
+
+    void refresh();
+    window.addEventListener('sf_storage_update', handleRefresh);
+    window.addEventListener('storage', handleRefresh);
+    window.addEventListener('focus', handleRefresh);
 
     return () => {
-      window.removeEventListener(
-        'sf_storage_update',
-        refresh,
-      );
-      window.removeEventListener(
-        'storage',
-        refresh,
-      );
-      window.removeEventListener(
-        'focus',
-        refresh,
-      );
+      active = false;
+      requestId += 1;
+      window.clearTimeout(refreshTimer);
+      window.removeEventListener('sf_storage_update', handleRefresh);
+      window.removeEventListener('storage', handleRefresh);
+      window.removeEventListener('focus', handleRefresh);
     };
   }, []);
 
-  const persistDocuments = (next) => {
-    setDocuments(next);
-    writeStorage(STORAGE_KEYS.documents, next);
-    emitDocumentsUpdate();
+  const persistDocuments = async (next, changedDocuments = next) => {
+    setSaving(true);
+    setError('');
+
+    try {
+      const changedIds = new Set(changedDocuments.map((item) => String(item?.id || '')));
+      const savedEntries = await Promise.all(
+        changedDocuments
+          .filter((item) => item?.id)
+          .map((item) => saveStoredDocument(item)),
+      );
+      const savedById = new Map(savedEntries.map((item) => [String(item.id), item]));
+      const normalizedNext = next.map((item) => (
+        changedIds.has(String(item?.id || ''))
+          ? (savedById.get(String(item.id)) || item)
+          : item
+      ));
+
+      setDocuments(normalizedNext);
+      writeStorage(STORAGE_KEYS.documents, normalizedNext);
+      emitDocumentsUpdate();
+      return normalizedNext;
+    } catch (persistError) {
+      console.error('Erro ao salvar documento:', persistError);
+      setError(`Não foi possível salvar o documento: ${persistError?.message || 'erro desconhecido'}`);
+      throw persistError;
+    } finally {
+      setSaving(false);
+    }
   };
 
   const persistContracts = (next) => {
@@ -226,7 +324,7 @@ export default function Documentos() {
     emitDocumentsUpdate();
   };
 
-  const createDocument = (event) => {
+  const createDocument = async (event) => {
     event.preventDefault();
     setError('');
 
@@ -328,6 +426,8 @@ export default function Documentos() {
 
     const now = new Date().toISOString();
 
+    let nextContracts = null;
+
     const document = {
       id: createId('doc'),
       ...draft,
@@ -415,26 +515,32 @@ export default function Documentos() {
         }),
       };
 
-      persistContracts([
+      nextContracts = [
         contract,
         ...contracts,
-      ]);
+      ];
 
       document.contractId = contractId;
     }
 
-    persistDocuments([
+    const nextDocuments = [
       document,
       ...documents,
-    ]);
+    ];
 
-    setSelected(document);
-    setDraft(EMPTY_DRAFT);
+    try {
+      const persisted = await persistDocuments(nextDocuments, [document]);
+      const savedDocument = persisted.find((item) => String(item.id) === String(document.id)) || document;
+      if (nextContracts) persistContracts(nextContracts);
+      setSelected(savedDocument);
+      setDraft(EMPTY_DRAFT);
+    } catch {
+      // persistDocuments mantém o formulário aberto e apresenta a mensagem de erro.
+    }
   };
 
-  const updateStatus = (document, status) => {
+  const updateStatus = async (document, status) => {
     const now = new Date().toISOString();
-
     const updated = {
       ...document,
       status,
@@ -448,91 +554,123 @@ export default function Documentos() {
         },
       ],
     };
+    const nextDocuments = documents.map((item) => (
+      item.id === document.id ? updated : item
+    ));
 
-    persistDocuments(
-      documents.map((item) => (
-        item.id === document.id
-          ? updated
-          : item
-      )),
-    );
-
-    setSelected(updated);
+    try {
+      const persisted = await persistDocuments(nextDocuments, [updated]);
+      const savedDocument = persisted.find((item) => String(item.id) === String(updated.id)) || updated;
+      setSelected(savedDocument);
+      return savedDocument;
+    } catch {
+      return null;
+    }
   };
 
-  const approveProposal = (document) => {
-    updateStatus(document, 'aprovado');
+  const approveProposal = async (document) => {
+    setError('');
+    try {
+      if (document.projectId) {
+      await updateStatus(document, 'aprovado');
+      return;
+    }
 
-    if (document.projectId) return;
+    const existingProject = projects.find((project) => (
+      String(project.propostaId || project.financeiro?.propostaId || '')
+      === String(document.id)
+    ));
 
-    const currentProjects = readStorage(
-      STORAGE_KEYS.projects,
-      [],
-    );
+    if (existingProject) {
+      const linkedDocument = {
+        ...document,
+        status: 'aprovado',
+        projectId: existingProject.id,
+        updatedAt: new Date().toISOString(),
+      };
+      await persistDocuments(
+        documents.map((item) => item.id === document.id ? linkedDocument : item),
+        [linkedDocument],
+      );
+      setSelected(linkedDocument);
+      return;
+    }
 
-    const existingProject = currentProjects.find(
-      (project) => (
-        String(project.propostaId || '')
-        === String(document.id)
-      ),
-    );
-
-    if (existingProject) return;
-
-    const project = {
+    const now = new Date().toISOString();
+    let project = {
       id: createId('project'),
       clienteId: document.clientId,
       clientId: document.clientId,
       clienteNome: document.clientName,
-      nome:
-        document.service
-        || document.packageName,
-      tipoServico:
-        document.service
-        || 'Evento',
+      nome: document.service || document.packageName,
+      tipoServico: document.service || 'Evento',
       status: 'contrato_fechado',
+      statusComercial: 'contrato_fechado',
       valorContratado: document.total,
       valor_contratado: document.total,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       propostaId: document.id,
     };
 
-    const nextProjects = [
-      ...currentProjects,
-      project,
-    ];
+    if (isSupabaseConfigured) {
+      const row = await saveRow({
+        table: 'projetos',
+        payload: {
+          cliente_id: isUuidValue(document.clientId) ? document.clientId : null,
+          cliente_nome_importado: document.clientName || null,
+          tipo_servico: document.service || 'Evento',
+          data: '',
+          valor_contratado: Number(document.total || 0),
+          valor_recebido: 0,
+          financeiro: {
+            receitas: [],
+            propostaId: document.id,
+            statusComercial: 'contrato_fechado',
+            projectData: {
+              titulo: document.service || document.packageName || 'Trabalho',
+              statusComercial: 'contrato_fechado',
+              clienteNome: document.clientName || '',
+            },
+          },
+          created_at: now,
+        },
+      });
+      project = {
+        ...mapProjectFromDb(row, clients, []),
+        propostaId: document.id,
+      };
+    }
 
+    const nextProjects = [project, ...projects.filter((item) => item.id !== project.id)];
     setProjects(nextProjects);
-    writeStorage(
-      STORAGE_KEYS.projects,
-      nextProjects,
-    );
+    writeStorage(STORAGE_KEYS.projects, nextProjects);
 
     const updatedDocument = {
       ...document,
       status: 'aprovado',
       projectId: project.id,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
+      approvedAt: now,
       history: [
         ...(document.history || []),
         {
           status: 'aprovado',
-          at: new Date().toISOString(),
+          at: now,
           action: 'projeto_criado',
           projectId: project.id,
         },
       ],
     };
 
-    persistDocuments(
-      documents.map((item) => (
-        item.id === document.id
-          ? updatedDocument
-          : item
-      )),
+    await persistDocuments(
+      documents.map((item) => item.id === document.id ? updatedDocument : item),
+      [updatedDocument],
     );
-
-    setSelected(updatedDocument);
+      setSelected(updatedDocument);
+    } catch (approvalError) {
+      console.error('Erro ao aprovar proposta:', approvalError);
+      setError(`Não foi possível aprovar a proposta: ${approvalError?.message || 'erro desconhecido'}`);
+    }
   };
 
   const saveGeneratedContract = async ({
@@ -656,14 +794,14 @@ export default function Documentos() {
       ],
     };
 
+    await persistDocuments([
+      document,
+      ...documents,
+    ], [document]);
+
     persistContracts([
       financial,
       ...contracts,
-    ]);
-
-    persistDocuments([
-      document,
-      ...documents,
     ]);
 
     setContractProposal(null);
@@ -712,7 +850,7 @@ export default function Documentos() {
     popup.print();
   };
 
-  const deleteDocument = (document) => {
+  const deleteDocument = async (document) => {
     if (
       document.type === 'contrato'
       && document.contractId
@@ -743,11 +881,16 @@ export default function Documentos() {
       return;
     }
 
-    persistDocuments(
-      documents.filter(
-        (item) => item.id !== document.id,
-      ),
-    );
+    try {
+      await deleteStoredDocument(document.id);
+      const nextDocuments = documents.filter((item) => item.id !== document.id);
+      setDocuments(nextDocuments);
+      writeStorage(STORAGE_KEYS.documents, nextDocuments);
+      emitDocumentsUpdate();
+    } catch (deleteError) {
+      setError(`Não foi possível excluir o documento: ${deleteError?.message || 'erro desconhecido'}`);
+      return;
+    }
 
     if (document.contractId) {
       persistContracts(
@@ -800,6 +943,12 @@ export default function Documentos() {
       {error && (
         <div className="contract-error">
           {error}
+        </div>
+      )}
+
+      {(loading || saving) && (
+        <div className="documents-sync-state" role="status" aria-live="polite">
+          {loading ? 'Sincronizando documentos da conta...' : 'Salvando documento...'}
         </div>
       )}
 
@@ -1071,8 +1220,8 @@ export default function Documentos() {
             </select>
           </label>
 
-          <button type="submit">
-            Gerar e pré-visualizar
+          <button type="submit" disabled={saving || loading}>
+            {saving ? 'Salvando...' : 'Gerar e pré-visualizar'}
           </button>
         </form>
 
@@ -1220,7 +1369,7 @@ export default function Documentos() {
                 <button
                   type="button"
                   onClick={() => {
-                    approveProposal(selected);
+                    void approveProposal(selected);
                   }}
                 >
                   <CheckCircle2 />
@@ -1246,7 +1395,7 @@ export default function Documentos() {
               type="button"
               className="danger"
               onClick={() => {
-                deleteDocument(selected);
+                void deleteDocument(selected);
               }}
             >
               <Trash2 />

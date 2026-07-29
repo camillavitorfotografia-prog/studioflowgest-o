@@ -3,7 +3,7 @@ import { PDFDocument, StandardFonts, degrees, rgb } from '../../../vendor/pdf-li
 const safeText = (value) => String(value ?? '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+  .replace(/[^\u0020-\u007E]/g, (character) => (['\t', '\n', '\r'].includes(character) ? character : ''));
 
 const colorFromHex = (value, fallback = '#ffffff') => {
   const raw = String(value || fallback).replace('#', '').trim();
