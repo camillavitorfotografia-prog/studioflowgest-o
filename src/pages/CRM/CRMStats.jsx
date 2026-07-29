@@ -699,8 +699,9 @@ const formatVelocityTime = (hours) => {
   return `${(hours / 24).toFixed(1)} dias`;
 };
 
-export default function CRMStats({ leads }) {
+export default function CRMStats({ leads, compact = false }) {
   const [periodo, setPeriodo] = useState('este_mes');
+  const [isDetailsOpen, setIsDetailsOpen] = useState(!compact);
   const [salesGoal, setSalesGoal] = useState(readSalesGoal);
   const [isEditingGoal, setIsEditingGoal] = useState(false);
 
@@ -954,7 +955,7 @@ export default function CRMStats({ leads }) {
         title: 'Leads',
         value: total,
         icon: <Users size={20} />,
-        color: '#fff',
+        color: 'var(--text-main)',
       },
       {
         title: 'Conversao',
@@ -1033,6 +1034,9 @@ export default function CRMStats({ leads }) {
       topOrigin,
       topCampaign,
       aprovados,
+      pendentes,
+      potencial,
+      followupsHoje,
       receitaFechada,
       total,
       likelyToClose,
@@ -1048,14 +1052,50 @@ export default function CRMStats({ leads }) {
     };
   }, [leads, periodo, salesGoal]);
 
+  const compactStats = [
+    {
+      title: 'Leads ativos',
+      value: dashboard.pendentes,
+      icon: <Users size={20} />,
+      color: '#d8b15d',
+      tone: 'gold',
+    },
+    {
+      title: 'Potenciais',
+      value: formatCurrency(dashboard.potencial),
+      icon: <DollarSign size={20} />,
+      color: '#d8b15d',
+      compact: true,
+      tone: 'gold',
+    },
+    {
+      title: 'Follow-ups hoje',
+      value: dashboard.followupsHoje,
+      icon: <Clock size={20} />,
+      color: '#d8b15d',
+      tone: 'gold',
+    },
+    {
+      title: 'Fechamentos do mês',
+      value: dashboard.aprovados,
+      icon: <Trophy size={20} />,
+      color: '#d8b15d',
+      tone: 'gold',
+    },
+  ];
+
+  const visibleStats = compact && !isDetailsOpen
+    ? compactStats
+    : dashboard.stats;
+
   return (
     <section
-      className="crm-stats-panel"
+      className={compact ? 'crm-stats-panel is-compact' : 'crm-stats-panel'}
       style={{
-        background: '#0a0a0a',
+        background: 'var(--surface-card)',
         padding: '24px',
         borderRadius: '16px',
-        border: '1px solid #1a1a1a',
+        border: '1px solid var(--border-color)',
         marginBottom: '24px',
       }}
     >
@@ -1073,7 +1113,7 @@ export default function CRMStats({ leads }) {
         <h2
           style={{
             fontSize: '1.1rem',
-            color: '#fff',
+            color: 'var(--text-main)',
             margin: 0,
             display: 'flex',
             alignItems: 'center',
@@ -1088,9 +1128,9 @@ export default function CRMStats({ leads }) {
           value={periodo}
           onChange={(event) => setPeriodo(event.target.value)}
           style={{
-            background: '#1a1a1a',
-            border: '1px solid #333',
-            color: '#bbb',
+            background: 'var(--surface-card-strong)',
+            border: '1px solid var(--border-color)',
+            color: 'var(--text-muted)',
             padding: '8px 12px',
             borderRadius: '6px',
             fontSize: '0.85rem',
@@ -1112,11 +1152,25 @@ export default function CRMStats({ leads }) {
           gap: '16px',
         }}
       >
-        {dashboard.stats.map((stat) => (
+        {visibleStats.map((stat) => (
           <StatCard key={stat.title} stat={stat} />
         ))}
       </div>
 
+      {compact && (
+        <button
+          type="button"
+          className="crm-stats-toggle"
+          onClick={() => setIsDetailsOpen((current) => !current)}
+        >
+          {isDetailsOpen
+            ? 'Ocultar análises detalhadas'
+            : 'Ver análises detalhadas'}
+        </button>
+      )}
+
+      {(!compact || isDetailsOpen) && (
+        <div className="crm-stats-details">
       <ReportPanel
         title="Velocidade comercial"
         description="Mede quanto tempo o atendimento leva para responder, enviar proposta e fechar."
@@ -1264,15 +1318,15 @@ export default function CRMStats({ leads }) {
         >
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #222',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '14px',
             }}
           >
             <div
               style={{
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontSize: '0.88rem',
                 fontWeight: 700,
                 marginBottom: '10px',
@@ -1313,7 +1367,7 @@ export default function CRMStats({ leads }) {
                     >
                       <div
                         style={{
-                          color: '#ddd',
+                          color: 'var(--text-main)',
                           fontSize: '0.82rem',
                           fontWeight: 700,
                           wordBreak: 'break-word',
@@ -1351,9 +1405,9 @@ export default function CRMStats({ leads }) {
                         <span
                           key={`${item.lead.id}-${issue.key}`}
                           style={{
-                            background: '#181818',
-                            border: '1px solid #303030',
-                            color: '#aaa',
+                            background: 'var(--surface-card-strong)',
+                            border: '1px solid var(--border-color)',
+                            color: 'var(--text-muted)',
                             borderRadius: '999px',
                             padding: '4px 7px',
                             fontSize: '0.66rem',
@@ -1373,15 +1427,15 @@ export default function CRMStats({ leads }) {
 
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #222',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '14px',
             }}
           >
             <div
               style={{
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontSize: '0.88rem',
                 fontWeight: 700,
                 marginBottom: '10px',
@@ -1405,8 +1459,8 @@ export default function CRMStats({ leads }) {
                       display: 'flex',
                       gap: '9px',
                       alignItems: 'flex-start',
-                      background: '#111',
-                      border: '1px solid #242424',
+                      background: 'var(--surface-card-strong)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '9px',
                       padding: '11px',
                     }}
@@ -1416,7 +1470,7 @@ export default function CRMStats({ leads }) {
                         width: '22px',
                         height: '22px',
                         borderRadius: '999px',
-                        background: '#18130a',
+                        background: 'var(--tone-gold-bg)',
                         border: '1px solid #3a2d16',
                         color: '#c5a059',
                         display: 'flex',
@@ -1432,7 +1486,7 @@ export default function CRMStats({ leads }) {
 
                     <span
                       style={{
-                        color: '#bbb',
+                        color: 'var(--text-muted)',
                         fontSize: '0.78rem',
                         lineHeight: 1.5,
                       }}
@@ -1453,7 +1507,7 @@ export default function CRMStats({ leads }) {
         >
           <div
             style={{
-              color: '#fff',
+              color: 'var(--text-main)',
               fontSize: '0.88rem',
               fontWeight: 700,
               marginBottom: '10px',
@@ -1497,7 +1551,7 @@ export default function CRMStats({ leads }) {
                   >
                     <span
                       style={{
-                        color: '#ddd',
+                        color: 'var(--text-main)',
                         fontSize: '0.8rem',
                         fontWeight: 700,
                       }}
@@ -1518,7 +1572,7 @@ export default function CRMStats({ leads }) {
 
                   <div
                     style={{
-                      color: '#888',
+                      color: 'var(--text-muted)',
                       fontSize: '0.72rem',
                       lineHeight: 1.5,
                       marginTop: '7px',
@@ -1584,8 +1638,8 @@ export default function CRMStats({ leads }) {
         <div
           style={{
             marginTop: '16px',
-            background: '#0d0d0d',
-            border: '1px solid #222',
+            background: 'var(--surface-card)',
+            border: '1px solid var(--border-color)',
             borderRadius: '10px',
             padding: '14px',
           }}
@@ -1603,7 +1657,7 @@ export default function CRMStats({ leads }) {
             <div>
               <div
                 style={{
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontSize: '0.9rem',
                   fontWeight: 700,
                 }}
@@ -1613,7 +1667,7 @@ export default function CRMStats({ leads }) {
 
               <div
                 style={{
-                  color: '#666',
+                  color: 'var(--text-subtle)',
                   fontSize: '0.76rem',
                   marginTop: '4px',
                 }}
@@ -1626,9 +1680,9 @@ export default function CRMStats({ leads }) {
               type="button"
               onClick={() => setIsEditingGoal((current) => !current)}
               style={{
-                background: '#171717',
-                color: '#ddd',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 padding: '8px 11px',
                 borderRadius: '7px',
                 cursor: 'pointer',
@@ -1652,7 +1706,7 @@ export default function CRMStats({ leads }) {
               <label>
                 <span
                   style={{
-                    color: '#777',
+                    color: 'var(--text-subtle)',
                     fontSize: '0.72rem',
                     display: 'block',
                     marginBottom: '5px',
@@ -1677,10 +1731,10 @@ export default function CRMStats({ leads }) {
                   }}
                   style={{
                     width: '100%',
-                    background: '#111',
-                    border: '1px solid #333',
+                    background: 'var(--surface-card-strong)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '7px',
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     padding: '10px',
                     boxSizing: 'border-box',
                   }}
@@ -1690,7 +1744,7 @@ export default function CRMStats({ leads }) {
               <label>
                 <span
                   style={{
-                    color: '#777',
+                    color: 'var(--text-subtle)',
                     fontSize: '0.72rem',
                     display: 'block',
                     marginBottom: '5px',
@@ -1715,10 +1769,10 @@ export default function CRMStats({ leads }) {
                   }}
                   style={{
                     width: '100%',
-                    background: '#111',
-                    border: '1px solid #333',
+                    background: 'var(--surface-card-strong)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '7px',
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     padding: '10px',
                     boxSizing: 'border-box',
                   }}
@@ -1755,7 +1809,7 @@ export default function CRMStats({ leads }) {
         >
           <div
             style={{
-              color: '#fff',
+              color: 'var(--text-main)',
               fontSize: '0.88rem',
               fontWeight: 700,
               marginBottom: '10px',
@@ -1776,8 +1830,8 @@ export default function CRMStats({ leads }) {
                 <div
                   key={lead.id}
                   style={{
-                    background: '#0d0d0d',
-                    border: '1px solid #222',
+                    background: 'var(--surface-card)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '9px',
                     padding: '12px',
                   }}
@@ -1792,7 +1846,7 @@ export default function CRMStats({ leads }) {
                   >
                     <div
                       style={{
-                        color: '#ddd',
+                        color: 'var(--text-main)',
                         fontWeight: 700,
                         fontSize: '0.84rem',
                         wordBreak: 'break-word',
@@ -1817,7 +1871,7 @@ export default function CRMStats({ leads }) {
 
                   <div
                     style={{
-                      color: '#777',
+                      color: 'var(--text-subtle)',
                       fontSize: '0.74rem',
                       marginTop: '6px',
                     }}
@@ -1831,7 +1885,7 @@ export default function CRMStats({ leads }) {
                       justifyContent: 'space-between',
                       gap: '10px',
                       marginTop: '10px',
-                      color: '#aaa',
+                      color: 'var(--text-muted)',
                       fontSize: '0.74rem',
                     }}
                   >
@@ -1925,8 +1979,8 @@ export default function CRMStats({ leads }) {
             <div
               key={item.temperature}
               style={{
-                background: '#0d0d0d',
-                border: '1px solid #222',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '10px',
                 padding: '14px',
               }}
@@ -1947,7 +2001,7 @@ export default function CRMStats({ leads }) {
 
               <div
                 style={{
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontSize: '1.35rem',
                   fontWeight: 800,
                   marginTop: '10px',
@@ -1958,7 +2012,7 @@ export default function CRMStats({ leads }) {
 
               <div
                 style={{
-                  color: '#777',
+                  color: 'var(--text-subtle)',
                   fontSize: '0.76rem',
                   lineHeight: 1.5,
                   marginTop: '6px',
@@ -1969,7 +2023,7 @@ export default function CRMStats({ leads }) {
 
               <div
                 style={{
-                  color: '#aaa',
+                  color: 'var(--text-muted)',
                   fontSize: '0.76rem',
                   marginTop: '5px',
                 }}
@@ -2029,15 +2083,15 @@ export default function CRMStats({ leads }) {
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',
                   gap: '14px',
-                  background: '#0d0d0d',
-                  border: '1px solid #222',
+                  background: 'var(--surface-card)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '9px',
                   padding: '12px',
                 }}
               >
                 <span
                   style={{
-                    color: '#bbb',
+                    color: 'var(--text-muted)',
                     fontSize: '0.82rem',
                     lineHeight: 1.45,
                   }}
@@ -2050,7 +2104,7 @@ export default function CRMStats({ leads }) {
                     minWidth: '30px',
                     height: '26px',
                     borderRadius: '999px',
-                    background: '#241111',
+                    background: 'var(--tone-red-bg)',
                     border: '1px solid #4a2020',
                     color: '#f87171',
                     display: 'flex',
@@ -2070,6 +2124,8 @@ export default function CRMStats({ leads }) {
           <EmptyState text="Nenhum motivo de perda ou cancelamento registrado no periodo." />
         )}
       </ReportPanel>
+        </div>
+      )}
     </section>
   );
 }
@@ -2090,15 +2146,15 @@ function VelocityMetric({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #222',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '10px',
         padding: '14px',
       }}
     >
       <div
         style={{
-          color: '#777',
+          color: 'var(--text-subtle)',
           fontSize: '0.73rem',
           marginBottom: '7px',
         }}
@@ -2118,7 +2174,7 @@ function VelocityMetric({
 
       <div
         style={{
-          color: '#777',
+          color: 'var(--text-subtle)',
           fontSize: '0.7rem',
           marginTop: '6px',
         }}
@@ -2158,15 +2214,15 @@ function FunnelHealthMetric({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #222',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '10px',
         padding: '14px',
       }}
     >
       <div
         style={{
-          color: '#777',
+          color: 'var(--text-subtle)',
           fontSize: '0.73rem',
           marginBottom: '7px',
         }}
@@ -2186,7 +2242,7 @@ function FunnelHealthMetric({
 
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.71rem',
           lineHeight: 1.45,
           marginTop: '6px',
@@ -2207,15 +2263,15 @@ function ForecastMetric({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #222',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '10px',
         padding: '14px',
       }}
     >
       <div
         style={{
-          color: '#777',
+          color: 'var(--text-subtle)',
           fontSize: '0.74rem',
           marginBottom: '7px',
         }}
@@ -2236,7 +2292,7 @@ function ForecastMetric({
 
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.72rem',
           lineHeight: 1.45,
           marginTop: '6px',
@@ -2273,7 +2329,7 @@ function GoalProgress({
       >
         <div
           style={{
-            color: '#bbb',
+            color: 'var(--text-muted)',
             fontSize: '0.78rem',
             fontWeight: 700,
           }}
@@ -2283,7 +2339,7 @@ function GoalProgress({
 
         <div
           style={{
-            color: '#777',
+            color: 'var(--text-subtle)',
             fontSize: '0.72rem',
           }}
         >
@@ -2296,7 +2352,7 @@ function GoalProgress({
           width: '100%',
           height: '8px',
           borderRadius: '999px',
-          background: '#1d1d1d',
+          background: 'var(--surface-card-strong)',
           overflow: 'hidden',
         }}
       >
@@ -2327,39 +2383,40 @@ function GoalProgress({
 function StatCard({ stat }) {
   return (
     <div
-      className="crm-stat-card"
+      className={`crm-stat-card${stat.tone ? ` is-${stat.tone}` : ''}`}
       style={{
-        background: '#111',
+        background: 'var(--surface-card-strong)',
         padding: '16px',
         borderRadius: '12px',
-        border: '1px solid #222',
+        border: '1px solid var(--border-color)',
         minHeight: '92px',
       }}
     >
-      <div
-        style={{
-          color: '#888',
-          fontSize: '0.8rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '8px',
-        }}
-      >
+      <div className="crm-stat-card__icon" aria-hidden="true">
         {stat.icon}
-        {stat.title}
       </div>
 
-      <div
-        style={{
-          fontSize: stat.compact ? '1.1rem' : '1.5rem',
-          fontWeight: 700,
-          color: stat.color,
-          wordBreak: 'break-word',
-        }}
-      >
-        {stat.value}
+      <div className="crm-stat-card__content">
+        <div className="crm-stat-card__label">{stat.title}</div>
+        <div
+          className="crm-stat-card__value"
+          style={{
+            fontSize: stat.compact ? '1.1rem' : '1.5rem',
+            color: stat.color,
+          }}
+        >
+          {stat.value}
+        </div>
       </div>
+
+      <svg
+        className="crm-stat-card__sparkline"
+        viewBox="0 0 64 28"
+        role="presentation"
+        aria-hidden="true"
+      >
+        <path d="M2 23 L13 19 L22 21 L31 12 L41 16 L51 8 L62 4" />
+      </svg>
     </div>
   );
 }
@@ -2373,15 +2430,15 @@ function HighlightCard({
   return (
     <div
       style={{
-        background: '#111',
-        border: '1px solid #222',
+        background: 'var(--surface-card-strong)',
+        border: '1px solid var(--border-color)',
         borderRadius: '12px',
         padding: '18px',
       }}
     >
       <div
         style={{
-          color: '#888',
+          color: 'var(--text-muted)',
           fontSize: '0.78rem',
           marginBottom: '8px',
         }}
@@ -2402,7 +2459,7 @@ function HighlightCard({
 
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.78rem',
           marginTop: '6px',
           lineHeight: 1.45,
@@ -2424,8 +2481,8 @@ function ReportPanel({
   return (
     <div
       style={{
-        background: '#111',
-        border: '1px solid #222',
+        background: 'var(--surface-card-strong)',
+        border: '1px solid var(--border-color)',
         borderRadius: '12px',
         padding: '18px',
         marginTop: noMargin ? 0 : '16px',
@@ -2445,8 +2502,8 @@ function ReportPanel({
             width: '32px',
             height: '32px',
             borderRadius: '8px',
-            background: '#171717',
-            border: '1px solid #292929',
+            background: 'var(--surface-card-strong)',
+            border: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -2459,7 +2516,7 @@ function ReportPanel({
         <div>
           <h3
             style={{
-              color: '#fff',
+              color: 'var(--text-main)',
               fontSize: '0.95rem',
               margin: 0,
             }}
@@ -2469,7 +2526,7 @@ function ReportPanel({
 
           <p
             style={{
-              color: '#666',
+              color: 'var(--text-subtle)',
               fontSize: '0.78rem',
               margin: '5px 0 0',
               lineHeight: 1.4,
@@ -2507,7 +2564,7 @@ function RankingBars({ items }) {
           >
             <span
               style={{
-                color: '#bbb',
+                color: 'var(--text-muted)',
                 fontSize: '0.84rem',
                 fontWeight: 600,
               }}
@@ -2517,7 +2574,7 @@ function RankingBars({ items }) {
 
             <span
               style={{
-                color: '#888',
+                color: 'var(--text-muted)',
                 fontSize: '0.78rem',
                 whiteSpace: 'nowrap',
               }}
@@ -2531,7 +2588,7 @@ function RankingBars({ items }) {
               width: '100%',
               height: '7px',
               borderRadius: '999px',
-              background: '#1d1d1d',
+              background: 'var(--surface-card-strong)',
               overflow: 'hidden',
             }}
           >
@@ -2568,8 +2625,8 @@ function PerformanceTable({ items }) {
         <div
           key={item.name}
           style={{
-            background: '#0d0d0d',
-            border: '1px solid #222',
+            background: 'var(--surface-card)',
+            border: '1px solid var(--border-color)',
             borderRadius: '9px',
             padding: '12px',
           }}
@@ -2584,7 +2641,7 @@ function PerformanceTable({ items }) {
           >
             <div
               style={{
-                color: '#ddd',
+                color: 'var(--text-main)',
                 fontSize: '0.84rem',
                 fontWeight: 700,
                 wordBreak: 'break-word',
@@ -2632,7 +2689,7 @@ function MiniMetric({ label, value, compact = false }) {
     <div>
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.68rem',
           marginBottom: '3px',
         }}
@@ -2642,7 +2699,7 @@ function MiniMetric({ label, value, compact = false }) {
 
       <div
         style={{
-          color: '#aaa',
+          color: 'var(--text-muted)',
           fontSize: compact ? '0.72rem' : '0.82rem',
           fontWeight: 700,
           wordBreak: 'break-word',
@@ -2658,9 +2715,9 @@ function EmptyState({ text }) {
   return (
     <div
       style={{
-        color: '#666',
+        color: 'var(--text-subtle)',
         fontSize: '0.84rem',
-        border: '1px dashed #292929',
+        border: '1px dashed var(--border-color)',
         borderRadius: '9px',
         padding: '14px',
         textAlign: 'center',

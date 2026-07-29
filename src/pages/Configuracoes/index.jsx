@@ -24,7 +24,12 @@ import {
   Users,
 } from 'lucide-react';
 
-import { loadSettings, saveSettings } from '../../utils/settings';
+import {
+  loadSettings,
+  loadSettingsFromDb,
+  saveSettings,
+  saveSettingsToDb,
+} from '../../utils/settings';
 import { emitThemeChange } from '../../utils/theme';
 import { createBackupPayload, restoreBackupPayload } from '../../utils/backup';
 import {
@@ -176,6 +181,7 @@ export default function Configuracoes() {
   const [active, setActive] = useState('general');
   const [settings, setSettings] = useState(loadSettings);
   const [message, setMessage] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
   const [teamDraft, setTeamDraft] = useState(emptyTeamMember);
   const [teamFormOpen, setTeamFormOpen] = useState(false);
   const [integrationAccounts, setIntegrationAccounts] = useState([]);
@@ -196,13 +202,42 @@ export default function Configuracoes() {
     }));
   };
 
-  const save = () => {
-    saveSettings(settings);
-    setMessage('Configurações salvas com sucesso.');
+  const persistSettings = async (nextSettings, successMessage) => {
+    setSavingSettings(true);
 
-    window.setTimeout(() => {
-      setMessage('');
-    }, 3000);
+    try {
+      const result = await saveSettingsToDb(nextSettings);
+
+      if (!result.ok) {
+        throw result.error || new Error(
+          'Não foi possível salvar as configurações no navegador nem no Supabase.',
+        );
+      }
+
+      setSettings(result.settings || nextSettings);
+      setMessage(
+        result.localSaved
+          ? successMessage
+          : `${successMessage} A cópia local não pôde ser atualizada porque o armazenamento do navegador está cheio, mas os dados foram salvos no Supabase.`,
+      );
+      return true;
+    } catch (error) {
+      setMessage(
+        error?.message
+        || 'Não foi possível salvar as configurações. Verifique sua conexão e tente novamente.',
+      );
+      return false;
+    } finally {
+      setSavingSettings(false);
+      window.setTimeout(() => setMessage(''), 5000);
+    }
+  };
+
+  const save = async () => {
+    await persistSettings(
+      settings,
+      'Configurações salvas com sucesso.',
+    );
   };
 
   const exportData = () => {
@@ -264,11 +299,30 @@ export default function Configuracoes() {
     setTeamFormOpen(true);
   };
 
-  const saveTeamMember = () => {
+  const saveTeamMember = async () => {
     const nome = String(teamDraft.nome || '').trim();
 
     if (!nome) {
       setMessage('Informe o nome do membro da equipe.');
+      return;
+    }
+
+    const normalizedEmail = String(teamDraft.email || '').trim().toLowerCase();
+    const normalizedPhone = String(teamDraft.telefone || '').replace(/\D/g, '');
+    const currentMembers = Array.isArray(settings.team?.members)
+      ? settings.team.members
+      : [];
+    const duplicate = currentMembers.find((item) => (
+      item.id !== teamDraft.id
+      && (
+        String(item.nome || '').trim().toLowerCase() === nome.toLowerCase()
+        || (normalizedEmail && String(item.email || '').trim().toLowerCase() === normalizedEmail)
+        || (normalizedPhone && String(item.telefone || '').replace(/\D/g, '') === normalizedPhone)
+      )
+    ));
+
+    if (duplicate) {
+      setMessage(`Já existe um membro semelhante cadastrado: ${duplicate.nome}.`);
       return;
     }
 
@@ -277,85 +331,63 @@ export default function Configuracoes() {
       ...teamDraft,
       id: teamDraft.id || createTeamMemberId(),
       nome,
-      funcao: String(
-        teamDraft.funcao || 'Fotógrafo',
-      ).trim(),
+      funcao: String(teamDraft.funcao || 'Fotógrafo').trim(),
       telefone: String(teamDraft.telefone || '').trim(),
-      email: String(teamDraft.email || '').trim(),
-      valorDiaria: Math.max(
-        0,
-        parseCurrency(teamDraft.valorDiaria),
-      ),
+      email: normalizedEmail,
+      valorDiaria: Math.max(0, parseCurrency(teamDraft.valorDiaria)),
       ativo: teamDraft.ativo !== false,
-      observacoes: String(
-        teamDraft.observacoes || '',
-      ).trim(),
+      observacoes: String(teamDraft.observacoes || '').trim(),
       criadoEm: teamDraft.criadoEm || now,
       atualizadoEm: now,
     };
 
-    setSettings((current) => {
-      const members = Array.isArray(
-        current.team?.members,
-      )
-        ? current.team.members
-        : [];
+    const nextSettings = {
+      ...settings,
+      team: {
+        ...settings.team,
+        members: teamDraft.id
+          ? currentMembers.map((item) => (
+            item.id === teamDraft.id ? member : item
+          ))
+          : [...currentMembers, member],
+      },
+    };
 
-      const nextSettings = {
-        ...current,
-        team: {
-          ...current.team,
-          members: teamDraft.id
-            ? members.map((item) => (
-              item.id === teamDraft.id
-                ? member
-                : item
-            ))
-            : [...members, member],
-        },
-      };
-
-      saveSettings(nextSettings);
-
-      return nextSettings;
-    });
-
-    setTeamDraft(emptyTeamMember);
-    setTeamFormOpen(false);
-    setMessage(
+    const saved = await persistSettings(
+      nextSettings,
       teamDraft.id
         ? 'Membro atualizado e salvo com sucesso.'
         : 'Membro adicionado e salvo com sucesso.',
     );
+
+    if (!saved) return;
+
+    setTeamDraft(emptyTeamMember);
+    setTeamFormOpen(false);
   };
 
-  const removeTeamMember = (member) => {
+  const removeTeamMember = async (member) => {
     const confirmed = window.confirm(
       `Remover ${member.nome} da equipe central?`,
     );
 
     if (!confirmed) return;
 
-    setSettings((current) => {
-      const nextSettings = {
-        ...current,
-        team: {
-          ...current.team,
-          members: (
-            current.team?.members || []
-          ).filter((item) => item.id !== member.id),
-        },
-      };
+    const nextSettings = {
+      ...settings,
+      team: {
+        ...settings.team,
+        members: (settings.team?.members || [])
+          .filter((item) => item.id !== member.id),
+      },
+    };
 
-      saveSettings(nextSettings);
-
-      return nextSettings;
-    });
-
-    setMessage(
+    await persistSettings(
+      nextSettings,
       'Membro removido e alterações salvas.',
     );
   };
+
 
 
   const integrationAccountMap = useMemo(() => (
@@ -375,6 +407,20 @@ export default function Configuracoes() {
       setIntegrationLoading(false);
     }
   };
+
+  useEffect(() => {
+    let activeRequest = true;
+
+    loadSettingsFromDb().then((remoteSettings) => {
+      if (!activeRequest || !remoteSettings) return;
+      setSettings(remoteSettings);
+      emitThemeChange(remoteSettings.general?.theme);
+    });
+
+    return () => {
+      activeRequest = false;
+    };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -532,9 +578,10 @@ export default function Configuracoes() {
           className="btn btn-primary"
           type="button"
           onClick={save}
+          disabled={savingSettings}
         >
           <Save size={17} />
-          Salvar alterações
+          {savingSettings ? 'Salvando...' : 'Salvar alterações'}
         </button>
       </header>
 
@@ -589,9 +636,14 @@ export default function Configuracoes() {
                           },
                         };
 
-                        // A aparência é uma preferência imediata: aplica e persiste
-                        // no mesmo gesto para não voltar ao tema anterior após F5.
+                        // A aparência é imediata. O cache local é atualizado no
+                        // mesmo gesto e a cópia remota é sincronizada em segundo plano.
                         saveSettings(nextSettings);
+                        void saveSettingsToDb(nextSettings).then((result) => {
+                          if (!result.ok) {
+                            setMessage('O tema foi aplicado, mas não foi possível sincronizá-lo com o Supabase.');
+                          }
+                        });
                         return nextSettings;
                       });
 
@@ -1278,9 +1330,10 @@ export default function Configuracoes() {
                       type="button"
                       className="btn btn-primary"
                       onClick={saveTeamMember}
+                      disabled={savingSettings}
                     >
                       <Save size={16} />
-                      Salvar membro
+                      {savingSettings ? 'Salvando...' : 'Salvar membro'}
                     </button>
                   </div>
                 </div>

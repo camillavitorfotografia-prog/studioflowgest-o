@@ -62,13 +62,13 @@ const inputStyle = {
   width: '100%',
   padding: '12px',
   borderRadius: '8px',
-  border: '1px solid #333',
-  background: '#111',
-  color: '#fff',
+  border: '1px solid var(--border-color)',
+  background: 'var(--surface-card)',
+  color: 'var(--text-main)',
 };
 
 const labelStyle = {
-  color: '#888',
+  color: 'var(--text-muted)',
   fontSize: '0.78rem',
   marginBottom: '6px',
   display: 'block',
@@ -2083,8 +2083,9 @@ export default function Clientes() {
         </div>
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={closeModal} title={formData.id ? 'Editar Cliente' : 'Novo Cliente'}>
-        <form className="sf-client-form" onSubmit={saveClient} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Modal isOpen={isModalOpen} onClose={closeModal} title={formData.id ? 'Editar Cliente' : 'Novo Cliente'} maxWidth="860px" contentClassName="sf-modal-content--client-form">
+        <form className="sf-client-form" onSubmit={saveClient}>
+          <div className="sf-client-form__scroll">
           <Field label="Nome">
             <input
               ref={nameInputRef}
@@ -2381,6 +2382,7 @@ export default function Clientes() {
           )}
 
           {operationError && <div className="sf-client-operation-error" role="alert">{operationError}</div>}
+          </div>
 
           <div className="sf-client-modal-footer">
             {formData.id ? (

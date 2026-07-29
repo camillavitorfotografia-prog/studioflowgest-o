@@ -1,10 +1,64 @@
 import { Upload } from 'tus-js-client';
 import { isSupabaseConfigured, supabase } from '../../../utils/supabase';
+import { clearTransientStorage, writeStorage } from '../../../utils/storage';
 import { capitalizeName } from '../../../utils/masks';
 
 const GALLERIES_TABLE = 'galleries';
 const PHOTOS_TABLE = 'gallery_photos';
 const BUCKET = 'gallery-files';
+
+const galleryTokenKey = (galleryId) => `studioflow.gallery.token.${galleryId}`;
+
+const rememberGalleryToken = (galleryId, token) => {
+  if (!galleryId || !token || typeof window === 'undefined') return false;
+
+  const key = galleryTokenKey(galleryId);
+  if (writeStorage(key, token)) return true;
+
+  // Fallback temporário: mantém o link utilizável na aba atual mesmo quando o
+  // localStorage está cheio. O token também é devolvido ao chamador e a URL
+  // pública fica registrada nas configurações da galeria no Supabase.
+  try {
+    sessionStorage.setItem(key, token);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const readRememberedGalleryToken = (galleryId) => {
+  if (!galleryId || typeof window === 'undefined') return '';
+
+  const key = galleryTokenKey(galleryId);
+  const raw = localStorage.getItem(key) || sessionStorage.getItem(key) || '';
+  if (!raw) return '';
+
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'string' ? parsed : '';
+  } catch {
+    // Compatibilidade com versões anteriores que gravavam o token sem JSON.
+    return raw;
+  }
+};
+
+const normalizeUploadError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+
+  if (error?.name === 'QuotaExceededError' || message.includes('quota')) {
+    return new Error('O navegador ficou sem espaço para retomar o envio. Os dados principais foram preservados; tente o upload novamente.');
+  }
+
+  if (message.includes('401') || message.includes('unauthorized') || message.includes('jwt')) {
+    return new Error('Sua sessão expirou durante o envio. Entre novamente e tente outra vez.');
+  }
+
+  if (message.includes('network') || message.includes('failed to fetch')) {
+    return new Error('A conexão foi interrompida durante o envio. Verifique a internet e tente novamente.');
+  }
+
+  return error instanceof Error ? error : new Error('Não foi possível concluir o envio do arquivo.');
+};
 
 const buildGalleryPublicUrl = (token) => {
   if (!token) return '';
@@ -106,10 +160,13 @@ export async function createGallery(input) {
     expires_at: input.expiresAt || null,
     watermark_settings: input.watermarkSettings || {},
     legal_notice: input.legalNotice,
-    settings: input.settings || {},
+    settings: {
+      ...(input.settings || {}),
+      publicUrl: buildGalleryPublicUrl(token),
+    },
   }).select('*').single();
   if (error) throw error;
-  localStorage.setItem(`studioflow.gallery.token.${data.id}`, token);
+  rememberGalleryToken(data.id, token);
   return { ...normalizeGallery(data), token };
 }
 
@@ -132,7 +189,7 @@ export async function updateGallery(galleryId, changes) {
   return normalizeGallery(data);
 }
 
-export const getStoredGalleryToken = (galleryId) => localStorage.getItem(`studioflow.gallery.token.${galleryId}`) || '';
+export const getStoredGalleryToken = (galleryId) => readRememberedGalleryToken(galleryId);
 
 const loadImage = (file) => new Promise((resolve, reject) => {
   const url = URL.createObjectURL(file);
@@ -217,6 +274,8 @@ async function uploadResumable({
     throw new Error('Supabase não configurado para upload.');
   }
 
+  clearTransientStorage();
+
   await new Promise((resolve, reject) => {
     const upload = new Upload(file, {
       endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,
@@ -228,6 +287,7 @@ async function uploadResumable({
       },
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
+      storeFingerprintForResuming: false,
       chunkSize: 6 * 1024 * 1024,
       metadata: {
         bucketName: BUCKET,
@@ -235,7 +295,7 @@ async function uploadResumable({
         contentType: contentType || 'application/octet-stream',
         cacheControl: '3600',
       },
-      onError: reject,
+      onError: (error) => reject(normalizeUploadError(error)),
       onProgress: (bytesUploaded, bytesTotal) => {
         const percentage = bytesTotal > 0
           ? Math.round((bytesUploaded / bytesTotal) * 100)
@@ -245,14 +305,7 @@ async function uploadResumable({
       onSuccess: resolve,
     });
 
-    upload.findPreviousUploads()
-      .then((previousUploads) => {
-        if (previousUploads.length) {
-          upload.resumeFromPreviousUpload(previousUploads[0]);
-        }
-        upload.start();
-      })
-      .catch(reject);
+    upload.start();
   });
 }
 
@@ -582,7 +635,7 @@ export async function renewGalleryAccess(galleryId) {
     .select('*')
     .single();
   if (error) throw error;
-  localStorage.setItem(`studioflow.gallery.token.${galleryId}`, token);
+  rememberGalleryToken(galleryId, token);
   return { gallery: normalizeGallery(data), token };
 }
 
@@ -782,7 +835,8 @@ export async function deleteGalleryPermanently(galleryId) {
   await supabase.from(GALLERIES_TABLE).update({ cover_photo_id: null }).eq('id', galleryId);
   const { error } = await supabase.from(GALLERIES_TABLE).delete().eq('id', galleryId);
   if (error) throw error;
-  localStorage.removeItem(`studioflow.gallery.token.${galleryId}`);
+  try { localStorage.removeItem(galleryTokenKey(galleryId)); } catch { /* noop */ }
+  try { sessionStorage.removeItem(galleryTokenKey(galleryId)); } catch { /* noop */ }
   return true;
 }
 

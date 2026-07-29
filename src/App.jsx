@@ -9,6 +9,8 @@ import MainLayout from './layouts/MainLayout';
 import './styles/systemStates.css';
 import './styles/responsiveSystem.css';
 import './styles/compactSystem.css';
+import './styles/themeSystem.css';
+import './styles/responsiveAuditFixes.css';
 import { applyStoredTheme, applyTheme, isSettingsStorageEvent, THEME_EVENT } from './utils/theme';
 
 const Dashboard=lazy(()=>import('./pages/Dashboard'));const Clientes=lazy(()=>import('./pages/Clientes'));const CRM=lazy(()=>import('./pages/CRM'));const Trabalhos=lazy(()=>import('./pages/Trabalhos'));const Agenda=lazy(()=>import('./pages/Agenda'));const Financeiro=lazy(()=>import('./pages/Financeiro'));const Perfil=lazy(()=>import('./pages/Perfil'));const Equipamentos=lazy(()=>import('./pages/Equipamentos'));const Relatorios=lazy(()=>import('./pages/Relatorios'));const Precificacao=lazy(()=>import('./pages/Precificacao'));const Login=lazy(()=>import('./pages/Login'));const Configuracoes=lazy(()=>import('./pages/Configuracoes'));const Documentos=lazy(()=>import('./pages/Documentos'));const ModelosContratos=lazy(()=>import('./pages/Configuracoes/ModelosContratos'));const ContractTemplateEditor=lazy(()=>import('./features/documents/editor/ContractTemplateEditor'));const AreaCliente=lazy(()=>import('./pages/AreaCliente'));const PortalCliente=lazy(()=>import('./pages/PortalCliente'));const BibliotecaArquivos=lazy(()=>import('./pages/BibliotecaArquivos'));const Galerias=lazy(()=>import('./pages/Galerias'));const GaleriaPublica=lazy(()=>import('./pages/GaleriaPublica'));const GaleriaPreview=lazy(()=>import('./pages/GaleriaPreview'));const MigracaoDados=lazy(()=>import('./pages/MigracaoDados'));const GoogleOAuthCallback=lazy(()=>import('./pages/GoogleOAuthCallback'));

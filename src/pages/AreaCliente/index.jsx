@@ -19,7 +19,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { getDbStudioData } from '../../utils/dbData';
+import { getDbClientProjectDirectory } from '../../utils/dbData';
 import { capitalizeName } from '../../utils/masks';
 import {
   createClientPortal,
@@ -65,7 +65,7 @@ export default function AreaCliente() {
     setError('');
     try {
       const [studioData, portalRows] = await Promise.all([
-        getDbStudioData(),
+        getDbClientProjectDirectory(),
         listClientPortals(),
       ]);
       setClients(studioData.clients || []);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownCircle,
@@ -570,8 +570,36 @@ const isSettledFinancialRow = (item) => {
     || ['pago', 'paga', 'recebido', 'recebida', 'confirmado', 'confirmada', 'quitado', 'quitada'].includes(status);
 };
 
+const readInitialFinanceDataState = () => ({
+  transacoes: readStorage(STORAGE_KEYS.finances, []),
+  equipamentos: readStorage(STORAGE_KEYS.equipment, []),
+  contracts: readStorage(STORAGE_KEYS.contracts, []),
+  clients: readStorage(STORAGE_KEYS.clients, []),
+  projects: readStorage(STORAGE_KEYS.projects, []),
+  canonicalRows: [],
+});
+
+const hasFinanceSnapshot = (state = {}) => [
+  state.transacoes,
+  state.equipamentos,
+  state.contracts,
+  state.clients,
+  state.projects,
+].some((items) => Array.isArray(items) && items.length > 0);
+
 function useFinanceData() {
-  const [loading, setLoading] = useState(true);
+  const initialDataRef = useRef(null);
+  if (!initialDataRef.current) {
+    initialDataRef.current = readInitialFinanceDataState();
+  }
+
+  const [loading, setLoading] = useState(
+    () => !hasFinanceSnapshot(initialDataRef.current),
+  );
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
+  const requestRef = useRef(null);
+  const mountedRef = useRef(true);
   const [financasConfig, setFinancasConfig] = useState(() => {
     const stored = readStorage(FINANCE_STORAGE_KEYS.config, null);
     return stored && typeof stored === 'object' && !Array.isArray(stored)
@@ -579,136 +607,193 @@ function useFinanceData() {
       : { salario: 35, empresa: 45, reserva: 20 };
   });
   
-  const [dataState, setDataState] = useState({
-    transacoes: [],
-    equipamentos: [],
-    contracts: [],
-    clients: [],
-    projects: [],
-    canonicalRows: [],
-  });
+  const [dataState, setDataState] = useState(initialDataRef.current);
 
-  const loadAll = async () => {
-    setLoading(true);
-    const config = await loadDistributionConfig();
-    setFinancasConfig(config);
+  const loadAll = useCallback(async () => {
+    if (requestRef.current) return requestRef.current;
 
-    const localTransactions = readStorage(STORAGE_KEYS.finances, []);
-    const rawRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
-    const localProjects = readStorage(STORAGE_KEYS.projects, []);
-    const localClients = readStorage(STORAGE_KEYS.clients, []);
-    const contracts = readStorage(STORAGE_KEYS.contracts, []);
-    const localEquipment = readStorage(STORAGE_KEYS.equipment, []);
+    const shouldBlock = !hasLoadedRef.current
+      && !hasFinanceSnapshot(initialDataRef.current);
 
-    let remoteStudio = null;
-    let canonicalRows = [];
-    if (isSupabaseConfigured) {
-      try {
-        const [studioResult, ledgerResult] = await Promise.all([
-          getDbStudioData(),
-          supabase.from('finance_ledger_canonical').select('*'),
-        ]);
-        remoteStudio = studioResult;
-        if (ledgerResult.error) throw ledgerResult.error;
-        canonicalRows = Array.isArray(ledgerResult.data) ? ledgerResult.data : [];
-      } catch (error) {
-        console.warn('Financeiro: não foi possível atualizar os dados canônicos do Supabase; usando lançamentos brutos.', error);
-        try { remoteStudio = remoteStudio || await getDbStudioData(); } catch { /* mantém espelhos locais */ }
-      }
-    }
+    if (shouldBlock) setLoading(true);
+    else setRefreshing(true);
 
-    const rawTransactions = remoteStudio?.transactions?.length
-      ? remoteStudio.transactions
-      : localTransactions;
-    const projects = remoteStudio?.projects?.length
-      ? remoteStudio.projects
-      : localProjects;
-    const clients = remoteStudio?.clients?.length
-      ? remoteStudio.clients
-      : localClients;
-    const equipment = remoteStudio?.equipment?.length
-      ? remoteStudio.equipment
-      : localEquipment;
+    const request = (async () => {
+      const configPromise = loadDistributionConfig().catch((error) => {
+        console.warn(
+          'Financeiro: não foi possível atualizar a distribuição; mantendo a configuração local.',
+          error,
+        );
+        return normalizeDistributionConfig(
+          readStorage(FINANCE_STORAGE_KEYS.config, {
+            salario: 35,
+            empresa: 45,
+            reserva: 20,
+          }),
+        );
+      });
 
-    // Consolida configurações recorrentes antes de gerar competências.
-    // Apenas a configuração ativa mais recente de cada despesa pode gerar meses futuros.
-    const recurrenceState = consolidateRecurringConfigurations(rawRecurrences);
-    const filteredTransactions = rawTransactions.filter((transaction) => {
-      const recurrenceId = String(
-        transaction?.recorrenciaId
-        || transaction?.recurrenceId
-        || transaction?.recurrence_id
-        || '',
-      ).trim();
+      const localTransactions = readStorage(STORAGE_KEYS.finances, []);
+      const rawRecurrences = readStorage(STORAGE_KEYS.recurrences, []);
+      const localProjects = readStorage(STORAGE_KEYS.projects, []);
+      const localClients = readStorage(STORAGE_KEYS.clients, []);
+      const contracts = readStorage(STORAGE_KEYS.contracts, []);
+      const localEquipment = readStorage(STORAGE_KEYS.equipment, []);
 
-      if (!recurrenceId || isSettledFinancialRow(transaction)) return true;
+      const remotePromise = (async () => {
+        let remoteStudio = null;
+        let canonicalRows = [];
 
-      const isRecurringExpense = Boolean(transaction?.recorrente)
-        || String(transaction?.tipo || '').toLowerCase() === 'fixa';
+        if (isSupabaseConfigured) {
+          try {
+            const [studioResult, ledgerResult] = await Promise.all([
+              getDbStudioData(),
+              supabase.from('finance_ledger_canonical').select('*'),
+            ]);
+            remoteStudio = studioResult;
+            if (ledgerResult.error) throw ledgerResult.error;
+            canonicalRows = Array.isArray(ledgerResult.data)
+              ? ledgerResult.data
+              : [];
+          } catch (error) {
+            console.warn(
+              'Financeiro: não foi possível atualizar os dados canônicos do Supabase; usando lançamentos brutos.',
+              error,
+            );
+            try {
+              remoteStudio = remoteStudio || await getDbStudioData();
+            } catch {
+              // Mantém os espelhos locais já apresentados na tela.
+            }
+          }
+        }
 
-      if (!isRecurringExpense) return true;
-      return recurrenceState.activeIds.has(recurrenceId);
-    });
+        return { remoteStudio, canonicalRows };
+      })();
 
-    const newRecurrents = generateRecurrentExpenses(
-      recurrenceState.active,
-      filteredTransactions,
-      new Date(),
-    );
-    let currentTransactions = filteredTransactions;
-    if (newRecurrents.length > 0) {
-      currentTransactions = [...rawTransactions, ...newRecurrents];
-      writeStorage(STORAGE_KEYS.finances, currentTransactions);
-      
-      if (isSupabaseConfigured) {
-        try {
-          const toDbPayload = (expense) => ({
-            id: String(expense.id),
-            project_id: expense.trabalhoId || null,
-            descricao: expense.descricao,
-            nome: expense.descricao,
-            categoria: expense.categoria,
-            valor: expense.valor,
-            data: expense.vencimento,
-            data_vencimento: expense.vencimento,
-            tipo: expense.tipo,
-            tipo_geral: expense.tipoGeral,
-            status: expense.status,
-            forma_pagamento: expense.formaPagamento,
-            conta_origem: expense.contaOrigem,
-            fornecedor: expense.fornecedor,
-            observacoes: expense.observacoes,
-            recurrence_id: expense.recorrenciaId || null,
-            recorrente: true,
-            updated_at: new Date().toISOString(),
-          });
-          void supabase.from('financas').upsert(newRecurrents.map(toDbPayload));
-        } catch (e) {
-          console.error(e);
+      const [config, remoteResult] = await Promise.all([
+        configPromise,
+        remotePromise,
+      ]);
+
+      if (!mountedRef.current) return;
+      setFinancasConfig(config);
+
+      const { remoteStudio, canonicalRows } = remoteResult;
+
+      const rawTransactions = remoteStudio?.transactions?.length
+        ? remoteStudio.transactions
+        : localTransactions;
+      const projects = remoteStudio?.projects?.length
+        ? remoteStudio.projects
+        : localProjects;
+      const clients = remoteStudio?.clients?.length
+        ? remoteStudio.clients
+        : localClients;
+      const equipment = remoteStudio?.equipment?.length
+        ? remoteStudio.equipment
+        : localEquipment;
+
+      // Consolida configurações recorrentes antes de gerar competências.
+      // Apenas a configuração ativa mais recente de cada despesa pode gerar meses futuros.
+      const recurrenceState = consolidateRecurringConfigurations(rawRecurrences);
+      const filteredTransactions = rawTransactions.filter((transaction) => {
+        const recurrenceId = String(
+          transaction?.recorrenciaId
+          || transaction?.recurrenceId
+          || transaction?.recurrence_id
+          || '',
+        ).trim();
+
+        if (!recurrenceId || isSettledFinancialRow(transaction)) return true;
+
+        const isRecurringExpense = Boolean(transaction?.recorrente)
+          || String(transaction?.tipo || '').toLowerCase() === 'fixa';
+
+        if (!isRecurringExpense) return true;
+        return recurrenceState.activeIds.has(recurrenceId);
+      });
+
+      const newRecurrents = generateRecurrentExpenses(
+        recurrenceState.active,
+        filteredTransactions,
+        new Date(),
+      );
+      let currentTransactions = filteredTransactions;
+      if (newRecurrents.length > 0) {
+        currentTransactions = [...filteredTransactions, ...newRecurrents];
+        writeStorage(STORAGE_KEYS.finances, currentTransactions, {
+          emit: false,
+        });
+
+        if (isSupabaseConfigured) {
+          try {
+            const toDbPayload = (expense) => ({
+              id: String(expense.id),
+              project_id: expense.trabalhoId || null,
+              descricao: expense.descricao,
+              nome: expense.descricao,
+              categoria: expense.categoria,
+              valor: expense.valor,
+              data: expense.vencimento,
+              data_vencimento: expense.vencimento,
+              tipo: expense.tipo,
+              tipo_geral: expense.tipoGeral,
+              status: expense.status,
+              forma_pagamento: expense.formaPagamento,
+              conta_origem: expense.contaOrigem,
+              fornecedor: expense.fornecedor,
+              observacoes: expense.observacoes,
+              recurrence_id: expense.recorrenciaId || null,
+              recorrente: true,
+              updated_at: new Date().toISOString(),
+            });
+            void supabase.from('financas').upsert(newRecurrents.map(toDbPayload));
+          } catch (error) {
+            console.error(error);
+          }
         }
       }
-    }
 
-    setDataState({
-      transacoes: currentTransactions,
-      equipamentos: equipment,
-      contracts,
-      clients,
-      projects,
-      canonicalRows,
-    });
-    setLoading(false);
-  };
+      const nextState = {
+        transacoes: currentTransactions,
+        equipamentos: equipment,
+        contracts,
+        clients,
+        projects,
+        canonicalRows,
+      };
+
+      initialDataRef.current = nextState;
+      setDataState(nextState);
+      hasLoadedRef.current = true;
+    })()
+      .catch((error) => {
+        console.error('Financeiro: falha ao carregar os dados.', error);
+      })
+      .finally(() => {
+        requestRef.current = null;
+        if (!mountedRef.current) return;
+        hasLoadedRef.current = true;
+        setLoading(false);
+        setRefreshing(false);
+      });
+
+    requestRef.current = request;
+    return request;
+  }, []);
 
   useEffect(() => {
-    loadAll();
-    window.addEventListener('focus', loadAll);
-    const unsubscribe = subscribeDbUpdates(loadAll);
+    mountedRef.current = true;
+    void loadAll();
+    const unsubscribe = subscribeDbUpdates(() => {
+      void loadAll();
+    });
     return () => {
-      window.removeEventListener('focus', loadAll);
+      mountedRef.current = false;
       unsubscribe();
     };
-  }, []);
+  }, [loadAll]);
 
   const computed = useMemo(() => {
     const { transacoes, equipamentos, contracts, clients, projects, canonicalRows } = dataState;
@@ -731,8 +816,6 @@ function useFinanceData() {
     });
 
     const saldos = accounting.accounts;
-
-    localStorage.setItem(FINANCE_STORAGE_KEYS.balances, JSON.stringify(saldos));
 
     const despesasFixas = accounting.paidFixedMonth;
     const despesasVariaveis = accounting.paidVariableMonth;
@@ -806,8 +889,17 @@ function useFinanceData() {
       clients,
       loadAll,
       loading,
+      refreshing,
     };
-  }, [dataState, financasConfig]);
+  }, [dataState, financasConfig, loadAll, loading, refreshing]);
+
+  useEffect(() => {
+    // Os saldos são um resumo derivado. Persisti-los não representa uma ação
+    // do usuário e, portanto, não deve disparar uma nova sincronização global.
+    writeStorage(FINANCE_STORAGE_KEYS.balances, computed.saldos, {
+      emit: false,
+    });
+  }, [computed.saldos]);
 
   return computed;
 }
@@ -910,11 +1002,9 @@ export default function Financeiro() {
       [id]: true,
     };
 
-    setAlertsRead(next);
-    localStorage.setItem(
-      FINANCE_ALERTS_READ_STORAGE_KEY,
-      JSON.stringify(next),
-    );
+    if (writeStorage(FINANCE_ALERTS_READ_STORAGE_KEY, next)) {
+      setAlertsRead(next);
+    }
   };
 
   const markAllFinanceAlertsRead = () => {
@@ -924,16 +1014,21 @@ export default function Financeiro() {
       next[item.id] = true;
     });
 
-    setAlertsRead(next);
-    localStorage.setItem(
-      FINANCE_ALERTS_READ_STORAGE_KEY,
-      JSON.stringify(next),
-    );
+    if (writeStorage(FINANCE_ALERTS_READ_STORAGE_KEY, next)) {
+      setAlertsRead(next);
+    }
   };
 
   return (
     <div className="sf-finance-page">
       <div className="sf-finance-toolbar">
+        {financeData.refreshing && (
+          <span className="sf-finance-refreshing" role="status">
+            <TimerReset size={14} />
+            Atualizando
+          </span>
+        )}
+
         <label className="sf-finance-mobile-nav">
           <span>Módulo financeiro</span>
           <select
@@ -1678,8 +1773,8 @@ function FinanceDashboard({ data }) {
               <Tooltip
                 formatter={(value) => formatCurrency(value)}
                 contentStyle={{
-                  background: '#111',
-                  border: '1px solid #333',
+                  background: 'var(--surface-card)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: 8,
                 }}
               />
@@ -1752,8 +1847,8 @@ function FinanceDashboard({ data }) {
               <Tooltip
                 formatter={(value) => `${Number(value).toFixed(1)}%`}
                 contentStyle={{
-                  background: '#111',
-                  border: '1px solid #333',
+                  background: 'var(--surface-card)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: 8,
                 }}
               />
@@ -1959,7 +2054,7 @@ function FinanceDashboard({ data }) {
                   borderRadius: '8px',
                   border: '1px solid var(--border-color)',
                   background: 'var(--bg-main)',
-                  color: '#fff',
+                  color: 'var(--text-main)',
                 }}
               />
             </label>
@@ -2012,7 +2107,21 @@ function ExecutiveMetric({
   value,
   tone = 'neutral',
   detail = '',
+  format = 'currency',
+  unavailableLabel = 'Indisponível',
 }) {
+  const numericValue = Number(value);
+  const hasValue = value !== null
+    && value !== undefined
+    && Number.isFinite(numericValue);
+  const displayValue = !hasValue
+    ? unavailableLabel
+    : format === 'percent'
+      ? `${numericValue.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+      : format === 'number'
+        ? numericValue.toLocaleString('pt-BR')
+        : formatCurrency(numericValue);
+
   return (
     <div className={`sf-card metric ${tone}`}>
       <div className="metric-label">
@@ -2020,7 +2129,7 @@ function ExecutiveMetric({
         {label}
       </div>
 
-      <strong>{formatCurrency(value)}</strong>
+      <strong>{displayValue}</strong>
 
       {detail && (
         <span
@@ -3556,8 +3665,8 @@ function FluxoCaixa({ data }) {
             <Tooltip
               formatter={(value) => formatCurrency(value)}
               contentStyle={{
-                background: '#111',
-                border: '1px solid #333',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: 8,
               }}
             />
@@ -3654,8 +3763,8 @@ function FluxoCaixa({ data }) {
             <Tooltip
               formatter={(value) => formatCurrency(value)}
               contentStyle={{
-                background: '#111',
-                border: '1px solid #333',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: 8,
               }}
             />
@@ -4714,16 +4823,17 @@ function ControleFinanceiro({ data }) {
       data.despesasFixas + data.depreciacaoMensal,
     );
 
-    const contributionMargin = data.receitaBruta > 0
-      ? Math.max(
-        0.01,
-        (
-          data.receitaBruta - data.despesasVariaveis
-        ) / data.receitaBruta,
-      )
-      : 0.5;
+    const rawContributionMargin = data.receitaBruta > 0
+      ? (data.receitaBruta - data.despesasVariaveis) / data.receitaBruta
+      : null;
+    const contributionMargin = Number.isFinite(rawContributionMargin)
+      && rawContributionMargin > 0
+      ? rawContributionMargin
+      : null;
 
-    const value = fixedCost / contributionMargin;
+    const value = contributionMargin !== null
+      ? fixedCost / contributionMargin
+      : null;
     const averageTicket = (
       data.consolidated.todasReceitas.length > 0
         ? data.consolidated.todasReceitas.reduce(
@@ -4737,9 +4847,9 @@ function ControleFinanceiro({ data }) {
       fixedCost,
       contributionMargin,
       value,
-      contracts: averageTicket > 0
+      contracts: value !== null && averageTicket > 0
         ? Math.ceil(value / averageTicket)
-        : 0,
+        : null,
       averageTicket,
     };
   }, [
@@ -4870,7 +4980,9 @@ function ControleFinanceiro({ data }) {
           label="Ponto de equilíbrio"
           value={breakEven.value}
           tone="warning"
-          detail={`${breakEven.contracts} venda(s) no ticket médio`}
+          detail={breakEven.value === null
+            ? 'Ainda não há receita e margem válidas para este cálculo.'
+            : `${breakEven.contracts} venda(s) no ticket médio`}
         />
 
         <ExecutiveMetric
@@ -4882,14 +4994,20 @@ function ControleFinanceiro({ data }) {
         <ExecutiveMetric
           icon={Gauge}
           label="Margem de contribuição"
-          value={breakEven.contributionMargin * 100}
-          detail={`${(breakEven.contributionMargin * 100).toFixed(1)}%`}
+          value={breakEven.contributionMargin === null
+            ? null
+            : breakEven.contributionMargin * 100}
+          format="percent"
+          detail={breakEven.contributionMargin === null
+            ? 'A margem depende de receita e custos variáveis válidos.'
+            : 'Receita disponível após os custos variáveis.'}
         />
 
         <ExecutiveMetric
           icon={CheckCircle2}
           label="Itens conciliados"
           value={reconciledCount}
+          format="number"
           detail={`${reconciliationRows.length} movimentação(ões)`}
         />
       </div>
@@ -5029,7 +5147,7 @@ function ControleFinanceiro({ data }) {
               checked={Boolean(reconciliation[row.id])}
               onChange={() => toggleReconciliation(row.id)}
             />,
-            row.date,
+            formatDateBR(row.date) || '-',
             row.type,
             row.description,
             <strong

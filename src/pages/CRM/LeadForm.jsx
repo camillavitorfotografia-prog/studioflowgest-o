@@ -134,6 +134,7 @@ export default function LeadForm({
   }));
   const [isSaving, setIsSaving] = useState(false);
   const [allowDuplicateSave, setAllowDuplicateSave] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const duplicateMatches = useMemo(() => {
     const currentId = initialData?.id;
@@ -235,6 +236,7 @@ export default function LeadForm({
 
   const updateField = (field, value) => {
     setAllowDuplicateSave(false);
+    setSaveError('');
     setFormData((current) => ({ ...current, [field]: value }));
   };
 
@@ -242,15 +244,15 @@ export default function LeadForm({
     width: '100%',
     padding: '12px',
     borderRadius: '8px',
-    border: '1px solid #333',
-    background: '#111',
-    color: '#fff',
+    border: '1px solid var(--border-color)',
+    background: 'var(--surface-card-strong)',
+    color: 'var(--text-main)',
     boxSizing: 'border-box',
     minWidth: 0,
   };
 
   const labelStyle = {
-    color: '#888',
+    color: 'var(--text-muted)',
     fontSize: '0.78rem',
     marginBottom: '6px',
     display: 'block',
@@ -283,20 +285,28 @@ export default function LeadForm({
         }
 
         setIsSaving(true);
+        setSaveError('');
         try {
           await onSave({
             ...formData,
+            __allowDuplicateSave: allowDuplicateSave,
             probabilidadeFechamento: Math.max(
               0,
               Math.min(100, Number(formData.probabilidadeFechamento || 0)),
             ),
           });
+        } catch (error) {
+          setSaveError(
+            error?.message
+            || 'Não foi possível salvar o lead. Confira os dados e tente novamente.',
+          );
         } finally {
           setIsSaving(false);
         }
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+      className="crm-lead-form"
     >
+      <div className="crm-lead-form__fields">
       {field(
         'Nome completo',
         <input
@@ -384,11 +394,11 @@ export default function LeadForm({
 
       <div
         style={{
-          background: '#0d0d0d',
-          border: '1px solid #242424',
+          background: 'var(--surface-card)',
+          border: '1px solid var(--border-color)',
           borderRadius: '10px',
           padding: '11px 12px',
-          color: '#999',
+          color: 'var(--text-muted)',
           fontSize: '0.76rem',
           lineHeight: 1.5,
         }}
@@ -454,8 +464,8 @@ export default function LeadForm({
       <div
         style={{
           ...gridStyle,
-          background: '#0d0d0d',
-          border: '1px solid #242424',
+          background: 'var(--surface-card)',
+          border: '1px solid var(--border-color)',
           borderRadius: '12px',
           padding: '14px',
         }}
@@ -514,7 +524,7 @@ export default function LeadForm({
                 justifyContent: 'space-between',
                 gap: '10px',
                 marginTop: '6px',
-                color: '#777',
+                color: 'var(--text-subtle)',
                 fontSize: '0.75rem',
               }}
             >
@@ -614,7 +624,7 @@ export default function LeadForm({
       {duplicateMatches.length > 0 && (
         <div
           style={{
-            background: '#1b1308',
+            background: 'var(--tone-gold-bg)',
             border: '1px solid #5a3d16',
             borderRadius: '10px',
             padding: '12px',
@@ -654,7 +664,7 @@ export default function LeadForm({
               <div
                 key={lead.id}
                 style={{
-                  background: '#111',
+                  background: 'var(--surface-card-strong)',
                   border: '1px solid #332a1d',
                   borderRadius: '8px',
                   padding: '9px',
@@ -662,7 +672,7 @@ export default function LeadForm({
               >
                 <div
                   style={{
-                    color: '#ddd',
+                    color: 'var(--text-main)',
                     fontSize: '0.76rem',
                     fontWeight: 800,
                   }}
@@ -698,8 +708,21 @@ export default function LeadForm({
         </div>
       )}
 
+      {saveError && (
+        <div
+          className="crm-lead-form__error"
+          role="alert"
+        >
+          {saveError}
+        </div>
+      )}
+
+      </div>
+
+      <div className="crm-lead-form__actions">
       <button
         type="submit"
+        className="crm-lead-form__submit"
         disabled={isSaving}
         style={{
           width: '100%',
@@ -718,6 +741,7 @@ export default function LeadForm({
             ? 'Salvar mesmo assim'
             : 'Salvar Lead'}
       </button>
+      </div>
     </form>
   );
 }

@@ -460,7 +460,32 @@ const defaultCapacity = {
   filmagensAvulsas: 3,
 };
 
-const buildWorkState = (overrides = {}) => deepMerge(defaultState, overrides);
+const toFiniteNumber = (value, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
+const normalizeCoverageHours = (value) => {
+  if (String(value || '').toLowerCase().includes('personalizado')) {
+    return 'Personalizado';
+  }
+
+  const match = String(value ?? '').replace(',', '.').match(/\d+(?:\.\d+)?/);
+  const hours = match ? Number(match[0]) : 8;
+  return Number.isFinite(hours) && hours > 0 ? String(hours) : '8';
+};
+
+const normalizePricingState = (value = {}) => {
+  const merged = deepMerge(defaultState, value);
+
+  return {
+    ...merged,
+    horasCobertura: normalizeCoverageHours(merged.horasCobertura),
+    horasPersonalizadas: Math.max(1, toFiniteNumber(merged.horasPersonalizadas, 8)),
+  };
+};
+
+const buildWorkState = (overrides = {}) => normalizePricingState(overrides);
 
 
 function getEssayDurationHours(state, config) {
@@ -471,7 +496,7 @@ function getEssayDurationHours(state, config) {
 function getServiceWeight(state, config = defaultConfig) {
   const serviceFactor = state.service === 'Fotografia + Filmagem' ? 1.35 : state.service === 'Filmagem' ? 1.18 : 1;
   if (state.categoria === 'Casamento') {
-    const hours = Number(state.horasCobertura === 'Personalizado' ? state.horasPersonalizadas : state.horasCobertura || 8);
+    const hours = Math.max(1, toFiniteNumber(state.horasCobertura === 'Personalizado' ? state.horasPersonalizadas : state.horasCobertura, 8));
     const coverageFactor = state.cobertura === 'Casamento Completo' ? 1.2 : state.cobertura === 'Cerimonia + Festa' ? 1 : 0.72;
     return Math.max(1.6, (hours / 3) * coverageFactor * serviceFactor);
   }
@@ -539,10 +564,11 @@ function includesPhotoService(service) {
 }
 
 function calculateWeddingHours(state) {
-  const coverageHours = Math.max(1, Number(
+  const coverageHours = Math.max(1, toFiniteNumber(
     state.horasCobertura === 'Personalizado'
       ? state.horasPersonalizadas
-      : state.horasCobertura || 8,
+      : state.horasCobertura,
+    8,
   ));
   const includesPhoto = includesPhotoService(state.service);
   const includesVideo = isVideoService(state.service);
@@ -658,7 +684,11 @@ function getCategoryCostPolicy(state, pricingConfig, rawOverheadShare, rawEquipm
 function calculatePricingResult({ data, pricingConfig, state }) {
   const snapshot = buildFinanceSnapshot(data);
   const category = state.categoria || 'Outro';
-  const totalHours = calculateServiceHours(state, pricingConfig);
+  const calculatedHours = calculateServiceHours(state, pricingConfig);
+  const totalHours = Number.isFinite(calculatedHours) && calculatedHours > 0
+    ? calculatedHours
+    : 0;
+  const calculationValid = totalHours > 0;
   const simple = pricingConfig.calculoSimples || defaultConfig.calculoSimples;
   const taxRate = clamp(Number(pricingConfig.impostoPercentual || 0) / 100, 0, 0.4);
   const minimumMarginRate = clamp(Number(pricingConfig.margemMinima || 0) / 100, 0, 0.45);
@@ -733,7 +763,13 @@ function calculatePricingResult({ data, pricingConfig, state }) {
   const monthlyBusinessNeed = snapshot.fixedMonthly + snapshot.variableAverage + snapshot.equipmentDepreciation + moneyToNumber(pricingConfig.proLaboreMensal) + moneyToNumber(pricingConfig.reservaMensal) + moneyToNumber(pricingConfig.investimentoMensal);
 
   return {
-    fixedPerProject: overheadShare,
+    isValid: calculationValid && [
+      operationalCost, minimumPrice, technicalPrice, recommendedPrice, netProfit, margin,
+    ].every(Number.isFinite),
+    validationMessage: calculationValid
+      ? ''
+      : 'Revise as horas e os campos numéricos antes de gerar a proposta.',
+    fixedPerProject: Number.isFinite(overheadShare) ? overheadShare : 0,
     variablePerProject: directCosts,
     equipmentCost,
     totalHours,
@@ -865,7 +901,7 @@ export default function Precificacao() {
   const location = useLocation();
   const navigate = useNavigate();
   const leadContext = location.state?.lead;
-  const [state, setState] = useState(() => deepMerge(defaultState, compactByShape(defaultState, readLocalJson(FINANCE_STORAGE_KEYS.pricing, null))));
+  const [state, setState] = useState(() => normalizePricingState(compactByShape(defaultState, readLocalJson(FINANCE_STORAGE_KEYS.pricing, null))));
   const [pricingConfig, setPricingConfig] = useState(() => deepMerge(defaultConfig, compactByShape(defaultConfig, readLocalJson(FINANCE_STORAGE_KEYS.pricingConfig, null))));
   const [data, setData] = useState({ leads: [], clients: [], transactions: [], equipment: [], balances: {}, config: {} });
   const [savedOptions, setSavedOptions] = useState(() => enrichPricingOption ? (readLocalJson('cv_studio_pricing_options', []) || []).map((option, index) => enrichPricingOption(option, index)) : []);
@@ -964,13 +1000,17 @@ export default function Precificacao() {
   const commercialPriceValue = commercialPrice ? moneyToNumber(commercialPrice) : result.recommendedPrice;
   const buildOption = () => enrichPricingOption({ id: `option-${Date.now()}`, name: `Opção ${savedOptions.length + 1}`, state: structuredClone(state), result: { ...result, currentPrice: commercialPriceValue, recommendedPrice: commercialPriceValue }, createdAt: new Date().toISOString() }, savedOptions.length);
   const saveCurrentOption = () => {
+    if (!result.isValid) {
+      window.alert(result.validationMessage || 'Revise os dados antes de salvar esta opção.');
+      return;
+    }
     const next = [...savedOptions, buildOption()];
     setSavedOptions(next);
     persistPricingOptions(next);
     saveAll();
   };
   const buildSuggestedOption = (nextState, index) => enrichPricingOption({
-    id: `option-${Date.now()}-${index + 1}`,
+    id: `suggestion-${String(nextState.categoria || 'servico').toLowerCase()}-${String(nextState.service || nextState.ensaioTipo || 'opcao').toLowerCase().replace(/\s+/g, '-')}-${index + 1}`,
     name: `Opção ${index + 1}`,
     state: structuredClone(nextState),
     result: { ...calculatePricingResult({ data, pricingConfig, state: nextState }) },
@@ -1016,6 +1056,10 @@ export default function Precificacao() {
   };
 
   const generateSuggestedPackages = () => {
+    if (!result.isValid) {
+      window.alert(result.validationMessage || 'Revise os dados antes de gerar sugestões.');
+      return;
+    }
     if (savedOptions.length) {
       const overwrite = window.confirm('Gerar novas sugestões automáticas e substituir as opções salvas atualmente?');
       if (!overwrite) return;
@@ -1029,7 +1073,7 @@ export default function Precificacao() {
   const createAnotherOption = () => {
     saveCurrentOption();
     setState((current) => ({
-      ...deepMerge(defaultState, current),
+      ...normalizePricingState(current),
       extras: [],
       filmDeliveries: { ...defaultFilmDeliveries },
       step: 0,
@@ -1039,7 +1083,7 @@ export default function Precificacao() {
   const loadOption = (option) => {
     if (!option?.state) return;
     setState((current) => ({
-      ...deepMerge(defaultState, option.state),
+      ...normalizePricingState(option.state),
       selectedEquipment: option.state.selectedEquipment?.length ? option.state.selectedEquipment : current.selectedEquipment,
     }));
     setCommercialPrice(maskCurrency(option.proposalPackage?.priceValue || option.result?.recommendedPrice || option.result?.currentPrice || 0));
@@ -1062,7 +1106,7 @@ export default function Precificacao() {
 
   const startNewSimulation = () => {
     setState((current) => ({
-      ...deepMerge(defaultState, null),
+      ...normalizePricingState(),
       selectedEquipment: current.selectedEquipment.length ? current.selectedEquipment : data.equipment.map((item) => item.id),
     }));
     setActiveTab('services');
@@ -1088,7 +1132,7 @@ export default function Precificacao() {
 
   const applyOverviewPreset = (row) => {
     setState((current) => ({
-      ...deepMerge(defaultState, row.state),
+      ...normalizePricingState(row.state),
       selectedEquipment: current.selectedEquipment.length ? current.selectedEquipment : data.equipment.map((item) => item.id),
       step: 1,
     }));
@@ -1111,25 +1155,6 @@ export default function Precificacao() {
       currentPrice: result.recommendedPrice,
     };
 
-  const activeStepContent = state.step === 0
-    ? <WorkStep state={state} setState={setState} />
-    : state.step === 1
-      ? <SpecificStep state={state} setState={setState} config={pricingConfig} />
-      : state.step === 2
-        ? (
-          <CostStep
-            state={state}
-            setState={setState}
-            config={pricingConfig}
-            setConfig={setPricingConfig}
-            toggleExtra={toggleExtra}
-            toggleEquipment={toggleEquipment}
-            equipment={data.equipment}
-            result={result}
-          />
-        )
-        : <ResultStep result={result} insights={insights} costChart={costChart} priceChart={priceChart} savedOptions={savedOptions} onSaveOption={saveCurrentOption} onCreateAnother={createAnotherOption} onContinue={continueToProposal} />;
-
   const packageCount = state.categoria === 'Casamento' ? 4 : 3;
   const packageActionLabel = `Gerar ${packageCount} sugestões`;
   const categoryTabs = [
@@ -1150,7 +1175,16 @@ export default function Precificacao() {
   };
   const liveSuggestedOptions = buildSuggestionStates().map((optionState, index) => buildSuggestedOption(optionState, index));
   const visibleOptions = liveSuggestedOptions;
-  const proposalPreviewOption = visibleOptions[0]?.proposalPackage || buildOption().proposalPackage;
+  const proposalPreviewOption = visibleOptions[0]?.proposalPackage || enrichPricingOption({
+    id: 'proposal-preview',
+    name: 'Pacote selecionado',
+    state,
+    result: {
+      ...result,
+      currentPrice: commercialPriceValue,
+      recommendedPrice: commercialPriceValue,
+    },
+  }, 0).proposalPackage;
   const commercialTaxes = commercialPriceValue * (Number(pricingConfig.impostoPercentual || 0) / 100);
   const marginAmount = commercialPriceValue - result.operationalCost - commercialTaxes;
   const formaturaPerStudent = state.categoria === 'Formatura' ? commercialPriceValue / Math.max(1, Number(state.alunos || 1)) : 0;
@@ -1181,7 +1215,7 @@ export default function Precificacao() {
           {state.categoria === 'Casamento' && <div className="minimal-fields">
             <label><span>Formato</span><select value={state.service} onChange={(e) => setState({ ...state, service: e.target.value })}>{services.map((item) => <option key={item}>{item}</option>)}</select></label>
             <label><span>Cobertura</span><select value={state.cobertura} onChange={(e) => setState({ ...state, cobertura: e.target.value })}>{coverageOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
-            <label><span>Horas</span><select value={state.horasCobertura} onChange={(e) => setState({ ...state, horasCobertura: e.target.value })}>{weddingHours.map((item) => <option key={item}>{item === 'Personalizado' ? item : `${item} horas`}</option>)}</select></label>
+            <label><span>Horas</span><select value={state.horasCobertura} onChange={(e) => setState({ ...state, horasCobertura: e.target.value })}>{weddingHours.map((item) => <option key={item} value={item}>{item === 'Personalizado' ? item : `${item} horas`}</option>)}</select></label>
             <label><span>Equipe</span><div className="minimal-readonly">Camilla + Júnior {state.service === 'Fotografia + Filmagem' ? '+ apoio' : ''}</div></label>
             <div className="minimal-extra-row"><span>Extras</span><div>{['preWedding','makingOf','segundoFotografo','segundoFilmmaker','drone'].map((key) => <button type="button" key={key} className={state.extras.includes(key) ? 'active' : ''} onClick={() => toggleExtra(key)}>{extraLabels[key]}</button>)}</div></div>
           </div>}
@@ -1225,6 +1259,7 @@ export default function Precificacao() {
 
         <article className="minimal-panel finance-panel">
           <div className="minimal-panel-title"><Calculator size={20} /><div><h2>Resumo financeiro interno</h2><p>Visível somente para você.</p></div></div>
+          {!result.isValid && <div className="minimal-calculation-error"><AlertTriangle size={17} /><span>{result.validationMessage}</span></div>}
           <div className="minimal-finance-small"><div><span>Custo interno total</span><strong>{formatCurrency(result.operationalCost)}</strong></div><div><span>Preço mínimo sustentável</span><strong>{formatCurrency(result.minimumPrice)}</strong></div></div>
           <details className="minimal-cost-breakdown"><summary>Ver composição do custo</summary><div><span>Mão de obra ({result.totalHours.toFixed(1)}h)</span><strong>{formatCurrency(result.breakdown?.labor || 0)}</strong></div><div><span>Custos diretos</span><strong>{formatCurrency(result.breakdown?.direct || 0)}</strong></div><div><span>Uso de equipamentos</span><strong>{formatCurrency(result.breakdown?.equipment || 0)}</strong></div><div><span>Estrutura do estúdio</span><strong>{formatCurrency(result.breakdown?.structure || 0)}</strong></div></details>
           <label className="minimal-commercial-price"><span>Preço comercial</span><input value={commercialPrice || maskCurrency(result.recommendedPrice)} onChange={(e) => setCommercialPrice(maskCurrency(e.target.value))} /><small>Este é o único valor levado para a proposta.</small></label>
@@ -1438,7 +1473,7 @@ function WeddingFields({ state, setState, config }) {
         </Field>
         <Field label="Horas de cobertura">
           <select style={inputStyle} value={state.horasCobertura} onChange={(event) => setState({ ...state, horasCobertura: event.target.value })}>
-            {weddingHours.map((item) => <option key={item}>{item}</option>)}
+            {weddingHours.map((item) => <option key={item} value={item}>{item === 'Personalizado' ? item : `${item} horas`}</option>)}
           </select>
         </Field>
         {state.horasCobertura === 'Personalizado' && <Field label="Horas manuais"><input type="number" style={inputStyle} value={state.horasPersonalizadas} onChange={(event) => setState({ ...state, horasPersonalizadas: event.target.value })} /></Field>}
@@ -1655,7 +1690,7 @@ function ResultStep({ result, insights, costChart, priceChart, savedOptions, onS
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
               <XAxis dataKey="name" stroke="#A1A1AA" tickLine={false} axisLine={false} />
               <YAxis stroke="#A1A1AA" tickFormatter={(value) => `R$ ${Math.round(value / 1000)}k`} />
-              <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#111', border: '1px solid #333', borderRadius: 8 }} />
+              <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: 'var(--surface-card)', border: '1px solid var(--border-color)', borderRadius: 8 }} />
               <Bar dataKey="valor" fill="#c5a059" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -1667,7 +1702,7 @@ function ResultStep({ result, insights, costChart, priceChart, savedOptions, onS
               <Pie data={costChart} dataKey="value" innerRadius={58} outerRadius={86} paddingAngle={4} stroke="none">
                 {costChart.map((item) => <Cell key={item.name} fill={item.color} />)}
               </Pie>
-              <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: '#111', border: '1px solid #333', borderRadius: 8 }} />
+              <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ background: 'var(--surface-card)', border: '1px solid var(--border-color)', borderRadius: 8 }} />
             </PieChart>
           </ResponsiveContainer>
           {costChart.map((item) => <div className="report-row" key={item.name}><span>{item.name}</span><strong>{formatCurrency(item.value)}</strong></div>)}

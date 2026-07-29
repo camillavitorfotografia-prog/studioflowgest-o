@@ -71,7 +71,7 @@ select:-webkit-autofill:hover,
 select:-webkit-autofill:focus {
   -webkit-text-fill-color: var(--text-main) !important;
   caret-color: var(--text-main);
-  box-shadow: 0 0 0 1000px #111 inset !important;
+  box-shadow: 0 0 0 1000px var(--surface-input, #111) inset !important;
   border-color: var(--border-color) !important;
   transition: background-color 9999s ease-in-out 0s, color 9999s ease-in-out 0s;
 }
@@ -2690,6 +2690,20 @@ tbody tr {
 
 .sf-finance-alert-button { position: relative; }
 .sf-finance-mobile-nav { display: none; }
+.sf-finance-refreshing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sf-finance-refreshing svg {
+  color: var(--color-highlight);
+  animation: spin 1.2s linear infinite;
+}
 
 .sf-finance-chart { width: 100%; min-width: 0; }
 .sf-finance-chart-forecast { height: 260px; }
@@ -2711,6 +2725,12 @@ tbody tr {
     margin: 0;
     align-items: center;
     gap: 7px;
+  }
+
+  .sf-finance-refreshing {
+    grid-column: 1 / -1;
+    margin: 0;
+    min-height: 18px;
   }
 
   .sf-finance-alert-button,

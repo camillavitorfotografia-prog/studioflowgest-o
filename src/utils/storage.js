@@ -292,23 +292,102 @@ export const readStorage = (key, fallback = []) => {
   );
 };
 
-export const writeStorage = (key, value) => {
-  if (typeof window === 'undefined') return;
+const isQuotaExceededError = (error) => (
+  error?.name === 'QuotaExceededError'
+  || error?.code === 22
+  || String(error?.message || '').toLowerCase().includes('quota')
+);
+
+const TRANSIENT_STORAGE_PREFIXES = [
+  'tus::',
+  'tus-',
+  'studioflow.upload.',
+  'studioflow.cache.',
+];
+
+/**
+ * Remove somente metadados transitórios. Dados de clientes, CRM, financeiro,
+ * projetos e configurações nunca são apagados automaticamente para liberar
+ * espaço, pois podem ser a única cópia disponível no navegador.
+ */
+export const clearTransientStorage = () => {
+  if (typeof window === 'undefined') return 0;
+
+  const keys = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (
+      key
+      && TRANSIENT_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
+    ) {
+      keys.push(key);
+    }
+  }
+
+  keys.forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // A limpeza é uma tentativa de recuperação; a falha será reportada
+      // pela gravação que a solicitou.
+    }
+  });
+
+  return keys.length;
+};
+
+export const writeStorage = (key, value, options = {}) => {
+  if (typeof window === 'undefined') return false;
+
+  const serialized = JSON.stringify(value);
+  const emitUpdate = options?.emit !== false;
+
+  // Não regrava nem notifica a aplicação quando o conteúdo não mudou.
+  // Além de poupar o localStorage, isso evita ciclos de atualização em
+  // módulos que persistem resumos derivados após cada carregamento.
+  try {
+    if (localStorage.getItem(key) === serialized) return true;
+  } catch {
+    // A tentativa normal abaixo tratará indisponibilidade ou quota.
+  }
+
+  const persist = () => {
+    localStorage.setItem(key, serialized);
+
+    if (emitUpdate) {
+      window.dispatchEvent(new CustomEvent('sf_storage_update', {
+        detail: {
+          key,
+          value,
+        },
+      }));
+    }
+  };
 
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-
-    window.dispatchEvent(new CustomEvent('sf_storage_update', {
-      detail: {
-        key,
-        value,
-      },
-    }));
+    persist();
+    return true;
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      clearTransientStorage();
+
+      try {
+        persist();
+        return true;
+      } catch (retryError) {
+        console.error(
+          `Armazenamento local cheio ao persistir [${key}]:`,
+          retryError,
+        );
+        return false;
+      }
+    }
+
     console.error(
       `Erro crítico de persistência na chave [${key}]:`,
       error,
     );
+    return false;
   }
 };
 

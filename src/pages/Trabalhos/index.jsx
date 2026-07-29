@@ -3035,6 +3035,29 @@ export default function Trabalhos() {
     void saveChecklist(createChecklist(selectedProject.tipoServico));
   };
 
+  const submitChecklistItem = () => {
+    if (!selectedProject) return;
+
+    try {
+      const nextChecklist = upsertCustomItem(
+        selectedProject.checklist,
+        checklistDraft,
+      );
+
+      void saveChecklist(nextChecklist);
+      setChecklistDraft({
+        id: null,
+        titulo: '',
+        categoria: 'personalizado',
+        observacao: '',
+      });
+    } catch (error) {
+      setActionError(
+        error?.message || 'Não foi possível salvar o item do checklist.',
+      );
+    }
+  };
+
   const deleteChecklistItem = (item) => {
     const confirmed = window.confirm(
       `Excluir o item "${item.titulo}" somente deste trabalho?`,
@@ -5367,6 +5390,21 @@ export default function Trabalhos() {
     || null
   ), [previewProjectId, undatedProjects, visibleProjects]);
 
+  const openProjectFromList = (project) => {
+    if (!project) return;
+
+    const compactWorkspace = globalThis.matchMedia?.(
+      '(max-width: 1280px)',
+    )?.matches;
+
+    if (compactWorkspace) {
+      openDetails(project);
+      return;
+    }
+
+    setPreviewProjectId(project.id);
+  };
+
   const visibleCompletedCount = visibleProjects.filter(
     isCompletedOfficialProject,
   ).length;
@@ -5957,7 +5995,7 @@ export default function Trabalhos() {
       {viewMode === 'kanban' ? (
       <section className="sf-projects-board-shell">
         <div className="sf-projects-board-toolbar">
-          <span>Arraste ou use as setas para navegar pelas etapas</span>
+          <span className="sf-projects-board-hint">Arraste os cartões para atualizar a etapa</span>
 
           <div className="sf-projects-board-actions">
             <button
@@ -5991,6 +6029,10 @@ export default function Trabalhos() {
               `sf-projects-column${
                 dragOverColumn === col.id
                   ? ' drag-over'
+                  : ''
+              }${
+                (projectsByColumn[col.id]?.length || 0) === 0
+                  ? ' empty'
                   : ''
               }`
             }
@@ -6107,6 +6149,7 @@ export default function Trabalhos() {
                       }}
                     >
                       <div
+                        className="sf-project-card-head"
                         style={{
                           display: 'flex',
                           justifyContent:
@@ -6227,6 +6270,7 @@ export default function Trabalhos() {
                       </div>
 
                       <div
+                        className="sf-project-card-progress"
                         style={{
                           marginBottom: '10px',
                         }}
@@ -6325,6 +6369,7 @@ export default function Trabalhos() {
                       </div>
 
                       <div
+                        className="sf-project-equipment-summary"
                         style={{
                           marginTop: '10px',
                           color:
@@ -6376,13 +6421,18 @@ export default function Trabalhos() {
                     const percent = contracted > 0 ? Math.min(100, Math.round((received / contracted) * 100)) : 0;
                     return (
                       <div className={`sf-project-list-row${previewProject?.id === project.id ? ' selected' : ''}`} key={project.id}>
-                        <button type="button" className="sf-project-row-main" onClick={() => setPreviewProjectId(project.id)}>
+                        <button
+                          type="button"
+                          className="sf-project-row-main"
+                          aria-label={`Abrir trabalho de ${project.clienteNome || 'cliente'}`}
+                          onClick={() => openProjectFromList(project)}
+                        >
                           <span className="sf-project-list-client"><span className="sf-project-avatar">{(project.clienteNome || 'CI').split(/\s+/).slice(0,2).map((part)=>part[0]).join('').toUpperCase()}</span><span><strong>{project.clienteNome || 'Cliente não informado'}</strong><small>{project.categoria || project.tipoServico || 'Trabalho'}</small></span></span>
-                          <span>{project.titulo || project.tipoServico || 'Não informado'}</span>
-                          <span><strong>{formatProjectDate(getProjectDateValue(project))}</strong><small>{project.horario || ''}</small></span>
-                          <span><small className="sf-project-stage-badge">{column.titulo}</small></span>
-                          <span>{formatMoney(contracted)}</span>
-                          <span className="sf-project-received-cell"><strong>{formatMoney(received)}</strong><small>{percent}%</small><i><b style={{ width: `${percent}%` }} /></i></span>
+                          <span className="sf-project-list-service">{project.titulo || project.tipoServico || 'Não informado'}</span>
+                          <span className="sf-project-list-date"><strong>{formatProjectDate(getProjectDateValue(project))}</strong><small>{project.horario || ''}</small></span>
+                          <span className="sf-project-list-stage"><small className="sf-project-stage-badge">{column.titulo}</small></span>
+                          <span className="sf-project-list-contracted">{formatMoney(contracted)}</span>
+                          <span className="sf-project-received-cell"><strong>{formatMoney(received)}</strong><small className="sf-project-payment-percent">{percent}%</small><small className="sf-project-mobile-contracted">de {formatMoney(contracted)}</small><i><b style={{ width: `${percent}%` }} /></i></span>
                         </button>
                         <div className="sf-project-row-actions">
                           <button type="button" title="Editar" onClick={() => openDetails(project)}><Edit3 size={15}/></button>
@@ -6413,11 +6463,16 @@ export default function Trabalhos() {
                   const financials = calculateProjectFinancials(project, transactions);
                   const received = Number(financials.valorRecebido ?? project.valorRecebido ?? 0);
                   return <div className="sf-project-list-row sf-undated-row" key={project.id}>
-                    <button type="button" className="sf-project-row-main" onClick={() => setPreviewProjectId(project.id)}>
+                    <button
+                      type="button"
+                      className="sf-project-row-main"
+                      aria-label={`Abrir trabalho de ${project.clienteNome || 'cliente'}`}
+                      onClick={() => openProjectFromList(project)}
+                    >
                       <span className="sf-project-list-client"><span className="sf-project-avatar">{(project.clienteNome || 'CI').slice(0,2).toUpperCase()}</span><span><strong>{project.clienteNome || 'Cliente não informado'}</strong><small>{project.tipoServico || 'Trabalho'}</small></span></span>
-                      <span>{project.titulo || project.tipoServico || 'Não informado'}</span><span>—</span>
-                      <span><small className="sf-project-stage-badge">{colunasAtivas.find((item)=>item.id===getProjectOperationalStatus(project))?.titulo || 'Pendente'}</small></span>
-                      <span>{formatMoney(project.valorContratado || 0)}</span><span>{formatMoney(received)}</span>
+                      <span className="sf-project-list-service">{project.titulo || project.tipoServico || 'Não informado'}</span><span className="sf-project-list-date">Sem data</span>
+                      <span className="sf-project-list-stage"><small className="sf-project-stage-badge">{colunasAtivas.find((item)=>item.id===getProjectOperationalStatus(project))?.titulo || 'Pendente'}</small></span>
+                      <span className="sf-project-list-contracted">{formatMoney(project.valorContratado || 0)}</span><span className="sf-project-received-cell"><strong>{formatMoney(received)}</strong><small className="sf-project-mobile-contracted">de {formatMoney(project.valorContratado || 0)}</small></span>
                     </button>
                     <div className="sf-project-row-actions"><button type="button" onClick={() => openDetails(project)}><Edit3 size={15}/></button><button type="button" className="danger" onClick={() => void handleDeleteProject(project)}><Trash2 size={15}/></button></div>
                   </div>;

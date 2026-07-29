@@ -1,4 +1,5 @@
 import { FINANCE_STORAGE_KEYS } from './financeEngine';
+import { writeStorage } from './storage';
 
 const readLocalArray = (key) => {
   try {
@@ -132,13 +133,24 @@ export function processLeadApproval(lead) {
     if (leadIndex !== -1) {
       leadsList[leadIndex].status = 'Aprovado';
       leadsList[leadIndex].updatedAt = Date.now();
-      localStorage.setItem(INTEGRATION_KEYS.LEADS, JSON.stringify(leadsList));
+      if (!writeStorage(INTEGRATION_KEYS.LEADS, leadsList)) {
+        throw new Error('O navegador ficou sem espaço para atualizar o CRM.');
+      }
     }
 
     // 7. Gravação Atômica dos Dados Consolidados no Storage
-    localStorage.setItem(INTEGRATION_KEYS.CLIENTS_PROJECTS, JSON.stringify(clientsList));
-    localStorage.setItem(INTEGRATION_KEYS.AGENDA, JSON.stringify(agendaList));
-    localStorage.setItem(INTEGRATION_KEYS.TRANSACTIONS, JSON.stringify(financialList));
+    const persisted = [
+      writeStorage(INTEGRATION_KEYS.CLIENTS_PROJECTS, clientsList),
+      writeStorage(INTEGRATION_KEYS.AGENDA, agendaList),
+      writeStorage(INTEGRATION_KEYS.TRANSACTIONS, financialList),
+    ];
+
+    if (persisted.some((result) => !result)) {
+      throw new Error(
+        'O navegador ficou sem espaço para concluir a integração. '
+        + 'Nenhum sucesso foi confirmado; libere espaço e tente novamente.',
+      );
+    }
 
     // 8. O Toque de Mestre: Disparo de Evento de Sincronização Global
     // Isso força o Dashboard, Relatórios e Perfil a recalcularem os hooks useMemo instantaneamente

@@ -71,6 +71,67 @@
   width: 17px;
 }
 
+.agenda-scope-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  background: #101010;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 10px;
+}
+
+.agenda-scope-switch > button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: #8f8f8c;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.agenda-scope-switch > button span {
+  min-width: 22px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  color: #b4b4b0;
+  background: rgba(255, 255, 255, .06);
+  border-radius: 999px;
+  font-size: .65rem;
+}
+
+.agenda-scope-switch > button.active {
+  color: #e3c38f;
+  background: rgba(201, 160, 108, .1);
+  box-shadow: inset 0 0 0 1px rgba(201, 160, 108, .18);
+}
+
+.agenda-scope-switch > button.active span {
+  color: #e6c998;
+  background: rgba(201, 160, 108, .13);
+}
+
+.agenda-scope-switch > small {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #6f9f7f;
+  font-size: .67rem;
+}
+
+.agenda-scope-switch > small svg {
+  width: 15px;
+}
+
 .agenda-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
@@ -194,6 +255,33 @@
 
 .agenda-filters .agenda-clear {
   color: #d99b93;
+}
+
+.agenda-filters.projects-scope {
+  grid-template-columns:
+    minmax(220px, 1.5fr)
+    minmax(160px, .8fr)
+    minmax(260px, 1fr)
+    auto
+    auto;
+}
+
+.agenda-sync-state {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  color: #7da88b;
+  background: rgba(52, 211, 153, .04);
+  border: 1px solid rgba(52, 211, 153, .12);
+  border-radius: 8px;
+  font-size: .68rem;
+}
+
+.agenda-sync-state svg {
+  width: 16px;
+  flex: 0 0 auto;
 }
 
 .agenda-controls {
@@ -367,6 +455,16 @@
   background: rgba(96, 165, 250, .08);
 }
 
+.agenda-timing.realizado {
+  color: #34d399;
+  background: rgba(52, 211, 153, .08);
+}
+
+.agenda-timing.passado {
+  color: #a3a3a3;
+  background: rgba(163, 163, 163, .08);
+}
+
 .agenda-overlay {
   position: fixed;
   inset: 0;
@@ -525,6 +623,14 @@
     grid-template-columns: 1fr 1fr;
   }
 
+  .agenda-filters.projects-scope {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .agenda-sync-state {
+    grid-column: 1 / -1;
+  }
+
   .agenda-search {
     grid-column: 1 / -1;
   }
@@ -534,6 +640,21 @@
   .agenda-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .agenda-scope-switch {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .agenda-scope-switch > button {
+    flex: 1 1 180px;
+  }
+
+  .agenda-scope-switch > small {
+    width: 100%;
+    margin-left: 0;
+    padding: 2px 6px 3px;
   }
 
   .agenda-controls {
@@ -574,6 +695,23 @@
   .agenda-summary-grid,
   .agenda-filters {
     grid-template-columns: 1fr;
+  }
+
+  .agenda-scope-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .agenda-scope-switch > button {
+    min-width: 0;
+    padding: 0 7px;
+    font-size: .68rem;
+  }
+
+  .agenda-scope-switch > small {
+    grid-column: 1 / -1;
+    font-size: .61rem;
   }
 
   .agenda-search {
@@ -672,6 +810,17 @@
     gap: 7px;
   }
 
+  .agenda-filters.projects-scope {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .agenda-sync-state {
+    grid-column: 1 / -1;
+    min-height: 34px;
+    padding: 6px 9px;
+    line-height: 1.3;
+  }
+
   .agenda-search { grid-column: 1 / -1 !important; }
   .agenda-filters label,
   .agenda-filters button { min-height: 36px; }
@@ -708,7 +857,36 @@
     overflow: hidden;
   }
 
-  .agenda-calendar .rbc-calendar { min-width: 610px; }
+  .agenda-calendar .rbc-calendar,
+  .agenda-calendar .rbc-month-view {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .agenda-calendar .rbc-header {
+    padding: 4px 1px;
+    font-size: .55rem;
+  }
+
+  .agenda-calendar .rbc-date-cell {
+    padding-right: 2px;
+    font-size: .62rem;
+  }
+
+  .agenda-calendar .rbc-event {
+    min-height: 15px;
+    padding: 1px 2px;
+  }
+
+  .agenda-calendar .agenda-event {
+    display: block;
+    font-size: .54rem;
+    line-height: 1.15;
+  }
+
+  .agenda-calendar .agenda-event span {
+    display: none;
+  }
   .agenda-calendar .rbc-time-view { height: 100%; }
   .agenda-calendar .rbc-time-content {
     overflow-y: auto;

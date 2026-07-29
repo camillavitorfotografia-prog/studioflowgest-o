@@ -10,6 +10,7 @@ export default function Modal({
   title,
   children,
   maxWidth = '500px',
+  contentClassName = '',
 }) {
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -63,7 +64,7 @@ export default function Modal({
           </button>
         </div>
 
-        <div className="sf-modal-content">
+        <div className={`sf-modal-content ${contentClassName}`.trim()}>
           {children}
         </div>
       </div>

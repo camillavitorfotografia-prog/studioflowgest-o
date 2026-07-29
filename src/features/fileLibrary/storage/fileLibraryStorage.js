@@ -1,6 +1,7 @@
 import { Upload } from 'tus-js-client';
 import { isSupabaseConfigured, supabase } from '../../../utils/supabase';
 import { capitalizeName } from '../../../utils/masks';
+import { clearTransientStorage, writeStorage } from '../../../utils/storage';
 
 const FILES_TABLE = 'file_assets';
 const FOLDERS_TABLE = 'file_folders';
@@ -18,8 +19,28 @@ const readLocal = (key) => {
 };
 
 const writeLocal = (key, value) => {
-  localStorage.setItem(key, JSON.stringify(value));
-  window.dispatchEvent(new Event('sf_storage_update'));
+  const saved = writeStorage(key, value);
+  if (!saved) {
+    throw new Error('O navegador está sem espaço para salvar esta alteração. Os dados principais foram preservados; libere espaço e tente novamente.');
+  }
+};
+
+const normalizeUploadError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+
+  if (error?.name === 'QuotaExceededError' || message.includes('quota')) {
+    return new Error('O navegador ficou sem espaço para retomar o envio. Os dados principais foram preservados; tente o upload novamente.');
+  }
+
+  if (message.includes('401') || message.includes('unauthorized') || message.includes('jwt')) {
+    return new Error('Sua sessão expirou durante o envio. Entre novamente e tente outra vez.');
+  }
+
+  if (message.includes('network') || message.includes('failed to fetch')) {
+    return new Error('A conexão foi interrompida durante o envio. Verifique a internet e tente novamente.');
+  }
+
+  return error instanceof Error ? error : new Error('Não foi possível concluir o envio do arquivo.');
 };
 
 const sanitizeFileName = (name = 'arquivo') => String(name)
@@ -147,6 +168,8 @@ export async function uploadLibraryFile(file, input = {}, onProgress = null) {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+  clearTransientStorage();
+
   await new Promise((resolve, reject) => {
     const upload = new Upload(file, {
       endpoint: `${supabaseUrl}/storage/v1/upload/resumable`,
@@ -158,6 +181,7 @@ export async function uploadLibraryFile(file, input = {}, onProgress = null) {
       },
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
+      storeFingerprintForResuming: false,
       chunkSize: 6 * 1024 * 1024,
       metadata: {
         bucketName: BUCKET,
@@ -165,7 +189,7 @@ export async function uploadLibraryFile(file, input = {}, onProgress = null) {
         contentType: file.type || 'application/octet-stream',
         cacheControl: '3600',
       },
-      onError: reject,
+      onError: (error) => reject(normalizeUploadError(error)),
       onProgress: (bytesUploaded, bytesTotal) => {
         const progress = bytesTotal > 0
           ? Math.round((bytesUploaded / bytesTotal) * 76)
@@ -175,12 +199,10 @@ export async function uploadLibraryFile(file, input = {}, onProgress = null) {
       onSuccess: resolve,
     });
 
-    upload.findPreviousUploads().then((previousUploads) => {
-      if (previousUploads.length) {
-        upload.resumeFromPreviousUpload(previousUploads[0]);
-      }
-      upload.start();
-    }).catch(reject);
+    // O TUS normalmente grava fingerprints no localStorage. Como o StudioFlow
+    // já mantém dados de negócio no navegador, desativamos esse cache para não
+    // interromper uploads quando a cota estiver próxima do limite.
+    upload.start();
   });
 
   onProgress?.(80);

@@ -4,15 +4,12 @@ import {
   BellRing,
   Bot,
   CalendarClock,
-  Calculator,
   CheckCircle2,
   ClipboardList,
   ChevronDown,
   ChevronUp,
   Clock3,
   Loader2,
-  MessageCircle,
-  NotebookPen,
   PlayCircle,
   Plus,
   RefreshCcw,
@@ -20,10 +17,8 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
-  UserRoundCheck,
   X,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import CRMStats from './CRMStats';
 import KanbanBoard from './KanbanBoard';
 import Modal from '../../components/Modal';
@@ -41,6 +36,7 @@ import {
   isMissingRelationError,
   mapLeadFromDb,
   saveLeadRow,
+  isUuidValue,
 } from '../../utils/dbData';
 import { inputToDate } from '../../utils/masks';
 import { parseCurrency } from '../../utils/formatters';
@@ -54,7 +50,7 @@ import {
   useKeyboardShortcuts,
   AutoSaveIndicator,
 } from '../../components/PremiumUXKit';
-import { getRestartedCadenceDate, isLeadInTrash, markLeadAsTrashed } from '../../utils/crmLifecycle';
+import { getRestartedCadenceDate, isLeadInTrash } from '../../utils/crmLifecycle';
 import './CRM.css';
 
 const CONTACT_TYPES = [
@@ -163,6 +159,109 @@ const findDuplicateLead = (
   }) || null;
 };
 
+
+const normalizeLeadIdentityText = (value = '') => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toLowerCase()
+  .replace(/\s+/g, ' ');
+
+const getLeadIdentityParts = (lead = {}) => ({
+  id: String(lead.id || '').trim(),
+  phone: normalizeLeadPhone(lead.whatsapp || lead.telefone),
+  email: normalizeLeadEmail(lead.email),
+  name: normalizeLeadIdentityText(lead.nome),
+  service: normalizeLeadIdentityText(
+    lead.tipoServico || lead.tipo_servico || lead.servico,
+  ),
+  eventDate: String(
+    lead.dataEvento || lead.data_evento || '',
+  ).slice(0, 10),
+});
+
+const areLikelySameLead = (first = {}, second = {}) => {
+  const a = getLeadIdentityParts(first);
+  const b = getLeadIdentityParts(second);
+
+  if (a.id && b.id && a.id === b.id) return true;
+
+  const compatibleService = !a.service || !b.service || a.service === b.service;
+  const compatibleEvent = !a.eventDate || !b.eventDate || a.eventDate === b.eventDate;
+  const samePhone = a.phone.length >= 8 && b.phone.length >= 8 && a.phone === b.phone;
+  const sameEmail = Boolean(a.email && b.email && a.email === b.email);
+
+  if ((samePhone || sameEmail) && compatibleService && compatibleEvent) {
+    return true;
+  }
+
+  const sameName = Boolean(a.name && b.name && a.name === b.name);
+  const hasCommercialMatch = (
+    (a.service && b.service && a.service === b.service)
+    || (a.eventDate && b.eventDate && a.eventDate === b.eventDate)
+  );
+  const hasSparseLegacyRecord = (
+    (!a.phone && !a.email)
+    || (!b.phone && !b.email)
+  ) && (
+    !a.service
+    || !b.service
+    || !a.eventDate
+    || !b.eventDate
+  );
+
+  return sameName
+    && compatibleService
+    && compatibleEvent
+    && (hasCommercialMatch || hasSparseLegacyRecord);
+};
+
+const getLeadRecordTimestamp = (lead = {}) => {
+  const value = lead.updatedAt
+    || lead.updated_at
+    || lead.createdAt
+    || lead.created_at
+    || 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const preferLeadRecord = (first = {}, second = {}) => {
+  const firstHasUuid = isUuidValue(first.id);
+  const secondHasUuid = isUuidValue(second.id);
+
+  if (firstHasUuid !== secondHasUuid) {
+    return secondHasUuid ? second : first;
+  }
+
+  return getLeadRecordTimestamp(second) >= getLeadRecordTimestamp(first)
+    ? second
+    : first;
+};
+
+const deduplicateLeadRecords = (rows = []) => {
+  const uniqueRows = [];
+
+  rows.forEach((lead) => {
+    if (!lead || typeof lead !== 'object' || !String(lead.id || '').trim()) return;
+
+    const matchingIndex = uniqueRows.findIndex((current) => (
+      areLikelySameLead(current, lead)
+    ));
+
+    if (matchingIndex < 0) {
+      uniqueRows.push(lead);
+      return;
+    }
+
+    uniqueRows[matchingIndex] = preferLeadRecord(
+      uniqueRows[matchingIndex],
+      lead,
+    );
+  });
+
+  return uniqueRows;
+};
 
 const getWhatsAppNumber = (lead) => {
   const safeLead = lead || {};
@@ -410,24 +509,28 @@ const DEFAULT_AUTOMATION_RULES = {
 };
 
 const readAutomationRules = () => {
-  try {
-    const saved = JSON.parse(
-      localStorage.getItem(CRM_AUTOMATION_RULES_STORAGE_KEY) || '{}',
-    );
+  const saved = readStorage(CRM_AUTOMATION_RULES_STORAGE_KEY, {});
 
-    return {
-      ...DEFAULT_AUTOMATION_RULES,
-      ...(saved && typeof saved === 'object' ? saved : {}),
-    };
-  } catch {
-    return DEFAULT_AUTOMATION_RULES;
-  }
+  return {
+    ...DEFAULT_AUTOMATION_RULES,
+    ...(saved && typeof saved === 'object' ? saved : {}),
+  };
 };
 
-const readAuditActor = () => (
-  localStorage.getItem(CRM_AUDIT_ACTOR_STORAGE_KEY)
-  || 'Camilla'
-);
+const readAuditActor = () => {
+  const stored = localStorage.getItem(CRM_AUDIT_ACTOR_STORAGE_KEY);
+  if (!stored) return 'Camilla';
+
+  try {
+    const parsed = JSON.parse(stored);
+    return typeof parsed === 'string' && parsed.trim()
+      ? parsed.trim()
+      : 'Camilla';
+  } catch {
+    // Compatibilidade com versões que gravavam a string sem JSON.
+    return stored.trim() || 'Camilla';
+  }
+};
 
 const createEmptyDocumentForm = () => ({
   leadId: '',
@@ -840,7 +943,7 @@ const backupStoredLeads = (rows = readStoredLeadRows()) => {
 };
 
 const recoverSuzaneAndArgeuOnce = () => {
-  if (localStorage.getItem(CRM_SUZANE_RECOVERY_KEY) === 'done') return;
+  if (readStorage(CRM_SUZANE_RECOVERY_KEY, '') === 'done') return;
 
   const rows = readStoredLeadRows();
   const candidates = rows
@@ -876,44 +979,249 @@ const recoverSuzaneAndArgeuOnce = () => {
     writeStorage(STORAGE_KEYS.leads, restoredRows);
   }
 
-  localStorage.setItem(CRM_SUZANE_RECOVERY_KEY, 'done');
+  writeStorage(CRM_SUZANE_RECOVERY_KEY, 'done');
 };
 
 const readLocalLeads = () => {
   recoverSuzaneAndArgeuOnce();
 
-  return readStoredLeadRows()
-    .map(mapLeadFromDb)
-    .map(enrichLeadBudgetFields)
-    .filter((lead) => !isLeadInTrash(lead));
+  return deduplicateLeadRecords(
+    readStoredLeadRows()
+      .map(mapLeadFromDb)
+      .map(enrichLeadBudgetFields)
+      .filter((lead) => !isLeadInTrash(lead)),
+  );
 };
 
-const saveLeadLocal = ({ id, payload }) => {
+const saveLeadLocal = ({ id, payload, replaceId = '' }) => {
   const storedRows = readStoredLeadRows();
   const now = payload.updated_at || new Date().toISOString();
   const targetId = String(id || createId('lead'));
+  const previousId = String(replaceId || '').trim();
+
+  const sanitizedPayload = {
+    ...payload,
+  };
+
+  // Nunca permita que um `payload.id` antigo sobrescreva o UUID retornado
+  // pelo Supabase. Esse era o motivo de o mesmo lead ser inserido novamente
+  // a cada mudança de status.
+  delete sanitizedPayload.id;
 
   const nextRow = {
+    ...sanitizedPayload,
     id: targetId,
-    ...payload,
-    created_at: payload.created_at || now,
+    created_at: sanitizedPayload.created_at || now,
     updated_at: now,
   };
 
-  const existingIndex = storedRows.findIndex(
+  // Quando um lead criado offline recebe um UUID real do Supabase, removemos
+  // o identificador local antigo para impedir cartões duplicados no próximo
+  // carregamento do CRM.
+  const rowsWithoutPreviousId = previousId && previousId !== targetId
+    ? storedRows.filter((row) => String(row.id) !== previousId)
+    : storedRows;
+
+  const existingIndex = rowsWithoutPreviousId.findIndex(
     (row) => String(row.id) === targetId,
   );
 
   const nextRows = existingIndex >= 0
-    ? storedRows.map((row, index) => (
+    ? rowsWithoutPreviousId.map((row, index) => (
       index === existingIndex ? { ...row, ...nextRow } : row
     ))
-    : [nextRow, ...storedRows];
+    : [nextRow, ...rowsWithoutPreviousId];
 
   backupStoredLeads(storedRows);
-  writeStorage(STORAGE_KEYS.leads, nextRows);
+  const stored = writeStorage(STORAGE_KEYS.leads, nextRows);
+
+  if (!stored) {
+    throw new Error(
+      'O navegador não conseguiu salvar o lead localmente por falta de espaço. '
+      + 'Libere armazenamento ou mantenha a conexão com o Supabase e tente novamente.',
+    );
+  }
 
   return mapLeadFromDb(nextRow);
+};
+
+const saveCanonicalLeadLocal = ({
+  candidate,
+  canonicalId,
+  payload,
+  replacedIds = [],
+}) => {
+  const storedRows = readStoredLeadRows();
+  const now = payload.updated_at || new Date().toISOString();
+  const targetId = String(canonicalId || candidate?.id || createId('lead'));
+  const idsToReplace = new Set(
+    [candidate?.id, ...replacedIds]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  );
+
+  const sanitizedPayload = { ...payload };
+  delete sanitizedPayload.id;
+
+  const nextRow = {
+    ...sanitizedPayload,
+    id: targetId,
+    created_at:
+      sanitizedPayload.created_at
+      || candidate?.createdAt
+      || candidate?.created_at
+      || now,
+    updated_at: now,
+  };
+
+  const remainingRows = storedRows.filter((row) => {
+    const rowId = String(row?.id || '').trim();
+    if (idsToReplace.has(rowId) || rowId === targetId) return false;
+
+    try {
+      return !areLikelySameLead(mapLeadFromDb(row), candidate);
+    } catch {
+      return true;
+    }
+  });
+
+  backupStoredLeads(storedRows);
+  const stored = writeStorage(STORAGE_KEYS.leads, [nextRow, ...remainingRows]);
+
+  if (!stored) {
+    throw new Error(
+      'O navegador não conseguiu atualizar o espelho local do CRM por falta de espaço.',
+    );
+  }
+
+  return mapLeadFromDb(nextRow);
+};
+
+const fetchRemoteLeadCluster = async (candidate = {}) => {
+  if (!isSupabaseConfigured) return [];
+
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*');
+
+  if (error) {
+    if (isMissingRelationError(error, 'leads')) return [];
+    throw error;
+  }
+
+  return (Array.isArray(data) ? data : [])
+    .map((row) => ({ row, lead: mapLeadFromDb(row) }))
+    .filter(({ lead }) => (
+      !isLeadInTrash(lead)
+      && (
+        String(lead.id) === String(candidate.id || '')
+        || areLikelySameLead(lead, candidate)
+      )
+    ));
+};
+
+const removeRemoteDuplicateLeadRows = async (ids = []) => {
+  const uniqueIds = [...new Set(
+    ids.filter((id) => isUuidValue(id)).map(String),
+  )];
+
+  if (!uniqueIds.length || !isSupabaseConfigured) return;
+
+  const { error: deleteError } = await supabase
+    .from('leads')
+    .delete()
+    .in('id', uniqueIds);
+
+  if (!deleteError) return;
+
+  const now = new Date().toISOString();
+  const { error: trashError } = await supabase
+    .from('leads')
+    .update({
+      na_lixeira: true,
+      deleted_at: now,
+      updated_at: now,
+    })
+    .in('id', uniqueIds);
+
+  if (trashError) {
+    console.warn(
+      'O status foi salvo, mas o Supabase não permitiu remover uma cópia duplicada:',
+      trashError.message || deleteError.message,
+    );
+    return false;
+  }
+
+  return true;
+};
+
+const saveLeadCanonicalRemote = async ({ candidate, payload }) => {
+  const cluster = await fetchRemoteLeadCluster(candidate);
+  const historyItems = [
+    ...cluster.flatMap(({ lead }) => (
+      Array.isArray(lead.historico) ? lead.historico : []
+    )),
+    ...(Array.isArray(payload.historico) ? payload.historico : []),
+  ];
+  const uniqueHistory = [];
+  const historyKeys = new Set();
+
+  historyItems.forEach((item) => {
+    if (!item || typeof item !== 'object') return;
+    const key = String(
+      item.id
+      || [item.data, item.tipo, item.acao, item.descricao].join('|'),
+    );
+    if (historyKeys.has(key)) return;
+    historyKeys.add(key);
+    uniqueHistory.push(item);
+  });
+
+  const effectivePayload = {
+    ...payload,
+    ...(uniqueHistory.length ? { historico: uniqueHistory } : {}),
+  };
+
+  const exactCurrent = cluster.find(({ lead }) => (
+    isUuidValue(candidate?.id)
+    && String(lead.id) === String(candidate.id)
+  ));
+
+  const canonicalEntry = exactCurrent || cluster.reduce((best, entry) => {
+    if (!best) return entry;
+    return preferLeadRecord(best.lead, entry.lead) === entry.lead
+      ? entry
+      : best;
+  }, null);
+
+  let canonicalId = canonicalEntry?.lead?.id;
+  let savedRow;
+
+  try {
+    savedRow = await saveLeadRow({
+      id: canonicalId,
+      payload: effectivePayload,
+    });
+  } catch (error) {
+    const noUpdatedRow = error?.code === 'PGRST116'
+      || String(error?.message || '').toLowerCase().includes('0 rows');
+
+    if (!canonicalId || !noUpdatedRow) throw error;
+
+    savedRow = await saveLeadRow({ id: undefined, payload: effectivePayload });
+  }
+
+  const savedId = String(savedRow?.id || '');
+  const duplicateIds = cluster
+    .map(({ lead }) => lead.id)
+    .filter((id) => String(id) !== savedId);
+
+  await removeRemoteDuplicateLeadRows(duplicateIds);
+
+  return {
+    savedRow,
+    replacedIds: [candidate?.id, ...duplicateIds].filter(Boolean),
+  };
 };
 
 const formatDisplayDate = (value) => {
@@ -1589,17 +1897,11 @@ const answerStudioFlowQuestion = ({
 const CRM_NOTIFICATIONS_STORAGE_KEY = 'studioflow_crm_notifications_read';
 
 const readNotificationState = () => {
-  try {
-    const saved = JSON.parse(
-      localStorage.getItem(CRM_NOTIFICATIONS_STORAGE_KEY) || '{}',
-    );
+  const saved = readStorage(CRM_NOTIFICATIONS_STORAGE_KEY, {});
 
-    return saved && typeof saved === 'object'
-      ? saved
-      : {};
-  } catch {
-    return {};
-  }
+  return saved && typeof saved === 'object'
+    ? saved
+    : {};
 };
 
 const getNotificationSeverityWeight = (severity = 'info') => ({
@@ -2005,8 +2307,6 @@ const getLeadAutomaticSummary = (lead = {}) => {
 };
 
 export default function CRM() {
-  const navigate = useNavigate();
-
   const [leads, setLeads] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
@@ -2020,7 +2320,7 @@ export default function CRM() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskForm, setTaskForm] = useState(createEmptyTaskForm);
   const [isSavingTask, setIsSavingTask] = useState(false);
-  const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(true);
+  const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false);
   const [isQuickNoteModalOpen, setIsQuickNoteModalOpen] = useState(false);
   const [quickNoteForm, setQuickNoteForm] = useState(createEmptyQuickNoteForm);
   const [isSavingQuickNote, setIsSavingQuickNote] = useState(false);
@@ -2029,7 +2329,7 @@ export default function CRM() {
   );
   const [leadDetailTab, setLeadDetailTab] = useState('visao-geral');
   const [isLeadSummaryExpanded, setIsLeadSummaryExpanded] = useState(false);
-  const [isDailyActionsOpen, setIsDailyActionsOpen] = useState(true);
+  const [isDailyActionsOpen, setIsDailyActionsOpen] = useState(false);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isAutomationRulesOpen, setIsAutomationRulesOpen] = useState(false);
   const [automationRules, setAutomationRules] = useState(
@@ -2046,12 +2346,12 @@ export default function CRM() {
   const [assistantQuestion, setAssistantQuestion] = useState('');
   const [assistantAnswer, setAssistantAnswer] = useState('');
   const [selectedService, setSelectedService] = useState('');
-  const [isCommercialAgendaOpen, setIsCommercialAgendaOpen] = useState(true);
+  const [isCommercialAgendaOpen, setIsCommercialAgendaOpen] = useState(false);
   const [renewingBudgetLeadId, setRenewingBudgetLeadId] = useState('');
-  const [isRecoveryCenterOpen, setIsRecoveryCenterOpen] = useState(true);
+  const [isRecoveryCenterOpen, setIsRecoveryCenterOpen] = useState(false);
   const [reopeningLeadId, setReopeningLeadId] = useState('');
   const [filters, setFilters] = useState(createEmptyFilters);
-  const [isFollowupCenterOpen, setIsFollowupCenterOpen] = useState(true);
+  const [isFollowupCenterOpen, setIsFollowupCenterOpen] = useState(false);
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [whatsAppLead, setWhatsAppLead] = useState(null);
   const [whatsAppTemplateId, setWhatsAppTemplateId] = useState(
@@ -2059,23 +2359,88 @@ export default function CRM() {
   );
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
   const [saveStatus, setSaveStatus] = useState('saved');
+  const [pageError, setPageError] = useState('');
+  const [updatingLeadId, setUpdatingLeadId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
 
   const fetchLeads = async () => {
     try {
       const localLeads = readLocalLeads();
 
-      setLeads(localLeads);
+      if (!isSupabaseConfigured) {
+        setLeads(localLeads);
+        return localLeads;
+      }
 
-      return localLeads;
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*');
+
+      if (error) {
+        if (isMissingRelationError(error, 'leads')) {
+          setLeads(localLeads);
+          return localLeads;
+        }
+
+        throw error;
+      }
+
+      const remoteLeads = (Array.isArray(data) ? data : [])
+        .map(mapLeadFromDb)
+        .map(enrichLeadBudgetFields)
+        .filter((lead) => !isLeadInTrash(lead));
+
+      const mergedLeads = deduplicateLeadRecords([
+        ...localLeads,
+        ...remoteLeads,
+      ])
+        .sort((first, second) => {
+          const firstDate = new Date(
+            first.updatedAt
+            || first.updated_at
+            || first.createdAt
+            || first.created_at
+            || 0,
+          ).getTime();
+          const secondDate = new Date(
+            second.updatedAt
+            || second.updated_at
+            || second.createdAt
+            || second.created_at
+            || 0,
+          ).getTime();
+
+          return secondDate - firstDate;
+        });
+
+      // O espelho local acelera a abertura e mantém o CRM disponível offline,
+      // mas o Supabase continua sendo a fonte oficial quando está conectado.
+      const mirrorRows = mergedLeads.map((lead) => leadPayload({
+        ...lead,
+        id: undefined,
+      }, lead.updatedAt || lead.updated_at || new Date().toISOString()));
+      const serializedRows = mergedLeads.map((lead, index) => ({
+        id: lead.id,
+        ...mirrorRows[index],
+        historico: Array.isArray(lead.historico) ? lead.historico : [],
+        created_at: lead.createdAt || lead.created_at || null,
+        updated_at: lead.updatedAt || lead.updated_at || null,
+      }));
+      writeStorage(STORAGE_KEYS.leads, serializedRows);
+
+      setLeads(mergedLeads);
+
+      return mergedLeads;
     } catch (error) {
       console.error(
-        'Erro ao carregar leads locais:',
+        'Erro ao carregar leads:',
         error.message,
       );
 
-      setLeads([]);
-      return [];
+      const localLeads = readLocalLeads();
+      setLeads(localLeads);
+      return localLeads;
     } finally {
       setIsLoading(false);
     }
@@ -2133,43 +2498,46 @@ export default function CRM() {
   });
 
   const handleSaveLead = async (leadData) => {
+    const {
+      __allowDuplicateSave = false,
+      ...leadValues
+    } = leadData || {};
+
     const duplicateLead = findDuplicateLead(
       leads,
-      leadData,
-      leadData.id,
+      leadValues,
+      leadValues.id,
     );
 
-    if (duplicateLead) {
+    if (duplicateLead && !__allowDuplicateSave) {
       const duplicatedBy = (
         normalizeLeadPhone(
-          leadData.whatsapp || leadData.telefone,
+          leadValues.whatsapp || leadValues.telefone,
         )
         && normalizeLeadPhone(
           duplicateLead.whatsapp || duplicateLead.telefone,
         ) === normalizeLeadPhone(
-          leadData.whatsapp || leadData.telefone,
+          leadValues.whatsapp || leadValues.telefone,
         )
       )
         ? 'telefone'
         : 'e-mail';
 
-      alert(
+      throw new Error(
         `Já existe um lead com este ${duplicatedBy}: `
-        + `${duplicateLead.nome || 'Lead sem nome'}.`,
+        + `${duplicateLead.nome || 'Lead sem nome'}. Confirme a duplicidade para salvar mesmo assim.`,
       );
-
-      return;
     }
 
     setSaveStatus('saving');
 
     const now = new Date().toISOString();
-    const payload = leadPayload(leadData, now);
+    const payload = leadPayload(leadValues, now);
 
     try {
-      if (leadData.id) {
+      if (leadValues.id) {
         const currentLead = leads.find(
-          (lead) => lead.id === leadData.id,
+          (lead) => lead.id === leadValues.id,
         );
 
         payload.historico = [
@@ -2178,70 +2546,131 @@ export default function CRM() {
             data: now,
             tipo: 'atualizacao',
             acao: 'Dados do lead atualizados',
-            dadosComerciais: buildCommercialSnapshot(leadData),
+            dadosComerciais: buildCommercialSnapshot(leadValues),
             orcamentoValidade: {
-              dataEnvio: inputToDate(leadData.dataOrcamento) || null,
+              dataEnvio: inputToDate(leadValues.dataOrcamento) || null,
               validadeDias: Math.max(
                 1,
-                Number(leadData.validadeOrcamentoDias || 30),
+                Number(leadValues.validadeOrcamentoDias || 30),
               ),
             },
           },
         ];
-
-        saveLeadLocal({
-          id: leadData.id,
-          payload,
-        });
       } else {
         payload.historico = [
           {
             data: now,
             tipo: 'criacao',
             acao: 'Lead criado no CRM',
-            dadosComerciais: buildCommercialSnapshot(leadData),
+            dadosComerciais: buildCommercialSnapshot(leadValues),
             orcamentoValidade: {
-              dataEnvio: inputToDate(leadData.dataOrcamento) || null,
+              dataEnvio: inputToDate(leadValues.dataOrcamento) || null,
               validadeDias: Math.max(
                 1,
-                Number(leadData.validadeOrcamentoDias || 30),
+                Number(leadValues.validadeOrcamentoDias || 30),
               ),
             },
           },
         ];
 
         payload.created_at = now;
-
-        saveLeadLocal({ payload });
       }
+
+      let persistedLead = null;
+      let remoteSaved = false;
+      let replacedIds = [leadValues.id].filter(Boolean);
+
+      if (isSupabaseConfigured) {
+        try {
+          const remoteResult = leadValues.id
+            ? await saveLeadCanonicalRemote({
+              candidate: {
+                ...leads.find((lead) => String(lead.id) === String(leadValues.id)),
+                ...leadValues,
+              },
+              payload,
+            })
+            : {
+              savedRow: await saveLeadToDb({ id: undefined, payload }),
+              replacedIds: [],
+            };
+
+          const mappedRemoteLead = mapLeadFromDb(remoteResult.savedRow);
+          persistedLead = enrichLeadBudgetFields({
+            ...leadValues,
+            ...mappedRemoteLead,
+            id: mappedRemoteLead.id,
+          });
+          replacedIds = remoteResult.replacedIds || replacedIds;
+          remoteSaved = true;
+        } catch (error) {
+          if (!isMissingRelationError(error, 'leads')) {
+            throw error;
+          }
+
+          console.warn(
+            'Tabela public.leads inexistente; lead salvo apenas localmente.',
+          );
+        }
+      }
+
+      if (!remoteSaved) {
+        persistedLead = enrichLeadBudgetFields(saveCanonicalLeadLocal({
+          candidate: leadValues,
+          canonicalId: leadValues.id,
+          payload,
+          replacedIds,
+        }));
+      } else {
+        try {
+          saveCanonicalLeadLocal({
+            candidate: leadValues,
+            canonicalId: persistedLead.id,
+            payload: {
+              ...payload,
+              created_at:
+                persistedLead.createdAt
+                || persistedLead.created_at
+                || payload.created_at,
+            },
+            replacedIds,
+          });
+        } catch (mirrorError) {
+          console.warn(
+            'Lead salvo no Supabase, mas o espelho local não pôde ser atualizado:',
+            mirrorError,
+          );
+        }
+      }
+
+      setLeads((current) => deduplicateLeadRecords([
+        persistedLead,
+        ...current.filter((lead) => (
+          !replacedIds.some((id) => String(id) === String(lead.id))
+          && !areLikelySameLead(lead, persistedLead)
+        )),
+      ]));
 
       await fetchLeads();
       window.dispatchEvent(new Event('sf_storage_update'));
 
       setIsModalOpen(false);
       setEditingLead(null);
+      setSaveStatus('saved');
+
+      return persistedLead;
     } catch (err) {
       console.error(
-        'Erro ao salvar lead no Supabase:',
+        'Erro ao salvar lead:',
         err.message,
       );
 
-      if (
-        !isSupabaseConfigured
-        || isMissingRelationError(err, 'leads')
-      ) {
-        saveLeadLocal({
-          id: leadData.id,
-          payload,
-        });
-
-        await fetchLeads();
-
-        setIsModalOpen(false);
-        setEditingLead(null);
-      }
-    } finally {
-      setSaveStatus('saved');
+      setSaveStatus('idle');
+      throw new Error(
+        err?.message
+        || 'Não foi possível salvar o lead. Tente novamente.',
+        { cause: err },
+      );
     }
   };
 
@@ -2249,55 +2678,92 @@ export default function CRM() {
     if (!lead?.id) return;
 
     const confirmed = window.confirm(
-      `Mover o lead ${lead.nome || ''} para a lixeira? O cliente e os trabalhos vinculados não serão alterados.`,
+      `Mover o lead ${lead.nome || ''} para a lixeira? Todas as cópias duplicadas deste mesmo lead também serão removidas do CRM. O cliente e os trabalhos vinculados não serão alterados.`,
     );
     if (!confirmed) return;
 
     setSaveStatus('saving');
-    const payload = markLeadAsTrashed(lead);
-
+    setPageError('');
+    const now = new Date().toISOString();
     try {
+      let remoteIds = [];
+
       if (isSupabaseConfigured) {
-        try {
-          await saveLeadRow({ id: lead.id, payload });
-        } catch (error) {
-          if (!isMissingRelationError(error, 'leads')) throw error;
-          console.warn('Tabela public.leads inexistente; lixeira mantida no armazenamento local.');
+        const cluster = await fetchRemoteLeadCluster(lead);
+        remoteIds = cluster
+          .map(({ lead: remoteLead }) => remoteLead.id)
+          .filter(isUuidValue);
+
+        if (!remoteIds.length && isUuidValue(lead.id)) {
+          remoteIds = [lead.id];
+        }
+
+        if (remoteIds.length) {
+          const { error: trashError } = await supabase
+            .from('leads')
+            .update({
+              na_lixeira: true,
+              deleted_at: now,
+              updated_at: now,
+              historico: [
+                ...(lead.historico || []),
+                {
+                  data: now,
+                  tipo: 'exclusao',
+                  acao: 'Lead movido para a lixeira',
+                },
+              ],
+            })
+            .in('id', remoteIds);
+
+          if (trashError) {
+            const { error: deleteError } = await supabase
+              .from('leads')
+              .delete()
+              .in('id', remoteIds);
+
+            if (deleteError) {
+              throw new Error(
+                deleteError.message
+                || trashError.message
+                || 'O Supabase recusou a exclusão do lead.',
+              );
+            }
+          }
         }
       }
 
       const stored = readStoredLeadRows();
-      const targetId = String(lead.id);
-      const matchingRows = stored.filter(
-        (item) => String(item.id) === targetId,
-      );
+      const cleanedRows = stored.filter((item) => {
+        const itemId = String(item?.id || '');
+        if (remoteIds.some((id) => String(id) === itemId)) return false;
 
-      if (matchingRows.length !== 1) {
-        throw new Error(
-          matchingRows.length === 0
-            ? 'O lead selecionado não foi encontrado no armazenamento.'
-            : 'Foram encontrados identificadores duplicados. A exclusão foi cancelada para proteger os demais leads.',
-        );
-      }
+        try {
+          return !areLikelySameLead(mapLeadFromDb(item), lead);
+        } catch {
+          return itemId !== String(lead.id);
+        }
+      });
 
       backupStoredLeads(stored);
-      writeStorage(
-        STORAGE_KEYS.leads,
-        stored.map((item) => (
-          String(item.id) === targetId
-            ? { ...item, ...payload, id: item.id }
-            : item
-        )),
-      );
+      const storedSuccessfully = writeStorage(STORAGE_KEYS.leads, cleanedRows);
+      if (!storedSuccessfully) {
+        console.warn('O lead foi removido do Supabase, mas o espelho local não pôde ser limpo.');
+      }
 
-      setLeads((current) => current.filter(
-        (item) => String(item.id) !== targetId,
-      ));
+      setLeads((current) => current.filter((item) => (
+        !areLikelySameLead(item, lead)
+        && !remoteIds.some((id) => String(id) === String(item.id))
+      )));
       setSelectedLead(null);
+      setEditingLead(null);
       window.dispatchEvent(new Event('sf_storage_update'));
     } catch (error) {
       console.error('Erro ao mover lead para a lixeira:', error);
-      alert(`Não foi possível mover o lead para a lixeira: ${error?.message || 'erro desconhecido'}`);
+      setPageError(
+        `Não foi possível excluir o lead: ${error?.message || 'erro desconhecido'}`,
+      );
+      alert(`Não foi possível excluir o lead: ${error?.message || 'erro desconhecido'}`);
     } finally {
       setSaveStatus('saved');
     }
@@ -2509,7 +2975,9 @@ export default function CRM() {
     normalizedStatus,
     reason = '',
   }) => {
+    setPageError('');
     setSaveStatus('saving');
+    setUpdatingLeadId(currentLead.id);
 
     if (
       normalizedStatus === 'aprovado'
@@ -2519,6 +2987,10 @@ export default function CRM() {
 
       if (!converted) {
         setSaveStatus('saved');
+        setUpdatingLeadId('');
+        setPageError(
+          'O status não foi alterado porque a conversão para cliente e trabalho não foi concluída.',
+        );
         return false;
       }
     }
@@ -2561,7 +3033,7 @@ export default function CRM() {
         : {}),
     };
 
-    const optimisticLead = {
+    const optimisticLead = enrichLeadBudgetFields({
       ...currentLead,
       status: normalizedStatus,
       historico: nextHistorico,
@@ -2572,41 +3044,112 @@ export default function CRM() {
       ...(isCanceled
         ? { motivoCancelamento: normalizedReason }
         : {}),
-    };
+    });
 
     setLeads((current) => (
       current.map((lead) => (
-        lead.id === currentLead.id
+        String(lead.id) === String(currentLead.id)
           ? optimisticLead
           : lead
       ))
     ));
 
-    if (selectedLead?.id === currentLead.id) {
+    if (String(selectedLead?.id || '') === String(currentLead.id)) {
       setSelectedLead(optimisticLead);
     }
 
     try {
-      saveLeadLocal({
-        id: currentLead.id,
-        payload: {
+      let persistedLead = optimisticLead;
+      let remoteSaved = false;
+      let replacedIds = [currentLead.id].filter(Boolean);
+      const fullPayload = {
+        ...leadPayload({
           ...currentLead,
-          ...statusPayload,
-        },
-      });
+          status: normalizedStatus,
+        }, now),
+        ...statusPayload,
+      };
 
-      const updatedLeads = await fetchLeads();
-      const refreshedLead = updatedLeads.find(
-        (lead) => lead.id === currentLead.id,
-      );
+      if (isSupabaseConfigured) {
+        try {
+          const remoteResult = await saveLeadCanonicalRemote({
+            candidate: currentLead,
+            payload: fullPayload,
+          });
+          const mappedRemoteLead = mapLeadFromDb(remoteResult.savedRow);
 
-      if (
-        refreshedLead
-        && selectedLead?.id === currentLead.id
-      ) {
-        setSelectedLead(refreshedLead);
+          persistedLead = enrichLeadBudgetFields({
+            ...currentLead,
+            ...mappedRemoteLead,
+            id: mappedRemoteLead.id,
+            status: normalizedStatus,
+            historico: nextHistorico,
+            updatedAt: now,
+          });
+          replacedIds = remoteResult.replacedIds || replacedIds;
+          remoteSaved = true;
+        } catch (error) {
+          if (!isMissingRelationError(error, 'leads')) {
+            throw error;
+          }
+
+          console.warn(
+            'Tabela public.leads inexistente; status mantido apenas no armazenamento local.',
+          );
+        }
       }
 
+      if (!remoteSaved) {
+        persistedLead = enrichLeadBudgetFields(saveCanonicalLeadLocal({
+          candidate: currentLead,
+          canonicalId: currentLead.id,
+          payload: {
+            ...fullPayload,
+            created_at: currentLead.createdAt || currentLead.created_at || now,
+          },
+          replacedIds,
+        }));
+      } else {
+        try {
+          saveCanonicalLeadLocal({
+            candidate: currentLead,
+            canonicalId: persistedLead.id,
+            payload: {
+              ...fullPayload,
+              created_at:
+                persistedLead.createdAt
+                || persistedLead.created_at
+                || currentLead.createdAt
+                || currentLead.created_at
+                || now,
+            },
+            replacedIds,
+          });
+        } catch (mirrorError) {
+          console.warn(
+            'Status salvo no Supabase, mas o espelho local não pôde ser atualizado:',
+            mirrorError,
+          );
+        }
+      }
+
+      setLeads((current) => deduplicateLeadRecords([
+        persistedLead,
+        ...current.filter((lead) => (
+          !replacedIds.some((id) => String(id) === String(lead.id))
+          && !areLikelySameLead(lead, persistedLead)
+        )),
+      ]));
+
+      if (
+        String(selectedLead?.id || '') === String(currentLead.id)
+        || areLikelySameLead(selectedLead || {}, currentLead)
+      ) {
+        setSelectedLead(persistedLead);
+      }
+
+      setPageError('');
+      window.dispatchEvent(new Event('sf_storage_update'));
       return true;
     } catch (err) {
       console.error(
@@ -2614,55 +3157,41 @@ export default function CRM() {
         err.message,
       );
 
-      if (
-        !isSupabaseConfigured
-        || isMissingRelationError(err, 'leads')
-      ) {
-        const localLead = saveLeadLocal({
-          id: currentLead.id,
-          payload: {
-            ...currentLead,
-            ...statusPayload,
-          },
-        });
-
-        await fetchLeads();
-
-        if (selectedLead?.id === currentLead.id) {
-          setSelectedLead(localLead);
-        }
-
-        return true;
-      }
-
       setLeads((current) => (
         current.map((lead) => (
-          lead.id === currentLead.id
+          String(lead.id) === String(currentLead.id)
             ? currentLead
             : lead
         ))
       ));
 
-      if (selectedLead?.id === currentLead.id) {
+      if (String(selectedLead?.id || '') === String(currentLead.id)) {
         setSelectedLead(currentLead);
       }
 
+      setPageError(
+        err?.message
+          ? `Não foi possível salvar o novo status: ${err.message}`
+          : 'Não foi possível salvar o novo status. Tente novamente.',
+      );
+
       return false;
     } finally {
+      setUpdatingLeadId('');
       setSaveStatus('saved');
     }
   };
 
   const handleUpdateStatus = async (leadId, newStatus) => {
     const currentLead = leads.find(
-      (lead) => lead.id === leadId,
+      (lead) => String(lead.id) === String(leadId),
     );
 
     const normalizedStatus = normalizeLeadStatus(newStatus);
 
     if (
       !currentLead
-      || currentLead.status === normalizedStatus
+      || normalizeLeadStatus(currentLead.status) === normalizedStatus
     ) {
       return;
     }
@@ -3194,7 +3723,7 @@ export default function CRM() {
         lead,
         date: getLeadFollowupValue(lead),
         color: '#f87171',
-        background: '#1b0d0d',
+        background: 'var(--tone-red-bg)',
         border: '#472020',
       });
     });
@@ -3209,7 +3738,7 @@ export default function CRM() {
         lead,
         date: getLeadFollowupValue(lead),
         color: '#fbbf24',
-        background: '#1c1608',
+        background: 'var(--tone-gold-bg)',
         border: '#493817',
       });
     });
@@ -3231,7 +3760,7 @@ export default function CRM() {
         task,
         date: task.prazo,
         color: '#f87171',
-        background: '#1b0d0d',
+        background: 'var(--tone-red-bg)',
         border: '#472020',
       });
     });
@@ -3253,7 +3782,7 @@ export default function CRM() {
         task,
         date: task.prazo,
         color: '#60a5fa',
-        background: '#0d1520',
+        background: 'var(--tone-blue-bg)',
         border: '#24334a',
       });
     });
@@ -3275,7 +3804,7 @@ export default function CRM() {
           description: `${lead.nome || 'Lead sem nome'} está sem próximo contato.`,
           lead,
           color: '#fb7185',
-          background: '#1f0f15',
+          background: 'var(--tone-red-bg)',
           border: '#4a2230',
         });
       });
@@ -3799,18 +4328,26 @@ export default function CRM() {
       ),
     };
 
-    setAutomationRules(normalized);
-    localStorage.setItem(
+    const nextAuditActor = auditActor.trim() || 'Camilla';
+    const rulesSaved = writeStorage(
       CRM_AUTOMATION_RULES_STORAGE_KEY,
-      JSON.stringify(normalized),
+      normalized,
     );
-
-    localStorage.setItem(
+    const actorSaved = writeStorage(
       CRM_AUDIT_ACTOR_STORAGE_KEY,
-      auditActor.trim() || 'Camilla',
+      nextAuditActor,
     );
 
-    setAuditActor(auditActor.trim() || 'Camilla');
+    if (!rulesSaved || !actorSaved) {
+      setPageError(
+        'Não foi possível salvar as automações porque o armazenamento do navegador está cheio. '
+        + 'Libere espaço e tente novamente.',
+      );
+      return;
+    }
+
+    setAutomationRules(normalized);
+    setAuditActor(nextAuditActor);
     setIsAutomationRulesOpen(false);
   };
 
@@ -4024,10 +4561,6 @@ export default function CRM() {
     }));
   };
 
-  const clearHistoryFilters = () => {
-    setHistoryFilters(createEmptyHistoryFilters());
-  };
-
   const filteredLeads = useMemo(() => {
     const normalizedSearch = normalizeSearchText(filters.search);
 
@@ -4156,12 +4689,15 @@ export default function CRM() {
   }), [crmNotifications, unreadNotifications]);
 
   const saveNotificationReadState = (nextState) => {
-    setNotificationReadState(nextState);
+    if (!writeStorage(CRM_NOTIFICATIONS_STORAGE_KEY, nextState)) {
+      setPageError(
+        'Não foi possível salvar o estado das notificações porque o armazenamento do navegador está cheio.',
+      );
+      return false;
+    }
 
-    localStorage.setItem(
-      CRM_NOTIFICATIONS_STORAGE_KEY,
-      JSON.stringify(nextState),
-    );
+    setNotificationReadState(nextState);
+    return true;
   };
 
   const markNotificationAsRead = (notificationId) => {
@@ -4396,15 +4932,15 @@ export default function CRM() {
     width: '100%',
     padding: '12px',
     borderRadius: '8px',
-    border: '1px solid #333',
-    background: '#111',
-    color: '#fff',
+    border: '1px solid var(--border-color)',
+    background: 'var(--surface-card-strong)',
+    color: 'var(--text-main)',
     boxSizing: 'border-box',
     minWidth: 0,
   };
 
   const formLabelStyle = {
-    color: '#888',
+    color: 'var(--text-muted)',
     fontSize: '0.78rem',
     marginBottom: '6px',
     display: 'block',
@@ -4417,8 +4953,8 @@ export default function CRM() {
       style={{
         width: '100%',
         minHeight: '100vh',
-        backgroundColor: '#050505',
-        color: '#fff',
+        backgroundColor: 'var(--surface-page)',
+        color: 'var(--text-main)',
         padding: 'clamp(12px, 2.5vw, 24px)',
         boxSizing: 'border-box',
       }}
@@ -4448,17 +4984,17 @@ export default function CRM() {
                 margin: 0,
               }}
             >
-              CRM - Pipeline Comercial{' '}
+              CRM{' '}
               <AutoSaveIndicator state={saveStatus} />
             </h1>
 
             <p
               style={{
-                color: '#888',
+                color: 'var(--text-muted)',
                 marginTop: '6px',
               }}
             >
-              {leadSummary.total} leads cadastrados.
+              Acompanhe leads, follow-ups e oportunidades em um funil mais claro e objetivo.
             </p>
           </div>
 
@@ -4478,9 +5014,9 @@ export default function CRM() {
                 width: '44px',
                 height: '44px',
                 borderRadius: '10px',
-                background: '#141414',
+                background: 'var(--surface-card-strong)',
                 color: '#93c5fd',
-                border: '1px solid #303030',
+                border: '1px solid var(--border-color)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -4502,9 +5038,9 @@ export default function CRM() {
                 width: '44px',
                 height: '44px',
                 borderRadius: '10px',
-                background: '#141414',
+                background: 'var(--surface-card-strong)',
                 color: '#c5a059',
-                border: '1px solid #303030',
+                border: '1px solid var(--border-color)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -4546,9 +5082,10 @@ export default function CRM() {
 
             <button
               type="button"
+              className="crm-assistant-button"
               onClick={() => setIsAssistantOpen(true)}
               style={{
-                background: '#171126',
+                background: 'var(--tone-purple-bg)',
                 color: '#c4b5fd',
                 padding: '12px 18px',
                 borderRadius: '8px',
@@ -4608,11 +5145,89 @@ export default function CRM() {
           </div>
         </header>
 
+        {pageError && (
+          <div className="crm-page-error" role="alert">
+            <span>{pageError}</span>
+            <button
+              type="button"
+              onClick={() => setPageError('')}
+              aria-label="Fechar aviso"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         {!isLoading && (
+          <section className="crm-primary-toolbar">
+            <label className="crm-primary-search">
+              <Search size={17} />
+              <input
+                type="text"
+                value={filters.search}
+                placeholder="Buscar leads..."
+                onChange={(event) => {
+                  handleFilterChange('search', event.target.value);
+                }}
+              />
+            </label>
+
+            <select
+              aria-label="Filtrar por origem"
+              value={filters.origin}
+              onChange={(event) => {
+                handleFilterChange('origin', event.target.value);
+              }}
+            >
+              <option value="">Origem: todas</option>
+              {LEAD_ORIGINS.map((origin) => (
+                <option key={origin} value={origin}>{origin}</option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Filtrar por serviço"
+              value={selectedService}
+              onChange={(event) => {
+                setSelectedService(event.target.value);
+              }}
+            >
+              <option value="">Serviço: todos</option>
+              {serviceViewOptions.map((service) => (
+                <option key={service} value={service}>{service}</option>
+              ))}
+            </select>
+
+            <select
+              aria-label="Filtrar por status"
+              value={filters.status}
+              onChange={(event) => {
+                handleFilterChange('status', event.target.value);
+              }}
+            >
+              <option value="">Status: todos</option>
+              {CRM_STATUSES.map((status) => (
+                <option key={status.id} value={status.id}>{status.title}</option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              className={isAdvancedFiltersOpen ? 'crm-advanced-button is-active' : 'crm-advanced-button'}
+              onClick={() => setIsAdvancedFiltersOpen((current) => !current)}
+            >
+              <SlidersHorizontal size={16} />
+              Mais filtros
+              {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+            </button>
+          </section>
+        )}
+
+        {!isLoading && isAdvancedFiltersOpen && (
           <section
             style={{
-              background: '#0a0a0a',
-              border: '1px solid #1a1a1a',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '14px',
               padding: '14px',
               marginBottom: '20px',
@@ -4630,7 +5245,7 @@ export default function CRM() {
               <div>
                 <div
                   style={{
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     fontSize: '0.9rem',
                     fontWeight: 800,
                   }}
@@ -4640,7 +5255,7 @@ export default function CRM() {
 
                 <div
                   style={{
-                    color: '#777',
+                    color: 'var(--text-subtle)',
                     fontSize: '0.74rem',
                     marginTop: '4px',
                   }}
@@ -4656,9 +5271,9 @@ export default function CRM() {
                 }}
                 style={{
                   minWidth: '220px',
-                  background: '#111',
-                  color: '#ddd',
-                  border: '1px solid #333',
+                  background: 'var(--surface-card-strong)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '8px',
                   padding: '10px 12px',
                   cursor: 'pointer',
@@ -4695,218 +5310,14 @@ export default function CRM() {
           </div>
         ) : (
           <>
+
+
+            {isAdvancedFiltersOpen && (
             <section
+              className="crm-filter-panel"
               style={{
-                background: dailyActionsSummary.overdue > 0
-                  ? '#0f0909'
-                  : '#0a0a0a',
-                border: dailyActionsSummary.overdue > 0
-                  ? '1px solid #3d1c1c'
-                  : '1px solid #1a1a1a',
-                borderRadius: '16px',
-                padding: 'clamp(14px, 2vw, 20px)',
-                marginBottom: '24px',
-                overflow: 'hidden',
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  setIsDailyActionsOpen((current) => !current);
-                }}
-                style={{
-                  width: '100%',
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0,
-                  color: '#fff',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '16px',
-                  textAlign: 'left',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    minWidth: 0,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '10px',
-                      background: dailyActionsSummary.overdue > 0
-                        ? '#241111'
-                        : '#18130a',
-                      border: dailyActionsSummary.overdue > 0
-                        ? '1px solid #5a2525'
-                        : '1px solid #3a2d16',
-                      color: dailyActionsSummary.overdue > 0
-                        ? '#f87171'
-                        : '#c5a059',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <PlayCircle size={20} />
-                  </span>
-
-                  <div style={{ minWidth: 0 }}>
-                    <h2
-                      style={{
-                        margin: 0,
-                        fontSize: '1rem',
-                        color: '#fff',
-                      }}
-                    >
-                      Ações do dia
-                    </h2>
-
-                    <p
-                      style={{
-                        margin: '5px 0 0',
-                        color: '#777',
-                        fontSize: '0.8rem',
-                      }}
-                    >
-                      {dailyActionsSummary.total} ação(ões) priorizada(s) para você.
-                    </p>
-                  </div>
-                </div>
-
-                <span
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
-                    background: '#121212',
-                    border: '1px solid #252525',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#999',
-                    flexShrink: 0,
-                  }}
-                >
-                  {isDailyActionsOpen
-                    ? <ChevronUp size={17} />
-                    : <ChevronDown size={17} />}
-                </span>
-              </button>
-
-              {isDailyActionsOpen && (
-                <div style={{ marginTop: '18px' }}>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                      gap: '10px',
-                      marginBottom: '16px',
-                    }}
-                  >
-                    <FollowupSummaryCard
-                      label="Vencidos"
-                      value={dailyActionsSummary.overdue}
-                      color="#f87171"
-                      background="#1b0d0d"
-                      border="#472020"
-                    />
-
-                    <FollowupSummaryCard
-                      label="Para hoje"
-                      value={dailyActionsSummary.today}
-                      color="#fbbf24"
-                      background="#1c1608"
-                      border="#493817"
-                    />
-
-                    <FollowupSummaryCard
-                      label="Leads quentes sem ação"
-                      value={dailyActionsSummary.hotWithoutAction}
-                      color="#fb7185"
-                      background="#1f0f15"
-                      border="#4a2230"
-                    />
-
-                    <FollowupSummaryCard
-                      label="Total priorizado"
-                      value={dailyActionsSummary.total}
-                      color="#c5a059"
-                      background="#18130a"
-                      border="#3a2d16"
-                    />
-                  </div>
-
-                  {dailyActionsSummary.overdue > 0 && (
-                    <div
-                      style={{
-                        background: '#1b0d0d',
-                        border: '1px solid #472020',
-                        borderRadius: '10px',
-                        padding: '12px',
-                        color: '#f3b4b4',
-                        fontSize: '0.8rem',
-                        lineHeight: 1.5,
-                        marginBottom: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '9px',
-                      }}
-                    >
-                      <AlertTriangle size={17} />
-                      Existem ações vencidas que precisam de atenção antes das demais.
-                    </div>
-                  )}
-
-                  {dailyActions.length > 0 ? (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-                        gap: '10px',
-                      }}
-                    >
-                      {dailyActions.map((action) => (
-                        <DailyActionCard
-                          key={action.id}
-                          action={action}
-                          onOpenLead={openLeadDetails}
-                          onRegisterContact={openLeadContact}
-                          onWhatsApp={openWhatsAppModal}
-                          onCompleteTask={completeCommercialTask}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        color: '#666',
-                        fontSize: '0.84rem',
-                        border: '1px dashed #292929',
-                        borderRadius: '10px',
-                        padding: '16px',
-                        textAlign: 'center',
-                      }}
-                    >
-                      Nenhuma ação urgente ou prevista para hoje.
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <section
-              style={{
-                background: '#0a0a0a',
-                border: '1px solid #1a1a1a',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '16px',
                 padding: 'clamp(14px, 2vw, 20px)',
                 marginBottom: '24px',
@@ -4929,7 +5340,7 @@ export default function CRM() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      color: '#fff',
+                      color: 'var(--text-main)',
                       fontSize: '1rem',
                       margin: 0,
                     }}
@@ -4940,7 +5351,7 @@ export default function CRM() {
 
                   <p
                     style={{
-                      color: '#777',
+                      color: 'var(--text-subtle)',
                       fontSize: '0.8rem',
                       margin: '5px 0 0',
                     }}
@@ -4954,9 +5365,9 @@ export default function CRM() {
                     type="button"
                     onClick={clearFilters}
                     style={{
-                      background: '#171717',
-                      color: '#ddd',
-                      border: '1px solid #333',
+                      background: 'var(--surface-card-strong)',
+                      color: 'var(--text-main)',
+                      border: '1px solid var(--border-color)',
                       padding: '9px 12px',
                       borderRadius: '8px',
                       cursor: 'pointer',
@@ -4996,8 +5407,8 @@ export default function CRM() {
                       gap: '10px',
                       padding: '0 12px',
                       borderRadius: '8px',
-                      border: '1px solid #333',
-                      background: '#111',
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--surface-card-strong)',
                       boxSizing: 'border-box',
                     }}
                   >
@@ -5022,7 +5433,7 @@ export default function CRM() {
                         border: 'none',
                         outline: 'none',
                         background: 'transparent',
-                        color: '#fff',
+                        color: 'var(--text-main)',
                         boxSizing: 'border-box',
                       }}
                     />
@@ -5131,11 +5542,233 @@ export default function CRM() {
                 </select>
               </div>
             </section>
+            )}
+
+            <CRMStats leads={filteredLeads} compact />
+
+            <KanbanBoard
+              leads={filteredLeads}
+              onMove={handleUpdateStatus}
+              onClick={openLeadDetails}
+              onQuickNote={openQuickNoteModal}
+              updatingLeadId={updatingLeadId}
+            />
 
             <section
+                          className="crm-compact-section crm-daily-actions"
+                          style={{
+                            background: dailyActionsSummary.overdue > 0
+                              ? '#0f0909'
+                              : '#0a0a0a',
+                            border: dailyActionsSummary.overdue > 0
+                              ? '1px solid #3d1c1c'
+                              : '1px solid #1a1a1a',
+                            borderRadius: '16px',
+                            padding: 'clamp(14px, 2vw, 20px)',
+                            marginBottom: '24px',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsDailyActionsOpen((current) => !current);
+                            }}
+                            style={{
+                              width: '100%',
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 0,
+                              color: 'var(--text-main)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '16px',
+                              textAlign: 'left',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                minWidth: 0,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  borderRadius: '10px',
+                                  background: dailyActionsSummary.overdue > 0
+                                    ? '#241111'
+                                    : '#18130a',
+                                  border: dailyActionsSummary.overdue > 0
+                                    ? '1px solid #5a2525'
+                                    : '1px solid #3a2d16',
+                                  color: dailyActionsSummary.overdue > 0
+                                    ? '#f87171'
+                                    : '#c5a059',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <PlayCircle size={20} />
+                              </span>
+
+                              <div style={{ minWidth: 0 }}>
+                                <h2
+                                  style={{
+                                    margin: 0,
+                                    fontSize: '1rem',
+                                    color: 'var(--text-main)',
+                                  }}
+                                >
+                                  Ações do dia
+                                </h2>
+
+                                <p
+                                  style={{
+                                    margin: '5px 0 0',
+                                    color: 'var(--text-subtle)',
+                                    fontSize: '0.8rem',
+                                  }}
+                                >
+                                  {dailyActionsSummary.total} ação(ões) priorizada(s) para você.
+                                </p>
+                              </div>
+                            </div>
+
+                            <span
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '8px',
+                                background: 'var(--surface-card-strong)',
+                                border: '1px solid var(--border-color)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'var(--text-muted)',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {isDailyActionsOpen
+                                ? <ChevronUp size={17} />
+                                : <ChevronDown size={17} />}
+                            </span>
+                          </button>
+
+                          {isDailyActionsOpen && (
+                            <div style={{ marginTop: '18px' }}>
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                                  gap: '10px',
+                                  marginBottom: '16px',
+                                }}
+                              >
+                                <FollowupSummaryCard
+                                  label="Vencidos"
+                                  value={dailyActionsSummary.overdue}
+                                  color="#f87171"
+                                  background="#1b0d0d"
+                                  border="#472020"
+                                />
+
+                                <FollowupSummaryCard
+                                  label="Para hoje"
+                                  value={dailyActionsSummary.today}
+                                  color="#fbbf24"
+                                  background="#1c1608"
+                                  border="#493817"
+                                />
+
+                                <FollowupSummaryCard
+                                  label="Leads quentes sem ação"
+                                  value={dailyActionsSummary.hotWithoutAction}
+                                  color="#fb7185"
+                                  background="#1f0f15"
+                                  border="#4a2230"
+                                />
+
+                                <FollowupSummaryCard
+                                  label="Total priorizado"
+                                  value={dailyActionsSummary.total}
+                                  color="#c5a059"
+                                  background="#18130a"
+                                  border="#3a2d16"
+                                />
+                              </div>
+
+                              {dailyActionsSummary.overdue > 0 && (
+                                <div
+                                  style={{
+                                    background: 'var(--tone-red-bg)',
+                                    border: '1px solid #472020',
+                                    borderRadius: '10px',
+                                    padding: '12px',
+                                    color: '#f3b4b4',
+                                    fontSize: '0.8rem',
+                                    lineHeight: 1.5,
+                                    marginBottom: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '9px',
+                                  }}
+                                >
+                                  <AlertTriangle size={17} />
+                                  Existem ações vencidas que precisam de atenção antes das demais.
+                                </div>
+                              )}
+
+                              {dailyActions.length > 0 ? (
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                                    gap: '10px',
+                                  }}
+                                >
+                                  {dailyActions.map((action) => (
+                                    <DailyActionCard
+                                      key={action.id}
+                                      action={action}
+                                      onOpenLead={openLeadDetails}
+                                      onRegisterContact={openLeadContact}
+                                      onWhatsApp={openWhatsAppModal}
+                                      onCompleteTask={completeCommercialTask}
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                <div
+                                  style={{
+                                    color: 'var(--text-subtle)',
+                                    fontSize: '0.84rem',
+                                    border: '1px dashed var(--border-color)',
+                                    borderRadius: '10px',
+                                    padding: '16px',
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  Nenhuma ação urgente ou prevista para hoje.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </section>
+
+
+            <section
+              className="crm-compact-section"
               style={{
-                background: '#0a0a0a',
-                border: '1px solid #1a1a1a',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '16px',
                 padding: 'clamp(14px, 2vw, 20px)',
                 marginBottom: '24px',
@@ -5152,7 +5785,7 @@ export default function CRM() {
                   background: 'transparent',
                   border: 'none',
                   padding: 0,
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -5174,7 +5807,7 @@ export default function CRM() {
                       width: '38px',
                       height: '38px',
                       borderRadius: '10px',
-                      background: '#18130a',
+                      background: 'var(--tone-gold-bg)',
                       border: '1px solid #3a2d16',
                       color: '#c5a059',
                       display: 'flex',
@@ -5191,7 +5824,7 @@ export default function CRM() {
                       style={{
                         margin: 0,
                         fontSize: '1rem',
-                        color: '#fff',
+                        color: 'var(--text-main)',
                       }}
                     >
                       Central de follow-ups
@@ -5200,7 +5833,7 @@ export default function CRM() {
                     <p
                       style={{
                         margin: '5px 0 0',
-                        color: '#777',
+                        color: 'var(--text-subtle)',
                         fontSize: '0.8rem',
                       }}
                     >
@@ -5214,12 +5847,12 @@ export default function CRM() {
                     width: '32px',
                     height: '32px',
                     borderRadius: '8px',
-                    background: '#121212',
-                    border: '1px solid #252525',
+                    background: 'var(--surface-card-strong)',
+                    border: '1px solid var(--border-color)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#999',
+                    color: 'var(--text-muted)',
                     flexShrink: 0,
                   }}
                 >
@@ -5275,7 +5908,7 @@ export default function CRM() {
                   {smartFollowupSuggestions.length > 0 && (
                     <div
                       style={{
-                        background: '#0d0d0d',
+                        background: 'var(--surface-card)',
                         border: '1px solid #2b2418',
                         borderRadius: '12px',
                         padding: '14px',
@@ -5296,7 +5929,7 @@ export default function CRM() {
                           <h3
                             style={{
                               margin: 0,
-                              color: '#fff',
+                              color: 'var(--text-main)',
                               fontSize: '0.9rem',
                             }}
                           >
@@ -5306,7 +5939,7 @@ export default function CRM() {
                           <p
                             style={{
                               margin: '5px 0 0',
-                              color: '#777',
+                              color: 'var(--text-subtle)',
                               fontSize: '0.76rem',
                             }}
                           >
@@ -5394,9 +6027,10 @@ export default function CRM() {
             </section>
 
             <section
+              className="crm-compact-section"
               style={{
-                background: '#0a0a0a',
-                border: '1px solid #1a1a1a',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '16px',
                 padding: 'clamp(14px, 2vw, 20px)',
                 marginBottom: '24px',
@@ -5422,7 +6056,7 @@ export default function CRM() {
                     background: 'transparent',
                     border: 'none',
                     padding: 0,
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -5435,7 +6069,7 @@ export default function CRM() {
                       width: '38px',
                       height: '38px',
                       borderRadius: '10px',
-                      background: '#101621',
+                      background: 'var(--tone-blue-bg)',
                       border: '1px solid #24334a',
                       color: '#60a5fa',
                       display: 'flex',
@@ -5452,7 +6086,7 @@ export default function CRM() {
                       style={{
                         margin: 0,
                         fontSize: '1rem',
-                        color: '#fff',
+                        color: 'var(--text-main)',
                       }}
                     >
                       Central de tarefas comerciais
@@ -5461,7 +6095,7 @@ export default function CRM() {
                     <p
                       style={{
                         margin: '5px 0 0',
-                        color: '#777',
+                        color: 'var(--text-subtle)',
                         fontSize: '0.8rem',
                       }}
                     >
@@ -5475,12 +6109,12 @@ export default function CRM() {
                       width: '32px',
                       height: '32px',
                       borderRadius: '8px',
-                      background: '#121212',
-                      border: '1px solid #252525',
+                      background: 'var(--surface-card-strong)',
+                      border: '1px solid var(--border-color)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: '#999',
+                      color: 'var(--text-muted)',
                       flexShrink: 0,
                     }}
                   >
@@ -5594,9 +6228,10 @@ export default function CRM() {
             </section>
 
             <section
+              className="crm-compact-section"
               style={{
-                background: '#0a0a0a',
-                border: '1px solid #1a1a1a',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '16px',
                 padding: 'clamp(14px, 2vw, 20px)',
                 marginBottom: '24px',
@@ -5613,7 +6248,7 @@ export default function CRM() {
                   background: 'transparent',
                   border: 'none',
                   padding: 0,
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -5635,7 +6270,7 @@ export default function CRM() {
                       width: '40px',
                       height: '40px',
                       borderRadius: '10px',
-                      background: '#171126',
+                      background: 'var(--tone-purple-bg)',
                       border: '1px solid #33244f',
                       color: '#a78bfa',
                       display: 'flex',
@@ -5652,7 +6287,7 @@ export default function CRM() {
                       style={{
                         margin: 0,
                         fontSize: '1rem',
-                        color: '#fff',
+                        color: 'var(--text-main)',
                       }}
                     >
                       Recuperação de oportunidades
@@ -5661,7 +6296,7 @@ export default function CRM() {
                     <p
                       style={{
                         margin: '5px 0 0',
-                        color: '#777',
+                        color: 'var(--text-subtle)',
                         fontSize: '0.8rem',
                       }}
                     >
@@ -5675,12 +6310,12 @@ export default function CRM() {
                     width: '32px',
                     height: '32px',
                     borderRadius: '8px',
-                    background: '#121212',
-                    border: '1px solid #252525',
+                    background: 'var(--surface-card-strong)',
+                    border: '1px solid var(--border-color)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#999',
+                    color: 'var(--text-muted)',
                     flexShrink: 0,
                   }}
                 >
@@ -5762,9 +6397,9 @@ export default function CRM() {
                   ) : (
                     <div
                       style={{
-                        color: '#666',
+                        color: 'var(--text-subtle)',
                         fontSize: '0.84rem',
-                        border: '1px dashed #292929',
+                        border: '1px dashed var(--border-color)',
                         borderRadius: '10px',
                         padding: '16px',
                         textAlign: 'center',
@@ -5778,9 +6413,10 @@ export default function CRM() {
             </section>
 
             <section
+              className="crm-compact-section"
               style={{
-                background: '#0a0a0a',
-                border: '1px solid #1a1a1a',
+                background: 'var(--surface-card)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '16px',
                 padding: 'clamp(14px, 2vw, 20px)',
                 marginBottom: '24px',
@@ -5796,7 +6432,7 @@ export default function CRM() {
                   background: 'transparent',
                   border: 'none',
                   padding: 0,
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -5817,7 +6453,7 @@ export default function CRM() {
                       width: '40px',
                       height: '40px',
                       borderRadius: '10px',
-                      background: '#0d1726',
+                      background: 'var(--tone-blue-bg)',
                       border: '1px solid #1f3b63',
                       color: '#60a5fa',
                       display: 'flex',
@@ -5841,7 +6477,7 @@ export default function CRM() {
                     <p
                       style={{
                         margin: '5px 0 0',
-                        color: '#777',
+                        color: 'var(--text-subtle)',
                         fontSize: '0.78rem',
                       }}
                     >
@@ -5923,8 +6559,8 @@ export default function CRM() {
                   ) : (
                     <div
                       style={{
-                        color: '#666',
-                        border: '1px dashed #292929',
+                        color: 'var(--text-subtle)',
+                        border: '1px dashed var(--border-color)',
                         borderRadius: '9px',
                         padding: '14px',
                         textAlign: 'center',
@@ -5938,14 +6574,6 @@ export default function CRM() {
               )}
             </section>
 
-            <CRMStats leads={filteredLeads} />
-
-            <KanbanBoard
-              leads={filteredLeads}
-              onMove={handleUpdateStatus}
-              onClick={openLeadDetails}
-              onQuickNote={openQuickNoteModal}
-            />
           </>
         )}
       </div>
@@ -5972,8 +6600,8 @@ export default function CRM() {
               width: 'min(620px, 100%)',
               maxHeight: '92vh',
               overflowY: 'auto',
-              background: '#0a0a0a',
-              border: '1px solid #2a2a2a',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '14px',
               padding: '18px',
               boxSizing: 'border-box',
@@ -5992,7 +6620,7 @@ export default function CRM() {
                 <h2
                   style={{
                     margin: 0,
-                    color: '#fff',
+                    color: 'var(--text-main)',
                     fontSize: '1rem',
                   }}
                 >
@@ -6001,7 +6629,7 @@ export default function CRM() {
 
                 <div
                   style={{
-                    color: '#777',
+                    color: 'var(--text-subtle)',
                     fontSize: '0.72rem',
                     marginTop: '5px',
                   }}
@@ -6017,9 +6645,9 @@ export default function CRM() {
                   width: '34px',
                   height: '34px',
                   borderRadius: '8px',
-                  background: '#141414',
-                  color: '#aaa',
-                  border: '1px solid #2a2a2a',
+                  background: 'var(--surface-card-strong)',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border-color)',
                   cursor: 'pointer',
                 }}
               >
@@ -6046,7 +6674,7 @@ export default function CRM() {
                 <label
                   key={field}
                   style={{
-                    color: '#aaa',
+                    color: 'var(--text-muted)',
                     fontSize: '0.72rem',
                   }}
                 >
@@ -6065,9 +6693,9 @@ export default function CRM() {
                     style={{
                       width: '100%',
                       marginTop: '6px',
-                      background: '#111',
-                      color: '#fff',
-                      border: '1px solid #333',
+                      background: 'var(--surface-card-strong)',
+                      color: 'var(--text-main)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '8px',
                       padding: '10px',
                       boxSizing: 'border-box',
@@ -6090,10 +6718,10 @@ export default function CRM() {
                   justifyContent: 'space-between',
                   gap: '12px',
                   alignItems: 'center',
-                  color: '#bbb',
+                  color: 'var(--text-muted)',
                   fontSize: '0.76rem',
-                  background: '#111',
-                  border: '1px solid #242424',
+                  background: 'var(--surface-card-strong)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '9px',
                   padding: '11px',
                 }}
@@ -6120,10 +6748,10 @@ export default function CRM() {
                   justifyContent: 'space-between',
                   gap: '12px',
                   alignItems: 'center',
-                  color: '#bbb',
+                  color: 'var(--text-muted)',
                   fontSize: '0.76rem',
-                  background: '#111',
-                  border: '1px solid #242424',
+                  background: 'var(--surface-card-strong)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '9px',
                   padding: '11px',
                 }}
@@ -6146,7 +6774,7 @@ export default function CRM() {
 
               <label
                 style={{
-                  color: '#aaa',
+                  color: 'var(--text-muted)',
                   fontSize: '0.72rem',
                 }}
               >
@@ -6159,9 +6787,9 @@ export default function CRM() {
                   style={{
                     width: '100%',
                     marginTop: '6px',
-                    background: '#111',
-                    color: '#fff',
-                    border: '1px solid #333',
+                    background: 'var(--surface-card-strong)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '8px',
                     padding: '10px',
                     boxSizing: 'border-box',
@@ -6203,7 +6831,7 @@ export default function CRM() {
             gap: '12px',
           }}
         >
-          <label style={{ color: '#aaa', fontSize: '0.72rem' }}>
+          <label style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
             Título
 
             <input
@@ -6218,9 +6846,9 @@ export default function CRM() {
               style={{
                 width: '100%',
                 marginTop: '6px',
-                background: '#111',
-                color: '#fff',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 padding: '10px',
                 boxSizing: 'border-box',
@@ -6228,7 +6856,7 @@ export default function CRM() {
             />
           </label>
 
-          <label style={{ color: '#aaa', fontSize: '0.72rem' }}>
+          <label style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
             Tipo
 
             <select
@@ -6242,9 +6870,9 @@ export default function CRM() {
               style={{
                 width: '100%',
                 marginTop: '6px',
-                background: '#111',
-                color: '#fff',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 padding: '10px',
               }}
@@ -6258,7 +6886,7 @@ export default function CRM() {
             </select>
           </label>
 
-          <label style={{ color: '#aaa', fontSize: '0.72rem' }}>
+          <label style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
             Link do documento
 
             <input
@@ -6274,9 +6902,9 @@ export default function CRM() {
               style={{
                 width: '100%',
                 marginTop: '6px',
-                background: '#111',
-                color: '#fff',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 padding: '10px',
                 boxSizing: 'border-box',
@@ -6284,7 +6912,7 @@ export default function CRM() {
             />
           </label>
 
-          <label style={{ color: '#aaa', fontSize: '0.72rem' }}>
+          <label style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
             Observação
 
             <textarea
@@ -6299,9 +6927,9 @@ export default function CRM() {
               style={{
                 width: '100%',
                 marginTop: '6px',
-                background: '#111',
-                color: '#fff',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 padding: '10px',
                 boxSizing: 'border-box',
@@ -6352,7 +6980,7 @@ export default function CRM() {
             style={{
               width: 'min(500px, 100%)',
               height: '100%',
-              background: '#080808',
+              background: 'var(--surface-card)',
               borderLeft: '1px solid #292929',
               boxShadow: '-16px 0 40px rgba(0,0,0,0.45)',
               padding: '18px',
@@ -6381,7 +7009,7 @@ export default function CRM() {
                     width: '42px',
                     height: '42px',
                     borderRadius: '12px',
-                    background: '#18130a',
+                    background: 'var(--tone-gold-bg)',
                     border: '1px solid #3a2d16',
                     color: '#c5a059',
                     display: 'flex',
@@ -6396,7 +7024,7 @@ export default function CRM() {
                   <h2
                     style={{
                       margin: 0,
-                      color: '#fff',
+                      color: 'var(--text-main)',
                       fontSize: '1rem',
                     }}
                   >
@@ -6405,7 +7033,7 @@ export default function CRM() {
 
                   <div
                     style={{
-                      color: '#777',
+                      color: 'var(--text-subtle)',
                       fontSize: '0.72rem',
                       marginTop: '4px',
                     }}
@@ -6423,9 +7051,9 @@ export default function CRM() {
                   width: '34px',
                   height: '34px',
                   borderRadius: '8px',
-                  background: '#141414',
-                  color: '#aaa',
-                  border: '1px solid #2a2a2a',
+                  background: 'var(--surface-card-strong)',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border-color)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -6469,9 +7097,9 @@ export default function CRM() {
                 onClick={markAllNotificationsAsRead}
                 style={{
                   width: '100%',
-                  background: '#141414',
-                  color: '#bbb',
-                  border: '1px solid #303030',
+                  background: 'var(--surface-card-strong)',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '8px',
                   padding: '9px 11px',
                   cursor: 'pointer',
@@ -6500,22 +7128,22 @@ export default function CRM() {
                   const visual = {
                     critical: {
                       color: '#f87171',
-                      background: '#1b0d0d',
+                      background: 'var(--tone-red-bg)',
                       border: '#472020',
                     },
                     warning: {
                       color: '#fbbf24',
-                      background: '#1c1608',
+                      background: 'var(--tone-gold-bg)',
                       border: '#493817',
                     },
                     attention: {
                       color: '#60a5fa',
-                      background: '#0d1726',
+                      background: 'var(--tone-blue-bg)',
                       border: '#1f3b63',
                     },
                     info: {
                       color: '#a78bfa',
-                      background: '#171126',
+                      background: 'var(--tone-purple-bg)',
                       border: '#33244f',
                     },
                   }[notification.severity];
@@ -6568,7 +7196,7 @@ export default function CRM() {
                           {notification.date && (
                             <div
                               style={{
-                                color: '#666',
+                                color: 'var(--text-subtle)',
                                 fontSize: '0.68rem',
                                 marginTop: '5px',
                               }}
@@ -6606,9 +7234,9 @@ export default function CRM() {
                             void handleNotificationAction(notification);
                           }}
                           style={{
-                            background: '#171717',
-                            color: '#ddd',
-                            border: '1px solid #303030',
+                            background: 'var(--surface-card-strong)',
+                            color: 'var(--text-main)',
+                            border: '1px solid var(--border-color)',
                             borderRadius: '7px',
                             padding: '7px 9px',
                             cursor: 'pointer',
@@ -6627,8 +7255,8 @@ export default function CRM() {
                             }}
                             style={{
                               background: 'transparent',
-                              color: '#888',
-                              border: '1px solid #303030',
+                              color: 'var(--text-muted)',
+                              border: '1px solid var(--border-color)',
                               borderRadius: '7px',
                               padding: '7px 9px',
                               cursor: 'pointer',
@@ -6647,8 +7275,8 @@ export default function CRM() {
             ) : (
               <div
                 style={{
-                  color: '#666',
-                  border: '1px dashed #292929',
+                  color: 'var(--text-subtle)',
+                  border: '1px dashed var(--border-color)',
                   borderRadius: '10px',
                   padding: '16px',
                   textAlign: 'center',
@@ -6683,7 +7311,7 @@ export default function CRM() {
             style={{
               width: 'min(520px, 100%)',
               height: '100%',
-              background: '#080808',
+              background: 'var(--surface-card)',
               borderLeft: '1px solid #272033',
               boxShadow: '-16px 0 40px rgba(0,0,0,0.45)',
               padding: '18px',
@@ -6712,7 +7340,7 @@ export default function CRM() {
                     width: '42px',
                     height: '42px',
                     borderRadius: '12px',
-                    background: '#171126',
+                    background: 'var(--tone-purple-bg)',
                     border: '1px solid #3b2c5e',
                     color: '#c4b5fd',
                     display: 'flex',
@@ -6727,7 +7355,7 @@ export default function CRM() {
                   <h2
                     style={{
                       margin: 0,
-                      color: '#fff',
+                      color: 'var(--text-main)',
                       fontSize: '1rem',
                     }}
                   >
@@ -6736,7 +7364,7 @@ export default function CRM() {
 
                   <div
                     style={{
-                      color: '#777',
+                      color: 'var(--text-subtle)',
                       fontSize: '0.73rem',
                       marginTop: '4px',
                     }}
@@ -6753,9 +7381,9 @@ export default function CRM() {
                   width: '34px',
                   height: '34px',
                   borderRadius: '8px',
-                  background: '#141414',
-                  color: '#aaa',
-                  border: '1px solid #2a2a2a',
+                  background: 'var(--surface-card-strong)',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border-color)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -6768,7 +7396,7 @@ export default function CRM() {
 
             <div
               style={{
-                background: '#111',
+                background: 'var(--surface-card-strong)',
                 border: '1px solid #272033',
                 borderRadius: '12px',
                 padding: '14px',
@@ -6788,7 +7416,7 @@ export default function CRM() {
 
               <div
                 style={{
-                  color: '#ddd',
+                  color: 'var(--text-main)',
                   fontSize: '0.84rem',
                   lineHeight: 1.55,
                 }}
@@ -6798,7 +7426,7 @@ export default function CRM() {
 
               <div
                 style={{
-                  color: '#777',
+                  color: 'var(--text-subtle)',
                   fontSize: '0.7rem',
                   lineHeight: 1.45,
                   marginTop: '7px',
@@ -6858,7 +7486,7 @@ export default function CRM() {
             >
               <div
                 style={{
-                  color: '#888',
+                  color: 'var(--text-muted)',
                   fontSize: '0.72rem',
                   fontWeight: 700,
                   marginBottom: '8px',
@@ -6886,9 +7514,9 @@ export default function CRM() {
                     type="button"
                     onClick={() => askStudioFlowAssistant(question)}
                     style={{
-                      background: '#121212',
-                      color: '#aaa',
-                      border: '1px solid #2b2b2b',
+                      background: 'var(--surface-card-strong)',
+                      color: 'var(--text-muted)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '999px',
                       padding: '7px 10px',
                       fontSize: '0.68rem',
@@ -6921,9 +7549,9 @@ export default function CRM() {
                 style={{
                   flex: 1,
                   minWidth: 0,
-                  background: '#111',
-                  color: '#fff',
-                  border: '1px solid #333',
+                  background: 'var(--surface-card-strong)',
+                  color: 'var(--text-main)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '9px',
                   padding: '12px',
                   boxSizing: 'border-box',
@@ -6949,8 +7577,8 @@ export default function CRM() {
             {assistantAnswer && (
               <div
                 style={{
-                  background: '#0d0d0d',
-                  border: '1px solid #292929',
+                  background: 'var(--surface-card)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: '12px',
                   padding: '14px',
                   marginBottom: '14px',
@@ -6969,7 +7597,7 @@ export default function CRM() {
 
                 <div
                   style={{
-                    color: '#d0d0d0',
+                    color: 'var(--text-main)',
                     fontSize: '0.8rem',
                     lineHeight: 1.6,
                     whiteSpace: 'pre-wrap',
@@ -6983,7 +7611,7 @@ export default function CRM() {
             <div>
               <div
                 style={{
-                  color: '#888',
+                  color: 'var(--text-muted)',
                   fontSize: '0.72rem',
                   fontWeight: 700,
                   marginBottom: '8px',
@@ -7011,8 +7639,8 @@ export default function CRM() {
                         style={{
                           width: '100%',
                           textAlign: 'left',
-                          background: '#111',
-                          border: '1px solid #252525',
+                          background: 'var(--surface-card-strong)',
+                          border: '1px solid var(--border-color)',
                           borderRadius: '10px',
                           padding: '11px',
                           boxSizing: 'border-box',
@@ -7034,7 +7662,7 @@ export default function CRM() {
 
                         <div
                           style={{
-                            color: '#bbb',
+                            color: 'var(--text-muted)',
                             fontSize: '0.76rem',
                             lineHeight: 1.45,
                             marginTop: '5px',
@@ -7059,9 +7687,9 @@ export default function CRM() {
                                 openLeadDetails(item.lead);
                               }}
                               style={{
-                                background: '#171717',
-                                color: '#bbb',
-                                border: '1px solid #303030',
+                                background: 'var(--surface-card-strong)',
+                                color: 'var(--text-muted)',
+                                border: '1px solid var(--border-color)',
                                 borderRadius: '7px',
                                 padding: '7px 9px',
                                 fontSize: '0.66rem',
@@ -7081,7 +7709,7 @@ export default function CRM() {
                                 openWhatsAppModal(item.lead);
                               }}
                               style={{
-                                background: '#102017',
+                                background: 'var(--tone-green-bg)',
                                 color: '#70d6a2',
                                 border: '1px solid #214a35',
                                 borderRadius: '7px',
@@ -7105,7 +7733,7 @@ export default function CRM() {
                                 );
                               }}
                               style={{
-                                background: '#171126',
+                                background: 'var(--tone-purple-bg)',
                                 color: '#c4b5fd',
                                 border: '1px solid #33244f',
                                 borderRadius: '7px',
@@ -7127,7 +7755,7 @@ export default function CRM() {
                                 openTaskModal(item.lead);
                               }}
                               style={{
-                                background: '#0d1726',
+                                background: 'var(--tone-blue-bg)',
                                 color: '#93c5fd',
                                 border: '1px solid #1f3b63',
                                 borderRadius: '7px',
@@ -7148,7 +7776,7 @@ export default function CRM() {
                                 void completeCommercialTask(item.task);
                               }}
                               style={{
-                                background: '#0d1b16',
+                                background: 'var(--tone-green-bg)',
                                 color: '#70d6a2',
                                 border: '1px solid #1f4939',
                                 borderRadius: '7px',
@@ -7169,7 +7797,7 @@ export default function CRM() {
                                 void renewBudgetValidity(item.lead, 30);
                               }}
                               style={{
-                                background: '#18130a',
+                                background: 'var(--tone-gold-bg)',
                                 color: '#d8b56e',
                                 border: '1px solid #3a2d16',
                                 borderRadius: '7px',
@@ -7193,7 +7821,7 @@ export default function CRM() {
                                 );
                               }}
                               style={{
-                                background: '#1c1608',
+                                background: 'var(--tone-gold-bg)',
                                 color: '#fbbf24',
                                 border: '1px solid #493817',
                                 borderRadius: '7px',
@@ -7214,8 +7842,8 @@ export default function CRM() {
               ) : (
                 <div
                   style={{
-                    color: '#666',
-                    border: '1px dashed #292929',
+                    color: 'var(--text-subtle)',
+                    border: '1px dashed var(--border-color)',
                     borderRadius: '9px',
                     padding: '13px',
                     textAlign: 'center',
@@ -7237,6 +7865,7 @@ export default function CRM() {
           setEditingLead(null);
         }}
         title={editingLead ? 'Editar Lead' : 'Novo Lead'}
+        contentClassName="sf-modal-content--lead-form"
       >
         <LeadForm
           initialData={editingLead}
@@ -7392,7 +8021,7 @@ export default function CRM() {
             onClick={(event) => event.stopPropagation()}
             style={{
               background: '#090909',
-              border: '1px solid #242424',
+              border: '1px solid var(--border-color)',
               borderRadius: '18px',
               boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
               overflow: 'hidden',
@@ -7425,7 +8054,7 @@ export default function CRM() {
                   >
                     <span
                       style={{
-                        background: '#18130a',
+                        background: 'var(--tone-gold-bg)',
                         border: '1px solid #3a2d16',
                         color: '#d8b56e',
                         borderRadius: '999px',
@@ -7439,9 +8068,9 @@ export default function CRM() {
 
                     <span
                       style={{
-                        background: '#111',
-                        border: '1px solid #292929',
-                        color: '#aaa',
+                        background: 'var(--surface-card-strong)',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-muted)',
                         borderRadius: '999px',
                         padding: '5px 8px',
                         fontSize: '0.68rem',
@@ -7453,9 +8082,9 @@ export default function CRM() {
 
                     <span
                       style={{
-                        background: '#111',
-                        border: '1px solid #292929',
-                        color: '#aaa',
+                        background: 'var(--surface-card-strong)',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-muted)',
                         borderRadius: '999px',
                         padding: '5px 8px',
                         fontSize: '0.68rem',
@@ -7469,7 +8098,7 @@ export default function CRM() {
                   <h2
                     style={{
                       margin: 0,
-                      color: '#fff',
+                      color: 'var(--text-main)',
                       fontSize: 'clamp(1.2rem, 2vw, 1.65rem)',
                       lineHeight: 1.2,
                       wordBreak: 'break-word',
@@ -7480,7 +8109,7 @@ export default function CRM() {
 
                   <div
                     style={{
-                      color: '#777',
+                      color: 'var(--text-subtle)',
                       fontSize: '0.76rem',
                       marginTop: '7px',
                       display: 'flex',
@@ -7510,9 +8139,9 @@ export default function CRM() {
                     width: '38px',
                     height: '38px',
                     borderRadius: '10px',
-                    background: '#151515',
+                    background: 'var(--surface-card-strong)',
                     border: '1px solid #2d2d2d',
-                    color: '#aaa',
+                    color: 'var(--text-muted)',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -7577,7 +8206,7 @@ export default function CRM() {
                 gap: '6px',
                 padding: '10px 14px',
                 borderBottom: '1px solid #202020',
-                background: '#0c0c0c',
+                background: 'var(--surface-card)',
               }}
             >
               {[
@@ -7634,7 +8263,7 @@ export default function CRM() {
                   {selectedLeadSummary && (
                     <section
                       style={{
-                        background: '#0d0d0d',
+                        background: 'var(--surface-card)',
                         border: selectedLeadSummary.alerts.length > 0
                           ? '1px solid #493817'
                           : '1px solid #222',
@@ -7665,7 +8294,7 @@ export default function CRM() {
 
                           <div
                             style={{
-                              color: '#ddd',
+                              color: 'var(--text-main)',
                               fontSize: '0.8rem',
                               lineHeight: 1.55,
                               marginTop: '6px',
@@ -7681,9 +8310,9 @@ export default function CRM() {
                             setIsLeadSummaryExpanded((current) => !current);
                           }}
                           style={{
-                            background: '#171717',
-                            color: '#aaa',
-                            border: '1px solid #303030',
+                            background: 'var(--surface-card-strong)',
+                            color: 'var(--text-muted)',
+                            border: '1px solid var(--border-color)',
                             borderRadius: '7px',
                             padding: '7px 9px',
                             cursor: 'pointer',
@@ -7700,8 +8329,8 @@ export default function CRM() {
 
                       <div
                         style={{
-                          background: '#111',
-                          border: '1px solid #242424',
+                          background: 'var(--surface-card-strong)',
+                          border: '1px solid var(--border-color)',
                           borderRadius: '9px',
                           padding: '11px',
                           marginTop: '10px',
@@ -7709,7 +8338,7 @@ export default function CRM() {
                       >
                         <div
                           style={{
-                            color: '#777',
+                            color: 'var(--text-subtle)',
                             fontSize: '0.66rem',
                             fontWeight: 800,
                             textTransform: 'uppercase',
@@ -7720,7 +8349,7 @@ export default function CRM() {
 
                         <div
                           style={{
-                            color: '#ddd',
+                            color: 'var(--text-main)',
                             fontSize: '0.78rem',
                             lineHeight: 1.5,
                             marginTop: '5px',
@@ -7801,7 +8430,7 @@ export default function CRM() {
                               style={{
                                 padding: '5px 8px',
                                 borderRadius: '999px',
-                                background: '#1b0d0d',
+                                background: 'var(--tone-red-bg)',
                                 border: '1px solid #472020',
                                 color: '#f3a7a7',
                                 fontSize: '0.67rem',
@@ -7819,15 +8448,15 @@ export default function CRM() {
                   <div className="lead-details-sections">
                     <section
                       style={{
-                        background: '#0d0d0d',
-                        border: '1px solid #222',
+                        background: 'var(--surface-card)',
+                        border: '1px solid var(--border-color)',
                         borderRadius: '12px',
                         padding: '14px',
                       }}
                     >
                       <h3
                         style={{
-                          color: '#fff',
+                          color: 'var(--text-main)',
                           margin: '0 0 12px',
                           fontSize: '0.87rem',
                         }}
@@ -7881,15 +8510,15 @@ export default function CRM() {
 
                     <section
                       style={{
-                        background: '#0d0d0d',
-                        border: '1px solid #222',
+                        background: 'var(--surface-card)',
+                        border: '1px solid var(--border-color)',
                         borderRadius: '12px',
                         padding: '14px',
                       }}
                     >
                       <h3
                         style={{
-                          color: '#fff',
+                          color: 'var(--text-main)',
                           margin: '0 0 12px',
                           fontSize: '0.87rem',
                         }}
@@ -7965,7 +8594,7 @@ export default function CRM() {
                       <h3
                         style={{
                           margin: 0,
-                          color: '#fff',
+                          color: 'var(--text-main)',
                           fontSize: '0.9rem',
                         }}
                       >
@@ -7974,7 +8603,7 @@ export default function CRM() {
 
                       <div
                         style={{
-                          color: '#777',
+                          color: 'var(--text-subtle)',
                           fontSize: '0.7rem',
                           marginTop: '4px',
                         }}
@@ -7987,7 +8616,7 @@ export default function CRM() {
                       type="button"
                       onClick={() => openDocumentModal(selectedLead)}
                       style={{
-                        background: '#18130a',
+                        background: 'var(--tone-gold-bg)',
                         color: '#d8b56e',
                         border: '1px solid #3a2d16',
                         padding: '9px 12px',
@@ -8020,8 +8649,8 @@ export default function CRM() {
                   ) : (
                     <div
                       style={{
-                        color: '#666',
-                        border: '1px dashed #292929',
+                        color: 'var(--text-subtle)',
+                        border: '1px dashed var(--border-color)',
                         borderRadius: '10px',
                         padding: '16px',
                         textAlign: 'center',
@@ -8044,7 +8673,7 @@ export default function CRM() {
                     <h3
                       style={{
                         margin: 0,
-                        color: '#fff',
+                        color: 'var(--text-main)',
                         fontSize: '0.9rem',
                       }}
                     >
@@ -8053,7 +8682,7 @@ export default function CRM() {
 
                     <div
                       style={{
-                        color: '#777',
+                        color: 'var(--text-subtle)',
                         fontSize: '0.7rem',
                         marginTop: '4px',
                       }}
@@ -8074,8 +8703,8 @@ export default function CRM() {
                         <div
                           key={`audit-${item.id}`}
                           style={{
-                            background: '#0d0d0d',
-                            border: '1px solid #242424',
+                            background: 'var(--surface-card)',
+                            border: '1px solid var(--border-color)',
                             borderRadius: '10px',
                             padding: '11px',
                             display: 'flex',
@@ -8087,7 +8716,7 @@ export default function CRM() {
                           <div style={{ minWidth: 0 }}>
                             <div
                               style={{
-                                color: '#ddd',
+                                color: 'var(--text-main)',
                                 fontSize: '0.78rem',
                                 fontWeight: 800,
                               }}
@@ -8097,7 +8726,7 @@ export default function CRM() {
 
                             <div
                               style={{
-                                color: '#777',
+                                color: 'var(--text-subtle)',
                                 fontSize: '0.69rem',
                                 marginTop: '5px',
                                 lineHeight: 1.45,
@@ -8125,7 +8754,7 @@ export default function CRM() {
 
                             <div
                               style={{
-                                color: '#666',
+                                color: 'var(--text-subtle)',
                                 fontSize: '0.65rem',
                                 marginTop: '4px',
                               }}
@@ -8139,8 +8768,8 @@ export default function CRM() {
                   ) : (
                     <div
                       style={{
-                        color: '#666',
-                        border: '1px dashed #292929',
+                        color: 'var(--text-subtle)',
+                        border: '1px dashed var(--border-color)',
                         borderRadius: '10px',
                         padding: '16px',
                         textAlign: 'center',
@@ -8169,7 +8798,7 @@ export default function CRM() {
                       <h3
                         style={{
                           margin: 0,
-                          color: '#fff',
+                          color: 'var(--text-main)',
                           fontSize: '0.9rem',
                         }}
                       >
@@ -8178,7 +8807,7 @@ export default function CRM() {
 
                       <div
                         style={{
-                          color: '#777',
+                          color: 'var(--text-subtle)',
                           fontSize: '0.7rem',
                           marginTop: '4px',
                         }}
@@ -8208,8 +8837,8 @@ export default function CRM() {
 
                   <div
                     style={{
-                      background: '#0d0d0d',
-                      border: '1px solid #222',
+                      background: 'var(--surface-card)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '10px',
                       padding: '12px',
                       marginBottom: '12px',
@@ -8223,9 +8852,9 @@ export default function CRM() {
                             display: 'flex',
                             alignItems: 'center',
                             gap: '8px',
-                            border: '1px solid #303030',
+                            border: '1px solid var(--border-color)',
                             borderRadius: '8px',
-                            background: '#111',
+                            background: 'var(--surface-card-strong)',
                             padding: '0 10px',
                             boxSizing: 'border-box',
                           }}
@@ -8249,7 +8878,7 @@ export default function CRM() {
                               background: 'transparent',
                               border: 'none',
                               outline: 'none',
-                              color: '#fff',
+                              color: 'var(--text-main)',
                             }}
                           />
                         </span>
@@ -8349,8 +8978,8 @@ export default function CRM() {
                     ) : (
                       <div
                         style={{
-                          color: '#666',
-                          border: '1px dashed #292929',
+                          color: 'var(--text-subtle)',
+                          border: '1px dashed var(--border-color)',
                           borderRadius: '10px',
                           padding: '16px',
                           textAlign: 'center',
@@ -8380,7 +9009,7 @@ export default function CRM() {
                       <h3
                         style={{
                           margin: 0,
-                          color: '#fff',
+                          color: 'var(--text-main)',
                           fontSize: '0.9rem',
                         }}
                       >
@@ -8389,7 +9018,7 @@ export default function CRM() {
 
                       <div
                         style={{
-                          color: '#777',
+                          color: 'var(--text-subtle)',
                           fontSize: '0.7rem',
                           marginTop: '4px',
                         }}
@@ -8405,7 +9034,7 @@ export default function CRM() {
                       type="button"
                       onClick={() => openTaskModal(selectedLead)}
                       style={{
-                        background: '#0d1726',
+                        background: 'var(--tone-blue-bg)',
                         color: '#93c5fd',
                         border: '1px solid #1f3b63',
                         padding: '9px 12px',
@@ -8468,7 +9097,7 @@ export default function CRM() {
 
                               <div
                                 style={{
-                                  color: '#777',
+                                  color: 'var(--text-subtle)',
                                   fontSize: '0.69rem',
                                   marginTop: '5px',
                                 }}
@@ -8487,7 +9116,7 @@ export default function CRM() {
                                   void completeCommercialTask(task);
                                 }}
                                 style={{
-                                  background: '#0d1b16',
+                                  background: 'var(--tone-green-bg)',
                                   color: '#70d6a2',
                                   border: '1px solid #1f4939',
                                   borderRadius: '7px',
@@ -8507,8 +9136,8 @@ export default function CRM() {
                   ) : (
                     <div
                       style={{
-                        color: '#666',
-                        border: '1px dashed #292929',
+                        color: 'var(--text-subtle)',
+                        border: '1px dashed var(--border-color)',
                         borderRadius: '10px',
                         padding: '16px',
                         textAlign: 'center',
@@ -8531,15 +9160,15 @@ export default function CRM() {
                 >
                   <section
                     style={{
-                      background: '#0d0d0d',
-                      border: '1px solid #222',
+                      background: 'var(--surface-card)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '12px',
                       padding: '14px',
                     }}
                   >
                     <h3
                       style={{
-                        color: '#fff',
+                        color: 'var(--text-main)',
                         margin: '0 0 10px',
                         fontSize: '0.88rem',
                       }}
@@ -8564,8 +9193,8 @@ export default function CRM() {
 
                   <section
                     style={{
-                      background: '#0d0d0d',
-                      border: '1px solid #222',
+                      background: 'var(--surface-card)',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '12px',
                       padding: '14px',
                     }}
@@ -8596,7 +9225,7 @@ export default function CRM() {
             <footer
               style={{
                 borderTop: '1px solid #202020',
-                background: '#0c0c0c',
+                background: 'var(--surface-card)',
                 padding: '10px 12px',
               }}
             >
@@ -8605,7 +9234,7 @@ export default function CRM() {
                   type="button"
                   onClick={() => openWhatsAppModal(selectedLead)}
                   style={{
-                    background: '#102017',
+                    background: 'var(--tone-green-bg)',
                     color: '#70d6a2',
                     border: '1px solid #214a35',
                     padding: '10px 12px',
@@ -8622,7 +9251,7 @@ export default function CRM() {
                   type="button"
                   onClick={handleOpenContactModal}
                   style={{
-                    background: '#18130a',
+                    background: 'var(--tone-gold-bg)',
                     color: '#d8b56e',
                     border: '1px solid #3a2d16',
                     padding: '10px 12px',
@@ -8639,7 +9268,7 @@ export default function CRM() {
                   type="button"
                   onClick={() => openTaskModal(selectedLead)}
                   style={{
-                    background: '#0d1726',
+                    background: 'var(--tone-blue-bg)',
                     color: '#93c5fd',
                     border: '1px solid #1f3b63',
                     padding: '10px 12px',
@@ -8656,9 +9285,9 @@ export default function CRM() {
                   type="button"
                   onClick={() => openQuickNoteModal(selectedLead)}
                   style={{
-                    background: '#171717',
-                    color: '#bbb',
-                    border: '1px solid #303030',
+                    background: 'var(--surface-card-strong)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border-color)',
                     padding: '10px 12px',
                     borderRadius: '8px',
                     cursor: 'pointer',
@@ -8677,9 +9306,9 @@ export default function CRM() {
                     setIsModalOpen(true);
                   }}
                   style={{
-                    background: '#171717',
-                    color: '#fff',
-                    border: '1px solid #333',
+                    background: 'var(--surface-card-strong)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
                     padding: '10px 12px',
                     borderRadius: '8px',
                     cursor: 'pointer',
@@ -8753,15 +9382,15 @@ export default function CRM() {
         >
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #222',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '12px',
             }}
           >
             <div
               style={{
-                color: '#777',
+                color: 'var(--text-subtle)',
                 fontSize: '0.74rem',
                 marginBottom: '4px',
               }}
@@ -8771,7 +9400,7 @@ export default function CRM() {
 
             <div
               style={{
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontWeight: 700,
               }}
             >
@@ -8920,9 +9549,9 @@ export default function CRM() {
               disabled={isSavingContact}
               onClick={handleCloseContactModal}
               style={{
-                background: '#171717',
-                color: '#ddd',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 padding: '11px 16px',
                 borderRadius: '8px',
                 cursor: isSavingContact
@@ -8989,15 +9618,15 @@ export default function CRM() {
         >
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #222',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '12px',
             }}
           >
             <div
               style={{
-                color: '#777',
+                color: 'var(--text-subtle)',
                 fontSize: '0.74rem',
                 marginBottom: '4px',
               }}
@@ -9007,7 +9636,7 @@ export default function CRM() {
 
             <div
               style={{
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontWeight: 700,
               }}
             >
@@ -9057,9 +9686,9 @@ export default function CRM() {
               disabled={isSavingQuickNote}
               onClick={closeQuickNoteModal}
               style={{
-                background: '#171717',
-                color: '#ddd',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 padding: '11px 15px',
                 borderRadius: '8px',
                 cursor: isSavingQuickNote
@@ -9237,9 +9866,9 @@ export default function CRM() {
               disabled={isSavingTask}
               onClick={closeTaskModal}
               style={{
-                background: '#171717',
-                color: '#ddd',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 padding: '11px 15px',
                 borderRadius: '8px',
                 cursor: isSavingTask ? 'not-allowed' : 'pointer',
@@ -9301,15 +9930,15 @@ export default function CRM() {
         >
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #222',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '12px',
             }}
           >
             <div
               style={{
-                color: '#777',
+                color: 'var(--text-subtle)',
                 fontSize: '0.74rem',
                 marginBottom: '4px',
               }}
@@ -9319,7 +9948,7 @@ export default function CRM() {
 
             <div
               style={{
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontWeight: 700,
               }}
             >
@@ -9392,9 +10021,9 @@ export default function CRM() {
               type="button"
               onClick={copyWhatsAppMessage}
               style={{
-                background: '#171717',
-                color: '#ddd',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 padding: '11px 14px',
                 borderRadius: '8px',
                 cursor: 'pointer',
@@ -9446,15 +10075,15 @@ export default function CRM() {
         >
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #222',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '12px',
             }}
           >
             <div
               style={{
-                color: '#777',
+                color: 'var(--text-subtle)',
                 fontSize: '0.74rem',
                 marginBottom: '4px',
               }}
@@ -9464,7 +10093,7 @@ export default function CRM() {
 
             <div
               style={{
-                color: '#fff',
+                color: 'var(--text-main)',
                 fontWeight: 700,
               }}
             >
@@ -9539,9 +10168,9 @@ export default function CRM() {
               disabled={isSavingStatusReason}
               onClick={closeStatusReasonModal}
               style={{
-                background: '#171717',
-                color: '#ddd',
-                border: '1px solid #333',
+                background: 'var(--surface-card-strong)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
                 padding: '11px 16px',
                 borderRadius: '8px',
                 cursor: isSavingStatusReason
@@ -9610,7 +10239,7 @@ function SmartFollowupCard({
   return (
     <div
       style={{
-        background: '#111',
+        background: 'var(--surface-card-strong)',
         border: suggestion.isOverdue
           ? '1px solid #4a2020'
           : '1px solid #292929',
@@ -9627,7 +10256,7 @@ function SmartFollowupCard({
           padding: 0,
           background: 'transparent',
           border: 'none',
-          color: '#fff',
+          color: 'var(--text-main)',
           cursor: 'pointer',
           textAlign: 'left',
         }}
@@ -9674,7 +10303,7 @@ function SmartFollowupCard({
         >
           <span
             style={{
-              background: '#18130a',
+              background: 'var(--tone-gold-bg)',
               border: '1px solid #3a2d16',
               color: '#d8b56e',
               borderRadius: '999px',
@@ -9688,9 +10317,9 @@ function SmartFollowupCard({
 
           <span
             style={{
-              background: '#171717',
-              border: '1px solid #303030',
-              color: '#aaa',
+              background: 'var(--surface-card-strong)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--text-muted)',
               borderRadius: '999px',
               padding: '4px 7px',
               fontSize: '0.66rem',
@@ -9703,7 +10332,7 @@ function SmartFollowupCard({
 
         <div
           style={{
-            color: '#888',
+            color: 'var(--text-muted)',
             fontSize: '0.73rem',
             lineHeight: 1.45,
             marginTop: '7px',
@@ -9816,7 +10445,7 @@ function DailyActionCard({
 
           <div
             style={{
-              color: '#fff',
+              color: 'var(--text-main)',
               fontSize: '0.86rem',
               fontWeight: 700,
               marginTop: '6px',
@@ -9831,7 +10460,7 @@ function DailyActionCard({
         {action.date && (
           <span
             style={{
-              color: '#aaa',
+              color: 'var(--text-muted)',
               fontSize: '0.7rem',
               whiteSpace: 'nowrap',
               flexShrink: 0,
@@ -9845,7 +10474,7 @@ function DailyActionCard({
       {lead && (
         <div
           style={{
-            color: '#777',
+            color: 'var(--text-subtle)',
             fontSize: '0.72rem',
             marginTop: '7px',
           }}
@@ -9869,9 +10498,9 @@ function DailyActionCard({
           type="button"
           onClick={() => onOpenLead(lead)}
           style={{
-            background: '#171717',
-            color: '#ddd',
-            border: '1px solid #333',
+            background: 'var(--surface-card-strong)',
+            color: 'var(--text-main)',
+            border: '1px solid var(--border-color)',
             padding: '8px 9px',
             borderRadius: '7px',
             cursor: 'pointer',
@@ -9887,7 +10516,7 @@ function DailyActionCard({
             type="button"
             onClick={() => onCompleteTask(action.task)}
             style={{
-              background: '#12301f',
+              background: 'var(--tone-green-bg)',
               color: '#8fe2af',
               border: '1px solid #245d3a',
               padding: '8px 9px',
@@ -9909,7 +10538,7 @@ function DailyActionCard({
               type="button"
               onClick={() => onRegisterContact(lead)}
               style={{
-                background: '#18130a',
+                background: 'var(--tone-gold-bg)',
                 color: '#d8b56e',
                 border: '1px solid #3a2d16',
                 padding: '8px 9px',
@@ -9926,7 +10555,7 @@ function DailyActionCard({
               type="button"
               onClick={() => onWhatsApp(lead)}
               style={{
-                background: '#12301f',
+                background: 'var(--tone-green-bg)',
                 color: '#8fe2af',
                 border: '1px solid #245d3a',
                 padding: '8px 9px',
@@ -9956,8 +10585,8 @@ function TaskColumn({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #202020',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '12px',
         padding: '12px',
         minWidth: 0,
@@ -9977,7 +10606,7 @@ function TaskColumn({
             display: 'flex',
             alignItems: 'center',
             gap: '7px',
-            color: '#ddd',
+            color: 'var(--text-main)',
             fontSize: '0.84rem',
             fontWeight: 700,
           }}
@@ -9993,8 +10622,8 @@ function TaskColumn({
             minWidth: '26px',
             height: '26px',
             borderRadius: '999px',
-            background: '#161616',
-            border: '1px solid #292929',
+            background: 'var(--surface-card-strong)',
+            border: '1px solid var(--border-color)',
             color,
             display: 'flex',
             alignItems: 'center',
@@ -10021,10 +10650,10 @@ function TaskColumn({
         {tasks.length === 0 ? (
           <div
             style={{
-              border: '1px dashed #292929',
+              border: '1px dashed var(--border-color)',
               borderRadius: '9px',
               padding: '14px',
-              color: '#626262',
+              color: 'var(--text-subtle)',
               fontSize: '0.78rem',
               lineHeight: 1.4,
               textAlign: 'center',
@@ -10037,15 +10666,15 @@ function TaskColumn({
             <div
               key={task.id}
               style={{
-                background: '#111',
-                border: '1px solid #242424',
+                background: 'var(--surface-card-strong)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '10px',
                 padding: '11px',
               }}
             >
               <div
                 style={{
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   fontWeight: 700,
                   fontSize: '0.84rem',
                   lineHeight: 1.4,
@@ -10056,7 +10685,7 @@ function TaskColumn({
 
               <div
                 style={{
-                  color: '#777',
+                  color: 'var(--text-subtle)',
                   fontSize: '0.73rem',
                   marginTop: '5px',
                 }}
@@ -10077,8 +10706,8 @@ function TaskColumn({
                     color: TASK_PRIORITY_COLORS[
                       task.prioridade || 'media'
                     ],
-                    background: '#171717',
-                    border: '1px solid #292929',
+                    background: 'var(--surface-card-strong)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '999px',
                     padding: '4px 7px',
                     fontSize: '0.68rem',
@@ -10093,8 +10722,8 @@ function TaskColumn({
                 <span
                   style={{
                     color,
-                    background: '#171717',
-                    border: '1px solid #292929',
+                    background: 'var(--surface-card-strong)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '999px',
                     padding: '4px 7px',
                     fontSize: '0.68rem',
@@ -10109,7 +10738,7 @@ function TaskColumn({
 
               <div
                 style={{
-                  color: '#666',
+                  color: 'var(--text-subtle)',
                   fontSize: '0.7rem',
                   marginTop: '8px',
                 }}
@@ -10132,9 +10761,9 @@ function TaskColumn({
                   }}
                   style={{
                     flex: '1 1 90px',
-                    background: '#191919',
-                    color: '#ddd',
-                    border: '1px solid #303030',
+                    background: 'var(--surface-card-strong)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '7px',
                     padding: '8px 9px',
                     cursor: 'pointer',
@@ -10150,7 +10779,7 @@ function TaskColumn({
                   onClick={() => onComplete(task)}
                   style={{
                     flex: '1 1 110px',
-                    background: '#12301f',
+                    background: 'var(--tone-green-bg)',
                     color: '#8fe2af',
                     border: '1px solid #245d3a',
                     borderRadius: '7px',
@@ -10181,8 +10810,8 @@ function LeadJourneyTimeline({ items = [] }) {
     return (
       <div
         style={{
-          color: '#666',
-          border: '1px dashed #292929',
+          color: 'var(--text-subtle)',
+          border: '1px dashed var(--border-color)',
           borderRadius: '10px',
           padding: '16px',
           textAlign: 'center',
@@ -10242,8 +10871,8 @@ function LeadJourneyTimeline({ items = [] }) {
 
           <div
             style={{
-              background: '#0d0d0d',
-              border: '1px solid #242424',
+              background: 'var(--surface-card)',
+              border: '1px solid var(--border-color)',
               borderRadius: '10px',
               padding: '11px',
             }}
@@ -10259,7 +10888,7 @@ function LeadJourneyTimeline({ items = [] }) {
               <div style={{ minWidth: 0 }}>
                 <div
                   style={{
-                    color: '#ddd',
+                    color: 'var(--text-main)',
                     fontSize: '0.78rem',
                     fontWeight: 800,
                   }}
@@ -10270,7 +10899,7 @@ function LeadJourneyTimeline({ items = [] }) {
                 {item.description && (
                   <div
                     style={{
-                      color: '#777',
+                      color: 'var(--text-subtle)',
                       fontSize: '0.69rem',
                       lineHeight: 1.45,
                       marginTop: '5px',
@@ -10283,7 +10912,7 @@ function LeadJourneyTimeline({ items = [] }) {
 
               <div
                 style={{
-                  color: '#666',
+                  color: 'var(--text-subtle)',
                   fontSize: '0.65rem',
                   textAlign: 'right',
                   flexShrink: 0,
@@ -10313,8 +10942,8 @@ function LeadDocumentCard({ document }) {
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #242424',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '10px',
         padding: '12px',
       }}
@@ -10332,7 +10961,7 @@ function LeadDocumentCard({ document }) {
 
       <div
         style={{
-          color: '#ddd',
+          color: 'var(--text-main)',
           fontSize: '0.8rem',
           fontWeight: 800,
           marginTop: '6px',
@@ -10345,7 +10974,7 @@ function LeadDocumentCard({ document }) {
       {document.observacao && (
         <div
           style={{
-            color: '#777',
+            color: 'var(--text-subtle)',
             fontSize: '0.7rem',
             lineHeight: 1.45,
             marginTop: '6px',
@@ -10357,7 +10986,7 @@ function LeadDocumentCard({ document }) {
 
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.65rem',
           marginTop: '8px',
         }}
@@ -10381,9 +11010,9 @@ function LeadDocumentCard({ document }) {
           style={{
             width: '100%',
             marginTop: '10px',
-            background: '#171717',
-            color: '#bbb',
-            border: '1px solid #303030',
+            background: 'var(--surface-card-strong)',
+            color: 'var(--text-muted)',
+            border: '1px solid var(--border-color)',
             borderRadius: '7px',
             padding: '8px',
             cursor: 'pointer',
@@ -10406,15 +11035,15 @@ function NotificationSummaryCard({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #242424',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '9px',
         padding: '10px',
       }}
     >
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.65rem',
           marginBottom: '5px',
         }}
@@ -10445,7 +11074,7 @@ function AssistantMetric({
     <div
       style={{
         background: '#0b0b0b',
-        border: '1px solid #242424',
+        border: '1px solid var(--border-color)',
         borderRadius: '9px',
         padding: '10px',
         minWidth: 0,
@@ -10453,7 +11082,7 @@ function AssistantMetric({
     >
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.65rem',
           marginBottom: '5px',
         }}
@@ -10484,18 +11113,18 @@ function CommercialAgendaItem({
 }) {
   const timingStyle = item.timing === 'atrasado'
     ? {
-        background: '#1b0d0d',
+        background: 'var(--tone-red-bg)',
         border: '#472020',
         color: '#f87171',
       }
     : item.timing === 'hoje'
       ? {
-          background: '#1c1608',
+          background: 'var(--tone-gold-bg)',
           border: '#493817',
           color: '#fbbf24',
         }
       : {
-          background: '#0d0d0d',
+          background: 'var(--surface-card)',
           border: '#242424',
           color: item.color,
         };
@@ -10528,7 +11157,7 @@ function CommercialAgendaItem({
 
         <div
           style={{
-            color: '#aaa',
+            color: 'var(--text-muted)',
             fontSize: '0.72rem',
             marginTop: '4px',
           }}
@@ -10540,7 +11169,7 @@ function CommercialAgendaItem({
       <div style={{ minWidth: 0 }}>
         <div
           style={{
-            color: '#ddd',
+            color: 'var(--text-main)',
             fontSize: '0.8rem',
             fontWeight: 800,
             overflow: 'hidden',
@@ -10553,7 +11182,7 @@ function CommercialAgendaItem({
 
         <div
           style={{
-            color: '#777',
+            color: 'var(--text-subtle)',
             fontSize: '0.7rem',
             marginTop: '4px',
           }}
@@ -10590,7 +11219,7 @@ function CommercialAgendaItem({
             disabled={renewing}
             onClick={() => onRenewBudget(item.lead, 30)}
             style={{
-              background: '#18130a',
+              background: 'var(--tone-gold-bg)',
               color: '#d8b56e',
               border: '1px solid #3a2d16',
               borderRadius: '7px',
@@ -10610,7 +11239,7 @@ function CommercialAgendaItem({
             type="button"
             onClick={() => onCompleteTask(item.task)}
             style={{
-              background: '#0d1b16',
+              background: 'var(--tone-green-bg)',
               color: '#70d6a2',
               border: '1px solid #1f4939',
               borderRadius: '7px',
@@ -10628,9 +11257,9 @@ function CommercialAgendaItem({
           type="button"
           onClick={() => onOpenLead(item.lead)}
           style={{
-            background: '#171717',
-            color: '#bbb',
-            border: '1px solid #303030',
+            background: 'var(--surface-card-strong)',
+            color: 'var(--text-muted)',
+            border: '1px solid var(--border-color)',
             borderRadius: '7px',
             padding: '7px 9px',
             fontSize: '0.68rem',
@@ -10671,8 +11300,8 @@ function RecoveryOpportunityCard({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #242424',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '11px',
         padding: '13px',
         minWidth: 0,
@@ -10689,7 +11318,7 @@ function RecoveryOpportunityCard({
         <div style={{ minWidth: 0 }}>
           <div
             style={{
-              color: '#fff',
+              color: 'var(--text-main)',
               fontSize: '0.86rem',
               fontWeight: 800,
               overflow: 'hidden',
@@ -10703,7 +11332,7 @@ function RecoveryOpportunityCard({
 
           <div
             style={{
-              color: '#777',
+              color: 'var(--text-subtle)',
               fontSize: '0.72rem',
               marginTop: '4px',
             }}
@@ -10716,7 +11345,7 @@ function RecoveryOpportunityCard({
           style={{
             padding: '5px 7px',
             borderRadius: '999px',
-            background: '#151515',
+            background: 'var(--surface-card-strong)',
             border: `1px solid ${scoreColor}`,
             color: scoreColor,
             fontSize: '0.68rem',
@@ -10738,15 +11367,15 @@ function RecoveryOpportunityCard({
       >
         <div
           style={{
-            background: '#111',
-            border: '1px solid #222',
+            background: 'var(--surface-card-strong)',
+            border: '1px solid var(--border-color)',
             borderRadius: '8px',
             padding: '9px',
           }}
         >
           <div
             style={{
-              color: '#666',
+              color: 'var(--text-subtle)',
               fontSize: '0.66rem',
             }}
           >
@@ -10767,15 +11396,15 @@ function RecoveryOpportunityCard({
 
         <div
           style={{
-            background: '#111',
-            border: '1px solid #222',
+            background: 'var(--surface-card-strong)',
+            border: '1px solid var(--border-color)',
             borderRadius: '8px',
             padding: '9px',
           }}
         >
           <div
             style={{
-              color: '#666',
+              color: 'var(--text-subtle)',
               fontSize: '0.66rem',
             }}
           >
@@ -10830,7 +11459,7 @@ function RecoveryOpportunityCard({
           onClick={() => onWhatsApp(opportunity)}
           style={{
             flex: '1 1 90px',
-            background: '#102017',
+            background: 'var(--tone-green-bg)',
             color: '#70d6a2',
             border: '1px solid #214a35',
             borderRadius: '7px',
@@ -10850,7 +11479,7 @@ function RecoveryOpportunityCard({
             onClick={() => onReactivate(opportunity)}
             style={{
               flex: '1 1 90px',
-              background: '#171126',
+              background: 'var(--tone-purple-bg)',
               color: '#c4b5fd',
               border: '1px solid #33244f',
               borderRadius: '7px',
@@ -10869,7 +11498,7 @@ function RecoveryOpportunityCard({
             onClick={() => onRegisterContact(lead)}
             style={{
               flex: '1 1 90px',
-              background: '#18130a',
+              background: 'var(--tone-gold-bg)',
               color: '#d8b56e',
               border: '1px solid #3a2d16',
               borderRadius: '7px',
@@ -10888,9 +11517,9 @@ function RecoveryOpportunityCard({
           onClick={() => onOpenLead(lead)}
           style={{
             flex: '1 1 80px',
-            background: '#171717',
-            color: '#bbb',
-            border: '1px solid #303030',
+            background: 'var(--surface-card-strong)',
+            color: 'var(--text-muted)',
+            border: '1px solid var(--border-color)',
             borderRadius: '7px',
             padding: '8px',
             cursor: 'pointer',
@@ -10934,7 +11563,7 @@ function FollowupSummaryCard({
 
       <div
         style={{
-          color: '#aaa',
+          color: 'var(--text-muted)',
           fontSize: '0.76rem',
           marginTop: '6px',
         }}
@@ -10956,8 +11585,8 @@ function FollowupColumn({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #202020',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '12px',
         padding: '12px',
         minWidth: 0,
@@ -10977,7 +11606,7 @@ function FollowupColumn({
             display: 'flex',
             alignItems: 'center',
             gap: '7px',
-            color: '#ddd',
+            color: 'var(--text-main)',
             fontSize: '0.84rem',
             fontWeight: 700,
           }}
@@ -10991,8 +11620,8 @@ function FollowupColumn({
             minWidth: '26px',
             height: '26px',
             borderRadius: '999px',
-            background: '#161616',
-            border: '1px solid #292929',
+            background: 'var(--surface-card-strong)',
+            border: '1px solid var(--border-color)',
             color,
             display: 'flex',
             alignItems: 'center',
@@ -11019,10 +11648,10 @@ function FollowupColumn({
         {leads.length === 0 ? (
           <div
             style={{
-              border: '1px dashed #292929',
+              border: '1px dashed var(--border-color)',
               borderRadius: '9px',
               padding: '14px',
-              color: '#626262',
+              color: 'var(--text-subtle)',
               fontSize: '0.78rem',
               lineHeight: 1.4,
               textAlign: 'center',
@@ -11035,8 +11664,8 @@ function FollowupColumn({
             <div
               key={lead.id}
               style={{
-                background: '#111',
-                border: '1px solid #242424',
+                background: 'var(--surface-card-strong)',
+                border: '1px solid var(--border-color)',
                 borderRadius: '10px',
                 padding: '11px',
               }}
@@ -11049,7 +11678,7 @@ function FollowupColumn({
                   padding: 0,
                   background: 'transparent',
                   border: 'none',
-                  color: '#fff',
+                  color: 'var(--text-main)',
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
@@ -11068,7 +11697,7 @@ function FollowupColumn({
 
                 <div
                   style={{
-                    color: '#777',
+                    color: 'var(--text-subtle)',
                     fontSize: '0.73rem',
                     marginTop: '4px',
                     overflow: 'hidden',
@@ -11112,9 +11741,9 @@ function FollowupColumn({
                   onClick={() => onOpenLead(lead)}
                   style={{
                     flex: '1 1 90px',
-                    background: '#191919',
-                    color: '#ddd',
-                    border: '1px solid #303030',
+                    background: 'var(--surface-card-strong)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '7px',
                     padding: '8px 9px',
                     cursor: 'pointer',
@@ -11191,7 +11820,7 @@ function HistoryItem({ item }) {
 
         <div
           style={{
-            color: '#777',
+            color: 'var(--text-subtle)',
             fontSize: '0.75rem',
             whiteSpace: 'nowrap',
           }}
@@ -11203,7 +11832,7 @@ function HistoryItem({ item }) {
       {getHistoryDescription(item) && (
         <div
           style={{
-            color: '#aaa',
+            color: 'var(--text-muted)',
             fontSize: '0.82rem',
             lineHeight: 1.5,
             marginTop: '8px',
@@ -11224,7 +11853,7 @@ function HistoryItem({ item }) {
             fontSize: '0.76rem',
           }}
         >
-          <span style={{ color: '#666' }}>
+          <span style={{ color: 'var(--text-subtle)' }}>
             Resultado:
           </span>
 
@@ -11249,7 +11878,7 @@ function HistoryItem({ item }) {
             fontSize: '0.76rem',
           }}
         >
-          <span style={{ color: '#666' }}>
+          <span style={{ color: 'var(--text-subtle)' }}>
             Proximo follow-up:
           </span>
 
@@ -11276,8 +11905,8 @@ function LeadDetailKpi({
   return (
     <div
       style={{
-        background: '#0d0d0d',
-        border: '1px solid #242424',
+        background: 'var(--surface-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '10px',
         padding: '11px',
         minWidth: 0,
@@ -11285,7 +11914,7 @@ function LeadDetailKpi({
     >
       <div
         style={{
-          color: '#666',
+          color: 'var(--text-subtle)',
           fontSize: '0.65rem',
           marginBottom: '5px',
           textTransform: 'uppercase',
@@ -11328,7 +11957,7 @@ function LeadSummaryMetric({
     >
       <div
         style={{
-          color: '#777',
+          color: 'var(--text-subtle)',
           fontSize: '0.68rem',
           fontWeight: 700,
           marginBottom: '5px',
@@ -11356,15 +11985,15 @@ function Info({ label, value }) {
   return (
     <div
       style={{
-        background: '#111',
-        border: '1px solid #222',
+        background: 'var(--surface-card-strong)',
+        border: '1px solid var(--border-color)',
         borderRadius: '10px',
         padding: '12px',
       }}
     >
       <div
         style={{
-          color: '#777',
+          color: 'var(--text-subtle)',
           fontSize: '0.75rem',
           marginBottom: '5px',
         }}

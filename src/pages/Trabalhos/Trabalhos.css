@@ -5805,3 +5805,743 @@
     grid-template-columns: 1fr !important;
   }
 }
+
+/* =========================================================
+   TRABALHOS V127 — INTERFACE COMPACTA E RESPONSIVA
+   Escopo exclusivo da página de Trabalhos.
+   ========================================================= */
+.sf-projects-page {
+  gap: 11px !important;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.sf-projects-page > div:first-child {
+  display: grid;
+  gap: 9px;
+}
+
+.sf-projects-page .sf-projects-header {
+  align-items: center;
+  gap: 10px;
+}
+
+.sf-projects-page .sf-projects-heading {
+  gap: 8px;
+}
+
+.sf-projects-page .sf-projects-heading h1 {
+  margin: 0;
+  font-size: clamp(1.28rem, 1.8vw, 1.58rem);
+  line-height: 1.05;
+}
+
+.sf-projects-page .sf-projects-heading > span {
+  font-size: 0.64rem;
+}
+
+.sf-projects-page .sf-projects-header-actions {
+  gap: 6px;
+}
+
+.sf-projects-page .sf-project-view-switch {
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+  border-color: var(--border-color);
+}
+
+.sf-projects-page .sf-project-view-switch button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 0.65rem;
+}
+
+.sf-projects-page .sf-project-density-select,
+.sf-projects-page .sf-primary-button {
+  min-height: 34px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 0.68rem;
+}
+
+.sf-projects-page .sf-project-density-select {
+  padding: 0 28px 0 9px;
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+.sf-projects-page .sf-primary-button {
+  padding: 6px 11px;
+}
+
+.sf-projects-page .sf-projects-overview {
+  margin-top: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.sf-projects-page .sf-projects-overview > div {
+  min-height: 54px;
+  padding: 8px 11px;
+  gap: 1px;
+  justify-content: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+  border-color: var(--border-color);
+}
+
+.sf-projects-page .sf-projects-overview strong {
+  font-size: 1rem;
+  line-height: 1.1;
+}
+
+.sf-projects-page .sf-projects-overview span {
+  font-size: 0.6rem;
+}
+
+.sf-projects-page .sf-project-filters {
+  margin-top: 0;
+  padding: 6px;
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 1.35fr)
+    minmax(130px, 0.78fr)
+    minmax(135px, 0.9fr)
+    minmax(135px, 0.9fr)
+    auto
+    auto;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card) 58%, transparent);
+}
+
+.sf-projects-page .sf-project-filters input:not([type="checkbox"]),
+.sf-projects-page .sf-project-filters select,
+.sf-projects-page .sf-project-filter-toggle {
+  min-width: 0;
+  min-height: 32px !important;
+  height: 32px;
+  padding-top: 5px !important;
+  padding-bottom: 5px !important;
+  border-radius: 7px;
+  font-size: 0.66rem !important;
+}
+
+.sf-projects-page .sf-project-filters input:not([type="checkbox"]),
+.sf-projects-page .sf-project-filters select {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+.sf-projects-page .sf-project-filters > label {
+  min-height: 32px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  white-space: nowrap;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-card);
+  font-size: 0.61rem;
+}
+
+.sf-projects-page .sf-project-advanced-filters-panel {
+  margin-top: 0;
+  padding: 9px;
+  gap: 8px;
+  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+  border-radius: 10px;
+}
+
+.sf-projects-page .sf-project-advanced-filters-panel label {
+  gap: 4px;
+}
+
+.sf-projects-page .sf-project-advanced-filters-panel label > span {
+  font-size: 0.58rem;
+}
+
+.sf-projects-page .sf-project-advanced-filters-panel input,
+.sf-projects-page .sf-project-advanced-filters-panel select,
+.sf-projects-page .sf-project-advanced-filters-panel button {
+  min-height: 32px;
+  height: 32px;
+  font-size: 0.65rem;
+}
+
+.sf-projects-page .sf-workspace-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(245px, 285px);
+  gap: 9px;
+}
+
+.sf-projects-page .sf-workspace-main {
+  gap: 8px;
+}
+
+.sf-projects-page .sf-projects-list-shell {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card) 56%, transparent);
+  border-color: var(--border-color);
+}
+
+.sf-projects-page .sf-projects-list-title {
+  min-height: 35px;
+  padding: 0 11px;
+  gap: 7px;
+}
+
+.sf-projects-page .sf-projects-list-title strong {
+  font-size: 0.72rem;
+}
+
+.sf-projects-page .sf-projects-list-title span {
+  min-width: 20px;
+  height: 19px;
+  font-size: 0.58rem;
+}
+
+.sf-projects-page .sf-projects-list-header {
+  min-height: 31px;
+  padding: 0 10px;
+  gap: 7px;
+  grid-template-columns:
+    minmax(160px, 1.45fr)
+    minmax(105px, 0.9fr)
+    minmax(100px, 0.78fr)
+    minmax(110px, 0.9fr)
+    minmax(90px, 0.7fr)
+    minmax(105px, 0.82fr);
+  font-size: 0.54rem;
+}
+
+.sf-projects-page .sf-projects-list-body {
+  max-height: calc(100dvh - 228px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sf-projects-page .sf-project-list-row {
+  min-height: 49px;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 218px);
+}
+
+.sf-projects-page .sf-project-row-main {
+  min-height: 49px;
+  padding: 6px 9px;
+  gap: 7px;
+  grid-template-columns:
+    minmax(160px, 1.45fr)
+    minmax(105px, 0.9fr)
+    minmax(100px, 0.78fr)
+    minmax(110px, 0.9fr)
+    minmax(90px, 0.7fr)
+    minmax(105px, 0.82fr);
+}
+
+.sf-projects-page .sf-project-row-main > span,
+.sf-projects-page .sf-project-row-main > span > strong {
+  font-size: 0.65rem;
+}
+
+.sf-projects-page .sf-project-row-main small {
+  margin-top: 2px;
+  font-size: 0.54rem;
+}
+
+.sf-projects-page .sf-project-list-client {
+  gap: 7px;
+}
+
+.sf-projects-page .sf-project-avatar {
+  width: 27px;
+  height: 27px;
+  flex-basis: 27px;
+  border-radius: 8px;
+  font-size: 0.56rem;
+}
+
+.sf-projects-page .sf-project-stage-badge {
+  padding: 3px 6px;
+  font-size: 0.52rem;
+}
+
+.sf-projects-page .sf-project-received-cell {
+  gap: 1px 5px;
+}
+
+.sf-projects-page .sf-project-received-cell i {
+  height: 2px;
+}
+
+.sf-projects-page .sf-project-mobile-contracted {
+  display: none;
+}
+
+.sf-projects-page .sf-project-row-actions {
+  min-width: 0;
+  padding: 6px 7px;
+  grid-template-columns: 32px minmax(120px, 1fr) 32px;
+  gap: 5px;
+}
+
+.sf-projects-page .sf-project-row-actions > button,
+.sf-projects-page .sf-project-status-control {
+  height: 31px;
+  min-height: 31px;
+}
+
+.sf-projects-page .sf-project-row-actions > button {
+  width: 31px;
+  min-width: 31px;
+}
+
+.sf-projects-page .sf-project-status-control > span {
+  padding-left: 8px;
+  font-size: 0.61rem;
+}
+
+.sf-projects-page .sf-project-preview {
+  top: 7px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+.sf-projects-page .sf-project-preview-head,
+.sf-projects-page .sf-project-preview-section {
+  padding: 10px 11px;
+}
+
+.sf-projects-page .sf-project-preview-head h3 {
+  margin-bottom: 6px;
+  font-size: 0.84rem;
+}
+
+.sf-projects-page .sf-project-preview-tabs {
+  padding: 0 5px;
+}
+
+.sf-projects-page .sf-project-preview-tabs span {
+  padding: 8px 2px;
+  font-size: 0.54rem;
+}
+
+.sf-projects-page .sf-project-preview-section {
+  gap: 5px;
+}
+
+.sf-projects-page .sf-project-preview-section label,
+.sf-projects-page .sf-project-preview-section > div,
+.sf-projects-page .sf-project-preview-section > strong {
+  font-size: 0.62rem;
+}
+
+.sf-projects-page .sf-project-preview-section h4 {
+  font-size: 0.67rem;
+}
+
+.sf-projects-page .sf-preview-open {
+  min-height: 32px;
+  font-size: 0.62rem;
+}
+
+.sf-projects-page .sf-projects-board-shell {
+  min-width: 0;
+  border-radius: 10px;
+}
+
+.sf-projects-page .sf-projects-board-toolbar {
+  min-height: 34px;
+  padding: 5px 7px 5px 10px;
+  font-size: 0.61rem;
+}
+
+.sf-projects-page .sf-projects-board-actions button {
+  width: 29px;
+  height: 29px;
+}
+
+.sf-projects-page.density-compact .sf-projects-column {
+  flex-basis: 236px;
+  width: 236px !important;
+  min-width: 236px !important;
+  max-width: 236px !important;
+  max-height: calc(100dvh - 232px);
+  padding: 7px;
+}
+
+.sf-projects-page.density-compact .sf-projects-card-list {
+  max-height: calc(100dvh - 280px);
+  gap: 6px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-card {
+  padding: 8px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-card-head {
+  margin-bottom: 3px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-card-progress {
+  margin-bottom: 5px !important;
+}
+
+.sf-projects-page.density-compact .sf-project-agenda-status,
+.sf-projects-page.density-compact .sf-project-equipment-summary {
+  display: none !important;
+}
+
+.sf-projects-page.density-compact .sf-project-card-meta {
+  margin-top: 1px;
+}
+
+@media (max-width: 1280px) {
+  .sf-projects-page .sf-workspace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sf-projects-page .sf-project-preview {
+    display: none;
+  }
+
+  .sf-projects-page .sf-projects-list-header {
+    display: none;
+  }
+
+  .sf-projects-page .sf-projects-list-body {
+    max-height: none;
+    padding: 7px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    overflow: visible;
+  }
+
+  .sf-projects-page .sf-project-list-row {
+    min-height: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+  }
+
+  .sf-projects-page .sf-project-row-main,
+  .sf-projects-page .sf-undated-row .sf-project-row-main {
+    min-height: 0;
+    padding: 9px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(92px, 0.7fr);
+    grid-template-areas:
+      "client client"
+      "service date"
+      "stage received";
+    gap: 7px 10px;
+  }
+
+  .sf-projects-page .sf-project-list-client { grid-area: client; }
+  .sf-projects-page .sf-project-list-service { grid-area: service; }
+  .sf-projects-page .sf-project-list-date { grid-area: date; text-align: right; }
+  .sf-projects-page .sf-project-list-stage { grid-area: stage; }
+  .sf-projects-page .sf-project-received-cell { grid-area: received; text-align: right; justify-items: end; }
+  .sf-projects-page .sf-project-list-contracted { display: none; }
+  .sf-projects-page .sf-project-mobile-contracted { display: block; color: var(--text-secondary); }
+  .sf-projects-page .sf-project-payment-percent { display: none; }
+  .sf-projects-page .sf-project-received-cell i { width: 100%; }
+
+  .sf-projects-page .sf-project-row-actions {
+    padding: 6px 8px;
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+    border-left: 0;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .sf-projects-page .sf-projects-board-toolbar {
+    justify-content: flex-start;
+  }
+
+  .sf-projects-page .sf-projects-board-actions {
+    display: none;
+  }
+
+  .sf-projects-page .sf-projects-board {
+    width: 100%;
+    padding: 7px !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px !important;
+    overflow: visible !important;
+    scroll-snap-type: none !important;
+  }
+
+  .sf-projects-page.density-compact .sf-projects-column,
+  .sf-projects-page.density-comfortable .sf-projects-column {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    max-height: 440px;
+    flex: initial;
+  }
+
+  .sf-projects-page .sf-projects-column.empty {
+    display: none;
+  }
+
+  .sf-projects-page .sf-projects-card-list,
+  .sf-projects-page.density-compact .sf-projects-card-list {
+    max-height: 376px;
+  }
+}
+
+@media (max-width: 980px) {
+  .sf-projects-page .sf-projects-header {
+    align-items: flex-start;
+  }
+
+  .sf-projects-page .sf-projects-header-actions {
+    flex-wrap: wrap;
+  }
+
+  .sf-projects-page .sf-projects-overview {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .sf-projects-page .sf-project-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sf-projects-page .sf-project-filters > input:first-child,
+  .sf-projects-page .sf-project-filters > select:nth-child(2) {
+    grid-column: span 1;
+  }
+
+  .sf-projects-page .sf-project-advanced-filters-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 819px) {
+  .sf-projects-page .sf-projects-list-body,
+  .sf-projects-page .sf-projects-board {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .sf-projects-page .sf-projects-column,
+  .sf-projects-page.density-compact .sf-projects-column,
+  .sf-projects-page.density-comfortable .sf-projects-column {
+    max-height: none;
+  }
+
+  .sf-projects-page .sf-projects-card-list,
+  .sf-projects-page.density-compact .sf-projects-card-list {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 620px) {
+  .sf-projects-page {
+    gap: 8px !important;
+  }
+
+  .sf-projects-page > div:first-child {
+    gap: 7px;
+  }
+
+  .sf-projects-page .sf-projects-header {
+    gap: 7px;
+  }
+
+  .sf-projects-page .sf-projects-heading {
+    width: 100%;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .sf-projects-page .sf-projects-heading h1 {
+    font-size: 1.22rem !important;
+  }
+
+  .sf-projects-page .sf-projects-heading > span {
+    max-width: 54%;
+    overflow: hidden;
+    font-size: 0.57rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sf-projects-page .sf-projects-header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .sf-projects-page .sf-project-view-switch {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .sf-projects-page .sf-project-view-switch button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .sf-projects-page .sf-project-density-select {
+    display: none;
+  }
+
+  .sf-projects-page .sf-primary-button {
+    min-width: 116px;
+  }
+
+  .sf-projects-page .sf-projects-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .sf-projects-page .sf-projects-overview > div {
+    min-height: 48px;
+    padding: 7px 9px;
+  }
+
+  .sf-projects-page .sf-projects-overview strong {
+    font-size: 0.88rem;
+  }
+
+  .sf-projects-page .sf-projects-overview span {
+    font-size: 0.55rem;
+  }
+
+  .sf-projects-page .sf-project-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    padding: 5px;
+    gap: 5px;
+  }
+
+  .sf-projects-page .sf-project-filters > input:first-child,
+  .sf-projects-page .sf-project-filters > select:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  .sf-projects-page .sf-project-filters > button,
+  .sf-projects-page .sf-project-filters > label {
+    width: 100%;
+  }
+
+  .sf-projects-page .sf-project-advanced-filters-panel {
+    padding: 7px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sf-projects-page .sf-projects-list-title {
+    min-height: 32px;
+  }
+
+  .sf-projects-page .sf-projects-list-body {
+    padding: 5px;
+    gap: 5px;
+  }
+
+  .sf-projects-page .sf-project-row-main,
+  .sf-projects-page .sf-undated-row .sf-project-row-main {
+    padding: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(84px, auto);
+    gap: 6px 8px;
+  }
+
+  .sf-projects-page .sf-project-avatar {
+    width: 25px;
+    height: 25px;
+    flex-basis: 25px;
+  }
+
+  .sf-projects-page .sf-project-row-actions {
+    padding: 5px 6px;
+    grid-template-columns: 32px minmax(0, 1fr) 32px;
+  }
+
+  .sf-projects-page .sf-project-row-actions > button,
+  .sf-projects-page .sf-project-status-control {
+    min-height: 34px;
+    height: 34px;
+  }
+
+  .sf-projects-page .sf-project-row-actions > button {
+    width: 34px;
+    min-width: 34px;
+  }
+
+  .sf-projects-page .sf-projects-board-hint {
+    max-width: 100%;
+    font-size: 0.56rem;
+  }
+
+  .sf-projects-page .sf-projects-board {
+    padding: 5px !important;
+    gap: 5px !important;
+  }
+
+  .sf-projects-page .sf-projects-column {
+    padding: 6px;
+    border-radius: 9px;
+  }
+
+  .sf-projects-page .sf-projects-card-list,
+  .sf-projects-page.density-compact .sf-projects-card-list {
+    max-height: 340px;
+  }
+
+  .sf-projects-page .sf-project-card {
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 380px) {
+  .sf-projects-page .sf-projects-header-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sf-projects-page .sf-primary-button {
+    width: 100%;
+  }
+
+  .sf-projects-page .sf-project-row-main,
+  .sf-projects-page .sf-undated-row .sf-project-row-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "client"
+      "service"
+      "date"
+      "stage"
+      "received";
+  }
+
+  .sf-projects-page .sf-project-list-date,
+  .sf-projects-page .sf-project-received-cell {
+    text-align: left;
+    justify-items: start;
+  }
+}
+
+/* Cabeçalho da lista mantém a coluna de ações alinhada ao bloco lateral. */
+@media (min-width: 1281px) {
+  .sf-projects-page .sf-projects-list-header {
+    grid-template-columns:
+      minmax(160px, 1.45fr)
+      minmax(105px, 0.9fr)
+      minmax(100px, 0.78fr)
+      minmax(110px, 0.9fr)
+      minmax(90px, 0.7fr)
+      minmax(105px, 0.82fr)
+      minmax(200px, 218px);
+  }
+}

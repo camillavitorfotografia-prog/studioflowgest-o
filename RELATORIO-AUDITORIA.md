@@ -2,395 +2,371 @@
 
 ## Base utilizada
 
-- Arquivo recebido e utilizado exclusivamente: `CV-Studio(119).zip`.
+- Arquivo usado exclusivamente como base: `CV-Studio(121).zip`.
 - Nenhum arquivo foi recuperado de ZIPs anteriores.
-- O diretório `.git` existente foi usado somente para comparação local; nenhum `checkout`, `reset`, `restore` ou recuperação de versão anterior foi executado.
-- As alterações e melhorias já presentes no ZIP foram preservadas.
+- O histórico Git e as alterações já existentes na versão 121 foram preservados; não foi executado `git reset`, checkout de versões antigas ou restauração de arquivos de outros pacotes.
+- O diretório `node_modules` recebido não foi incluído na entrega final porque contém dependências nativas do ambiente Windows e não é portátil.
+- O diretório `dist` recebido foi removido da entrega porque era um build anterior às correções. Ele deve ser regenerado com `npm run build`.
 
-## Escopo examinado
+## Resumo executivo
 
-Foi realizada auditoria estática da estrutura React/Vite, rotas, imports, persistência local, autenticação, integração Supabase, módulos principais, contratos, propostas, galerias, financeiro, precificação, componentes compartilhados, CSS responsivo e fluxos destrutivos.
+A auditoria confirmou problemas funcionais e de persistência vistos nas gravações: cálculo inválido na Precificação, tema claro aplicado apenas parcialmente, falso aviso de salvamento da equipe quando o armazenamento local estava cheio, divergência entre Equipamentos e Financeiro, falha de upload por `QuotaExceededError`, cálculo financeiro sem base válida, datas sem formatação, modais longos com ações encobertas e excesso de densidade/rolagem em telas menores.
 
-Áreas inspecionadas no código: login e sessão, Dashboard, CRM, Clientes, Trabalhos/Projetos, Agenda, Financeiro, Precificação, Equipamentos, Relatórios, Área/Portal do Cliente, Biblioteca de Arquivos, Galerias pública/privada/preview, Propostas, Contratos, Modelos, Editor visual, Configurações, navegação, modais, formulários, storage e Supabase.
+As correções foram direcionadas a esses defeitos. Não foram reescritos contratos, cláusulas, modelos ou fluxos que já funcionavam, e não foi feita uma reformulação visual indiscriminada.
 
-## Problemas verificáveis encontrados e corrigidos
+## Problemas encontrados e correções aplicadas
 
-### 1. Falha do fluxo integrado quando o armazenamento local contém JSON inválido
+### 1. Precificação zerava ou quebrava ao selecionar horas
 
-**Arquivo:** `src/utils/integrationEngine.js`
+**Problema confirmado**
 
-O fluxo de aprovação de lead fazia `JSON.parse` direto em quatro chaves. Qualquer valor corrompido, incompleto ou legado no `localStorage` interrompia toda a conversão CRM → Cliente → Agenda → Financeiro.
+O seletor apresentava textos como `12 horas`, enquanto o cálculo tentava converter a string inteira com `Number()`. O resultado era `NaN`, que acabava exibido como `R$ 0,00`. O estado inicial também podia calcular oito horas enquanto o seletor visual mostrava três.
 
-**Correção:** criada leitura defensiva que aceita somente arrays e retorna lista vazia em caso de conteúdo inválido. A regra normal de negócio foi preservada.
+**Correções**
 
-### 2. Precificação podia deixar de abrir por dados locais corrompidos
+- Normalização de valores legados como `12 horas`, `12`, vírgulas decimais e opção personalizada.
+- Valores numéricos separados do rótulo visual das opções.
+- Normalização de cenários e opções salvas anteriormente.
+- Bloqueio de salvar ou gerar proposta quando o cálculo não for finito.
+- Mensagem explícita de cálculo inválido, em vez de transformar `NaN` em zero.
+- Remoção de um bloco legado não utilizado que fazia referência a uma função inexistente e podia derrubar a renderização.
+- IDs e previews deixaram de usar valores impuros gerados durante cada renderização.
 
-**Arquivo:** `src/pages/Precificacao/index.jsx`
+### 2. Equipe mostrava sucesso, mas o membro desaparecia
 
-Capacidade, saldos e configuração financeira eram lidos com `JSON.parse` sem proteção. Um único valor inválido causava erro ainda na inicialização do componente.
+**Problema confirmado**
 
-**Correção:** substituição pelas rotinas seguras já existentes no módulo, com valores padrão coerentes.
+A equipe era persistida apenas no `localStorage`. Quando o navegador atingia o limite, a gravação falhava, mas a interface continuava exibindo “salvo com sucesso”.
 
-### 3. Financeiro podia falhar antes do primeiro carregamento
+**Correções**
 
-**Arquivo:** `src/pages/Financeiro/index.jsx`
+- Configurações e equipe agora usam o perfil do Supabase como persistência remota, mantendo o `localStorage` apenas como cache rápido/fallback.
+- Migração automática da configuração local existente para o perfil remoto.
+- Comparação por `updatedAt` para evitar que uma cópia remota antiga sobrescreva uma alteração local mais recente.
+- Confirmação visual de sucesso somente quando ao menos uma persistência real foi concluída.
+- Mensagem específica quando a cópia local falha, mas o Supabase salva corretamente.
+- Formulário permanece aberto quando o salvamento falha.
+- Validação de duplicidade por nome, telefone ou e-mail.
+- IDs estáveis para membros legados.
+- Edição, inclusão e remoção usam o mesmo fluxo de persistência confirmado.
 
-A configuração de distribuição salarial/empresa/reserva era inicializada com `JSON.parse` direto.
+### 3. Armazenamento local cheio provocava perdas silenciosas
 
-**Correção:** leitura por `readStorage`, validação de objeto e fallback para `{ salario: 35, empresa: 45, reserva: 20 }`.
+**Problema confirmado**
 
-### 4. Ações destrutivas sem confirmação no Financeiro
+A gravação mostrou `QuotaExceededError`. Vários fluxos faziam `localStorage.setItem()` diretamente e podiam falhar sem retorno confiável.
 
-**Arquivo:** `src/pages/Financeiro/index.jsx`
+**Correções**
 
-A exclusão de observação financeira, conta personalizada e cartão era imediata.
+- `writeStorage()` agora retorna sucesso ou falha e reconhece erros de quota.
+- Limpeza automática limitada a metadados transitórios de upload/cache; dados de CRM, clientes, projetos e financeiro nunca são apagados automaticamente para abrir espaço.
+- Integração CRM → Cliente → Agenda → Financeiro deixa de confirmar sucesso quando alguma gravação crítica falha.
+- Configurações financeiras, auditoria, regras do CRM, notificações e flags de recuperação passaram a usar gravação protegida nos pontos auditados.
+- Mensagens técnicas foram substituídas por mensagens acionáveis nos fluxos corrigidos.
 
-**Correção:** adicionadas confirmações específicas antes da exclusão. Contas padrão continuam protegidas. Os textos deixam explícito quando lançamentos/despesas existentes serão preservados.
+### 4. CRM não salvava lead de forma confiável
 
-### 5. Editor legado de propostas acessava estruturas inexistentes
+**Correções preservadas e ampliadas**
 
-**Arquivo:** `src/features/proposals/editor/ProposalEditor.jsx`
+- O formulário mantém os dados preenchidos e exibe o erro dentro do modal quando o salvamento falha.
+- O modal fecha somente após confirmação de gravação.
+- A confirmação “Salvar mesmo assim” para possível duplicidade é respeitada.
+- Quando o Supabase está configurado, o CRM volta a carregar os leads remotos e mescla o cache local por ID, com o registro remoto prevalecendo.
+- O cache local não invalida um salvamento remoto bem-sucedido quando o navegador está cheio.
+- Falhas em configurações e notificações do CRM agora são apresentadas na própria página.
+- A tabela `leads` foi incluída nas atualizações em tempo real compartilhadas.
 
-O componente assumia que template, páginas, página selecionada, `imageSlots`, `pricing.state` e lista de benefícios sempre existiam. Dados legados ou incompletos podiam gerar erros do tipo `Cannot read properties of undefined/null`.
+### 5. Tema claro incompleto
 
-**Correção:**
+**Problema confirmado**
 
-- fallback seguro de template;
-- normalização da lista de páginas;
-- índice de página limitado ao intervalo válido;
-- proteção para página e `imageSlots` ausentes;
-- proteção para snapshot de precificação incompleto;
-- proteção para lista de benefícios ausente;
-- navegação desativada quando não há páginas.
+O layout principal ficava claro, mas CRM, Agenda, selects, cards, tabelas, Galerias e outros painéis mantinham fundos e textos fixos do tema escuro.
 
-Nenhum texto ou cláusula contratual foi alterado.
+**Correções**
 
-## Verificações concluídas
+- Criação de tokens semânticos para página, cartão, superfície secundária, input, texto, borda, overlay e estados coloridos.
+- CRM deixou de usar cores neutras escuras fixas em grande parte dos estilos inline e passou a consumir os tokens do tema.
+- Cobertura específica do tema claro para:
+  - CRM;
+  - Agenda e calendário;
+  - Configurações;
+  - Precificação;
+  - Galerias administrativas e upload;
+  - Biblioteca de arquivos;
+  - Área do Cliente;
+  - Documentos;
+  - Equipamentos;
+  - Relatórios;
+  - Clientes;
+  - Trabalhos;
+  - Financeiro;
+  - modais, inputs, selects, tabelas e scrollbars.
+- Regras com `!important` que prendiam controles ao fundo escuro receberam substituições específicas no tema claro.
+- O preview da galeria do cliente não foi forçado para claro: o tema escolhido pelo estúdio para a galeria continua independente do tema administrativo.
+- Autofill do navegador passa a acompanhar a superfície do tema.
 
-- Estrutura do ZIP extraída e mapeada.
-- 184 arquivos-fonte identificados.
-- Todas as importações locais foram verificadas por script: **0 imports locais apontando para arquivos inexistentes**.
-- Rotas principais e rotas públicas/protegidas conferidas.
-- Busca por leituras inseguras de `localStorage` e acessos encadeados potencialmente nulos.
-- Busca por ações destrutivas e confirmações.
-- Busca por cláusulas de álbum e conteúdo contratual.
-- Os modelos de contrato existentes continuam contendo referências e texto sobre álbuns; nenhum conteúdo foi removido, resumido ou reescrito.
-- CSS responsivo e media queries dos módulos principais foram inspecionados estaticamente.
-- `git diff --check` executado sem erros de whitespace.
-- `node --check` executado com sucesso nos arquivos JavaScript não-JSX alterados e em utilitários críticos compatíveis com essa validação.
+### 6. Equipamentos apareciam no Financeiro e sumiam em Equipamentos
 
-## Testes solicitados
+**Problema confirmado**
 
-### `npm install`
+Uma resposta remota vazia podia sobrescrever o espelho local, enquanto uma tela ainda exibia dados carregados anteriormente.
 
-**Tentado três vezes**, incluindo remoção prévia de `node_modules`, repetição com timeout maior e tentativa com registro npm público. A instalação não foi concluída porque o registro disponível no ambiente retornou indisponibilidade/timeout (`503` no gateway de pacotes). O ZIP recebido não continha um `node_modules` utilizável nem `package-lock.json`.
+**Correções**
 
-### `npm run build`
+- Mesclagem por ID entre equipamentos remotos e locais.
+- Registros remotos vencem em caso de conflito.
+- Uma lista remota vazia não apaga equipamentos locais existentes.
+- Migração segura de equipamentos locais ainda ausentes no Supabase.
+- Exclusões explícitas usam tombstones para impedir que itens removidos reapareçam.
+- O espelho local só é confirmado quando a gravação realmente funciona.
 
-**Não executado**, pois as dependências não puderam ser instaladas no ambiente. O diretório `dist` já existente no ZIP corresponde a uma compilação anterior e não foi usado como prova de compilação das correções atuais.
+### 7. Uploads falhavam por quota do navegador
 
-### `npm run lint`
+**Problema confirmado**
 
-**Não executado**, pelo mesmo bloqueio de instalação de dependências (`eslint` não disponível localmente).
+O TUS tentava gravar fingerprints de retomada no `localStorage`, já cheio, e interrompia uploads de contratos e imagens.
 
-## Limitações de validação
+**Correções**
 
-- Não foi possível iniciar o Vite nem realizar navegação real em navegador.
-- Não foi possível testar visualmente computador, notebook, iPad horizontal/vertical e celular.
-- Não foi possível autenticar em uma instância real do Supabase, executar migrations ou validar políticas RLS, buckets e URLs assinadas com dados reais.
-- Uploads, geração de PDF, lightbox, marca-d'água, publicação de galeria, envio/assinatura de contratos e exportações não foram executados ponta a ponta.
-- O editor visual de contratos foi revisado estaticamente; interações de arrastar, redimensionar, atalhos, seleção múltipla e camadas não puderam ser simuladas sem navegador.
-- Não há garantia de “100% sem erros”. A entrega contém correções verificáveis e preserva o estado atual, mas precisa passar por build e teste de aceitação em ambiente com dependências e Supabase disponíveis antes da publicação definitiva.
+- Uploads da Biblioteca e das Galerias não armazenam mais fingerprints de retomada no `localStorage`.
+- Fingerprints antigos/transitórios podem ser limpos sem tocar nos dados principais.
+- Erros de quota, sessão e rede recebem mensagens compreensíveis.
+- Tokens de galerias usam gravação protegida, fallback temporário em `sessionStorage` e URL pública registrada nas configurações remotas da galeria.
+- O token continua sendo renovado quando a cópia local não existe.
 
-## Arquivos alterados nesta auditoria
+**Decisão técnica:** a retomada automática após fechar/reabrir o navegador foi desativada para esses uploads, evitando que metadados TUS derrubem todo o envio quando o armazenamento local estiver cheio. Retentativas de rede durante a sessão permanecem.
 
-1. `src/utils/integrationEngine.js`
-2. `src/pages/Precificacao/index.jsx`
-3. `src/pages/Financeiro/index.jsx`
-4. `src/features/proposals/editor/ProposalEditor.jsx`
-5. `RELATORIO-AUDITORIA.md`
+### 8. Financeiro mostrava cálculo matematicamente enganoso
 
-## Recomendação antes da produção
+**Problema confirmado**
 
-Em um ambiente com acesso ao npm:
+O ponto de equilíbrio utilizava um divisor artificial mínimo quando não havia margem de contribuição válida, produzindo um número exibível, porém financeiramente sem sentido.
 
-```bash
-rm -rf node_modules
+**Correções**
+
+- Ponto de equilíbrio fica indisponível quando não existe ticket ou margem válidos.
+- A tela explica por que o indicador não pode ser calculado.
+- Margem de contribuição recebe formatação percentual correta.
+- Quantidades deixam de ser formatadas como moeda.
+- Datas da conciliação são apresentadas no padrão brasileiro, em vez do timestamp bruto do Supabase.
+- Escritas auditadas de saldo, alertas e configuração usam persistência protegida nos pontos corrigidos.
+
+### 9. Modais longos encobriam campos ou ações
+
+**Correções**
+
+- Modal de cliente separa corpo rolável e rodapé de ações.
+- Espaço inferior impede que os últimos campos fiquem por trás do rodapé.
+- Modal do CRM mantém cabeçalho e rodapé visíveis e rola somente a região dos campos.
+- Barra horizontal indevida foi eliminada nos fluxos corrigidos.
+- Ajustes de safe area para celulares.
+
+### 10. Performance e consultas repetidas
+
+**Correções**
+
+- Cache curto e seguro para o conjunto consolidado do estúdio.
+- Dedupe de requisições simultâneas.
+- Cache separado e leve para diretório de clientes/projetos usado por Galerias, Arquivos e Área do Cliente.
+- Essas áreas deixam de carregar todo o Financeiro e Equipamentos apenas para resolver nomes e vínculos.
+- Invalidação do cache após eventos locais, foco e atualizações do Supabase.
+
+### 11. Responsividade, proporção e excesso de rolagem
+
+**Correções**
+
+- Compactação moderada para notebook e janelas de até 1600 px.
+- Breakpoints separados para notebook, tablet e celular.
+- Redução de paddings, gaps, alturas, títulos e métricas sem ocultar recursos.
+- Indicadores em duas colunas no celular quando há largura segura; uma coluna em telas extremamente estreitas.
+- Navegações internas em faixa horizontal rolável, evitando várias linhas de abas.
+- Ações principais permanecem acessíveis sem transformar todo botão em uma linha completa.
+- Calendário usa rolagem interna e altura vinculada à viewport.
+- Tabelas usam rolagem horizontal no próprio contêiner.
+- Formulários aproveitam duas colunas em tablets quando há espaço.
+- Painéis longos de Trabalhos são compactados e retornam para uma coluna em celulares estreitos.
+- Galerias, Arquivos, Área do Cliente, Configurações e modais receberam densidade móvel específica.
+
+### 12. Outros erros funcionais corrigidos durante a auditoria
+
+- Corrigido uso condicional de Hooks no módulo de Despesas.
+- Reorganizado helper de despesas variáveis que podia ser acessado antes da inicialização.
+- Adicionado handler ausente para salvar item personalizado de checklist em Trabalhos.
+- Leituras e gravações defensivas para dados locais corrompidos ou incompletos.
+- Estados de erro evitam fechar formulários como se a operação tivesse sido concluída.
+
+## Arquivos alterados
+
+- `src/App.jsx`
+- `src/index.css`
+- `src/features/fileLibrary/storage/fileLibraryStorage.js`
+- `src/features/galleries/storage/galleryStorage.js`
+- `src/pages/AreaCliente/index.jsx`
+- `src/pages/BibliotecaArquivos/index.jsx`
+- `src/pages/CRM/CRM.css`
+- `src/pages/CRM/CRMStats.jsx`
+- `src/pages/CRM/KanbanBoard.jsx`
+- `src/pages/CRM/LeadForm.jsx`
+- `src/pages/CRM/index.jsx`
+- `src/pages/Clientes/Clientes.css`
+- `src/pages/Clientes/index.jsx`
+- `src/pages/Configuracoes/index.jsx`
+- `src/pages/Equipamentos/index.jsx`
+- `src/pages/Financeiro/Despesas.jsx`
+- `src/pages/Financeiro/VariableExpenses.jsx`
+- `src/pages/Financeiro/index.jsx`
+- `src/pages/Galerias/index.jsx`
+- `src/pages/Precificacao/Precificacao.css`
+- `src/pages/Precificacao/index.jsx`
+- `src/pages/Trabalhos/index.jsx`
+- `src/styles/responsiveAuditFixes.css` — novo
+- `src/styles/themeSystem.css` — novo
+- `src/utils/dbData.js`
+- `src/utils/financeEngine.js`
+- `src/utils/integratedData.js`
+- `src/utils/integrationEngine.js`
+- `src/utils/settings.js`
+- `src/utils/storage.js`
+- `RELATORIO-AUDITORIA.md`
+
+## Áreas deliberadamente preservadas
+
+- Nenhuma cláusula de contrato foi removida, resumida, reescrita ou substituída.
+- Os modelos de casamento, ensaio e formatura não tiveram seus textos alterados.
+- O editor visual de contratos não recebeu mudança estética ou funcional sem evidência de regressão nesta versão.
+- O tema escolhido pelo estúdio para a experiência pública da galeria foi preservado.
+- Cores funcionais de sucesso, alerta, atraso e prioridade foram mantidas.
+
+## Validações realmente executadas
+
+### Estrutura e sintaxe
+
+- Extração e comparação estrutural da versão 121.
+- **138 arquivos JavaScript/JSX analisados com `@babel/parser`: 0 falhas de sintaxe.**
+- **36 arquivos CSS analisados com PostCSS: 0 falhas de parsing.**
+- **Imports relativos verificados: 0 referências a arquivos inexistentes.**
+- Buscas específicas por `no-undef`, erro de regras de Hooks e parsing após as correções críticas: nenhum desses erros permaneceu no lint.
+
+### ESLint
+
+O ESLint foi realmente executado. O comando ainda termina com falha por débito técnico preexistente em áreas amplas do projeto:
+
+- 110 ocorrências no total;
+- 101 tratadas pelo lint como erros;
+- 9 warnings;
+- 67 `no-unused-vars`;
+- 20 `react-hooks/set-state-in-effect`;
+- 9 `react-hooks/preserve-manual-memoization`;
+- 9 `react-hooks/exhaustive-deps`;
+- 3 `no-useless-assignment`;
+- 1 `no-control-regex`;
+- 1 `react-hooks/use-memo`.
+
+Não foram encontrados ao final:
+
+- `no-undef`;
+- `react-hooks/rules-of-hooks`;
+- erros de parsing.
+
+Essas ocorrências restantes não foram apagadas indiscriminadamente porque várias exigem refatoração de arquitetura e efeitos React fora dos defeitos demonstrados. Alterá-las apenas para “zerar o lint” aumentaria o risco de regressão, contrariando a regra de preservar o que funciona.
+
+### Instalação e build
+
+- `npm ci --no-audit --no-fund` foi tentado, mas não produziu progresso e excedeu o tempo disponível no ambiente, indicando indisponibilidade/timeout do registro npm.
+- O build foi tentado usando o `node_modules` recebido no ZIP.
+- O build não iniciou porque esse `node_modules` contém as dependências nativas do ambiente Windows e não possui `@rolldown/binding-linux-x64-gnu` exigido pelo ambiente Linux desta auditoria.
+- A falha foi ambiental e ocorreu antes da compilação do código-fonte.
+
+Erro principal observado:
+
+```text
+Cannot find module '@rolldown/binding-linux-x64-gnu'
+```
+
+## Limitações que não puderam ser validadas neste ambiente
+
+- Login real e políticas RLS usando a conta de produção.
+- Gravação real da equipe na tabela `perfil` do Supabase de produção.
+- Upload real até o bucket de produção.
+- Realtime entre dois dispositivos autenticados.
+- Renovação de tokens das integrações Google.
+- Renderização visual completa em navegador após build.
+- Testes manuais em iPhone/iOS, Android e iPad físico.
+- Geração final de PDF dos contratos nesta versão.
+
+Por essas limitações, este relatório **não afirma que o sistema está 100% sem erros**.
+
+## Procedimento obrigatório antes da publicação
+
+Em uma pasta limpa, preserve o `.env`/`.env.local` da sua instalação e execute:
+
+```powershell
 npm install
-npm run lint
 npm run build
+npm run lint
 npm run dev
 ```
 
-Depois, executar teste de aceitação com uma conta Supabase de homologação, cobrindo criação/edição/exclusão, persistência após recarga, galerias, contratos longos, fotos extras pagas, relatórios e responsividade nos cinco tamanhos solicitados.
+O lint continuará reportando o débito técnico listado acima até uma refatoração dedicada. O build, porém, deve ser usado como bloqueio de publicação: se falhar no seu computador, não publique.
+
+Depois do build, valide manualmente:
+
+1. criar, editar e recarregar um lead no CRM;
+2. cadastrar, editar e recarregar um membro da equipe;
+3. selecionar 3, 8, 12 horas e Personalizado na Precificação;
+4. alternar Claro/Escuro e visitar CRM, Agenda, Financeiro, Relatórios, Galerias, Clientes, Trabalhos e Configurações;
+5. comparar a lista de Equipamentos com os investimentos do Financeiro;
+6. enviar um PDF e uma imagem;
+7. abrir Clientes e o CRM em celular, iPad vertical/horizontal e notebook;
+8. confirmar datas e ponto de equilíbrio no Controle Financeiro;
+9. atualizar a página após cada salvamento crítico.
+
+## Conclusão
+
+A versão entregue corrige as causas verificáveis demonstradas nos vídeos e no código, preservando os fluxos e conteúdos existentes. Ela está mais segura contra perda silenciosa por quota, mais consistente entre Supabase e cache local, mais legível no tema claro e mais compacta em telas menores. A publicação final depende do build e dos testes autenticados no ambiente de produção descritos acima.
 
 ---
 
-## Complemento de auditoria — vídeo de 26/07/2026 e tema claro/escuro
+## Correção CRM — versão 122
 
-### Problemas confirmados e corrigidos
+### Problemas corrigidos
 
-1. **Tema claro não era aplicado ao sistema**
-   - A configuração apenas alterava o estado do formulário e era persistida ao salvar, mas nenhuma classe ou atributo de tema era aplicado ao documento.
-   - Foi criado `src/utils/theme.js` para normalizar, aplicar e sincronizar o tema.
-   - O tema salvo passa a ser aplicado antes da primeira renderização, evitando que a interface abra sempre escura.
-   - A troca em Configurações agora é imediata, sem exigir recarregar a página.
-   - O tema também é sincronizado entre abas por evento de `storage`.
-   - Foram adicionadas variáveis globais do tema claro e ajustes locais da tela de Configurações, sem alterar a identidade do tema escuro.
+1. **Mudança de status não persistia**
+   - O CRM atualizava o estado visual e o espelho local, mas recarregava os dados antes de executar a atualização no Supabase.
+   - O valor antigo retornado pelo banco substituía imediatamente o novo status.
+   - O fluxo agora aguarda a confirmação do Supabase por meio de `saveLeadRow`, atualiza o espelho local somente depois e restaura o status anterior caso a gravação falhe.
+   - O card exibe `Salvando status...` e bloqueia temporariamente o seletor do lead afetado.
+   - Falhas passam a ser apresentadas na própria página, em vez de parecerem uma alteração ignorada.
 
-2. **Clientes mostrava estado vazio falso durante a consulta**
-   - A mensagem “Nenhum cliente integrado ainda” podia aparecer enquanto o Supabase ainda estava carregando.
-   - Foram separados os estados de carregamento, erro, busca sem resultado e lista realmente vazia.
-   - Falhas de consulta agora preservam os dados locais/cache disponíveis e oferecem a ação “Tentar novamente”.
+2. **CRM excessivamente alto e carregado**
+   - Ações do dia, follow-ups, tarefas, recuperação e agenda comercial continuam disponíveis, mas iniciam recolhidos.
+   - Pesquisa, indicadores e pipeline foram colocados antes das centrais auxiliares.
+   - O relatório comercial mostra inicialmente quatro indicadores essenciais; as análises completas continuam acessíveis por `Ver análises detalhadas`.
+   - O pipeline permanece em uma única linha com rolagem horizontal interna.
+   - Colunas e cards tiveram largura, espaçamento, tipografia e preenchimento reduzidos.
+   - Informações secundárias permanecem acessíveis ao abrir o lead, mas não ocupam permanentemente o card do Kanban.
 
-3. **Recarregamento desnecessário da listagem de Clientes**
-   - Foi incluído cache seguro em memória por 30 segundos para evitar que a tela volte vazia ao navegar entre módulos.
-   - Eventos de foco, atualização de armazenamento e sincronização continuam forçando atualização, reduzindo o risco de dados desatualizados.
+### Arquivos alterados
 
-### Arquivos alterados neste complemento
-
-- `src/utils/theme.js` — novo
-- `src/main.jsx`
-- `src/App.jsx`
-- `src/pages/Configuracoes/index.jsx`
-- `src/pages/Configuracoes/Configuracoes.css`
-- `src/index.css`
-- `src/pages/Clientes/index.jsx`
-- `src/pages/Clientes/Clientes.css`
+- `src/pages/CRM/index.jsx`
+- `src/pages/CRM/KanbanBoard.jsx`
+- `src/pages/CRM/CRMStats.jsx`
+- `src/pages/CRM/CRM.css`
 
 ### Validações executadas
 
-- Revisão quadro a quadro do segundo vídeo enviado, com duração aproximada de 15 segundos.
-- Validação sintática com `node --check` dos módulos JavaScript sem JSX criados/afetados diretamente.
-- Conferência manual dos trechos JSX alterados e das dependências entre Configurações, armazenamento e inicialização da aplicação.
-- Nova tentativa de `npm install --no-audit --no-fund`.
-
-### Limitação mantida
-
-A instalação das dependências voltou a exceder o tempo disponível no ambiente. Portanto, `npm run build`, `npm run lint` e testes visuais automatizados em navegador não foram executados neste complemento. A validação final do tema claro em todas as telas ainda deve ser feita no ambiente local após `npm install`, pois alguns módulos antigos possuem cores literais próprias além das variáveis globais.
-
----
-
-## Revisão v3 — sidebar mobile e tema claro (26/07/2026)
-
-### Evidências analisadas
-
-- `Gravação de Tela 2026-07-26 165955(1).mp4` (14,93 s).
-- Captura de tela em viewport estreito enviada pela usuária.
-
-### Problemas confirmados
-
-1. **Drawer lateral mobile sem superfície visual suficientemente isolada**
-   - Em viewport estreito, o conteúdo do Dashboard continuava perceptível por trás do menu aberto.
-   - O contraste dos links e da logomarca ficava comprometido.
-   - A página continuava rolável atrás do drawer.
-
-2. **Tema claro incompleto**
-   - A troca do atributo `data-theme` acontecia, porém vários módulos continuavam usando variáveis e cores fixas do tema escuro.
-   - Textos, superfícies, tabelas e a tela de Configurações não acompanhavam a nova aparência de forma coerente.
-   - A escolha do tema só fazia parte do estado do formulário até o botão geral de salvar ser acionado.
-
-### Arquivos alterados nesta revisão
-
-- `src/components/Sidebar.jsx`
-- `src/components/Sidebar.css`
-- `src/pages/Configuracoes/index.jsx`
-- `src/index.css`
-- `RELATORIO-AUDITORIA.md`
-
-### Correções implementadas
-
-- Bloqueio da rolagem do `body` enquanto o menu mobile está aberto.
-- Drawer mobile com fundo realmente opaco, sem `backdrop-filter` ou transparência herdada.
-- Camada interna de segurança para impedir que o conteúdo de fundo apareça através do menu.
-- Backdrop mais forte e com separação visual clara.
-- Sidebar, conta, links, menu da conta e botão mobile com variantes próprias para o tema claro.
-- Variáveis `--sf-*` atualizadas no modo claro para os módulos que usam o design system interno.
-- Cores de títulos, textos secundários, formulários, tabelas, cards e superfícies compartilhadas ajustadas para contraste em fundo claro.
-- Tratamento específico da tela de Configurações, que possuía várias cores escuras fixas.
-- Persistência imediata da seleção Claro/Escuro, evitando retorno ao tema anterior depois de atualizar a página.
-
-### Validação executada
-
-- Revisão quadro a quadro do vídeo de 14,93 segundos.
-- Conferência visual da captura enviada.
-- Inspeção do fluxo React responsável pela abertura do menu e pela troca de tema.
-- Conferência dos seletores adicionados e das dependências entre `Sidebar`, `Configuracoes`, `settings` e `theme`.
+- 138 arquivos JavaScript/JSX analisados com `@babel/parser`: nenhum erro de sintaxe.
+- 36 arquivos CSS analisados com PostCSS: nenhum erro de parsing.
+- Imports relativos verificados: nenhum arquivo referenciado ausente.
+- ESLint executado nos três componentes JSX alterados. Permanecem 8 avisos configurados como erro por imports/funções não utilizados que já existiam antes desta correção; nenhum deles foi introduzido pelo novo fluxo de status.
 
 ### Limitação
 
-`npm install` foi tentado novamente, mas excedeu o tempo disponível sem concluir e sem criar `node_modules`. Consequentemente, `npm run build`, `npm run lint` e a validação visual automatizada no navegador não puderam ser executados neste ambiente. A versão deve ser aberta localmente e conferida em desktop, 500 px, 390 px e iPad antes da publicação.
+O `npm run build` não pôde ser concluído neste ambiente porque o ZIP contém `node_modules` do Windows e não possui o binding Linux `@rolldown/binding-linux-x64-gnu`. Reinstale as dependências no computador de destino antes de validar o build:
 
-## Correção V4 — Sidebar mobile
-
-### Problema confirmado no vídeo de 26/07/2026 às 17:26
-O drawer mobile continuava sofrendo interferência de regras globais legadas que usam a classe genérica `.sidebar` em `src/index.css` e `src/styles/compactSystem.css`. Essas regras aplicavam largura, `display`, preenchimento e fundo semitransparente ao mesmo elemento do menu principal. Por isso o conteúdo da página permanecia perceptível por trás do drawer e o comportamento variava conforme a largura da janela.
-
-### Arquivos alterados
-- `src/components/Sidebar.jsx`
-- `src/components/Sidebar.css`
-
-### Correções realizadas
-- O menu principal deixou de usar a classe genérica `.sidebar` e passou a usar `.sf-app-sidebar`, isolando-o das regras legadas de outros layouts.
-- O modo compacto e a opção de ocultar rótulos não reduzem nem escondem itens quando o menu está aberto em celular.
-- O drawer mobile passou a ter largura própria, superfície totalmente opaca e camada acima do backdrop.
-- Foi incluído um botão de fechar dentro do próprio drawer.
-- O botão hambúrguer externo fica inativo enquanto o drawer está aberto, evitando dois controles sobrepostos.
-- O logotipo completo volta a ser usado no celular; o ícone compacto fica restrito a tablet/notebook.
-- A área de navegação e a conta possuem fundos opacos próprios.
-- O tema claro recebeu superfícies e botão de fechamento com contraste correspondente.
-- A rolagem fica restrita ao conteúdo interno do menu e o fundo permanece bloqueado.
-
-### Validação executada
-- Revisão quadro a quadro do vídeo enviado.
-- Inspeção das regras CSS concorrentes em `index.css`, `compactSystem.css` e `Sidebar.css`.
-- Verificação textual das classes e seletores após a alteração.
-
-### Limitação
-Não foi possível executar o build ou abrir o projeto em navegador automatizado neste ambiente porque as dependências npm não estão instaladas e o registro npm permaneceu indisponível nas tentativas anteriores. A correção foi feita sobre a causa estrutural confirmada no código, mas deve ser validada localmente nas larguras de 390 px, 500 px, iPad vertical e iPad horizontal.
-
----
-
-## Revisão V5 — densidade e responsividade real no celular (26/07/2026)
-
-### Evidência analisada
-
-- `ScreenRecording_07-26-2026 18-17-31_1.mp4`.
-- Duração: 234,2 segundos.
-- Resolução da gravação: 512 × 1108 px.
-- Fluxos observados: Dashboard, Financeiro e suas subáreas, sidebar, detalhe de Trabalho/Projeto, Agenda, CRM, Clientes, Relatórios e Galerias.
-
-### Problemas confirmados
-
-1. **Densidade vertical excessiva no celular**
-   - Cards de indicadores ocupavam uma linha inteira mesmo quando continham apenas um número e uma legenda curta.
-   - Painéis, títulos, ações e espaços internos mantinham dimensões próximas às do desktop.
-   - O resultado era uma quantidade desnecessária de rolagem para acessar informações relacionadas.
-
-2. **Financeiro inadequado para navegação estreita**
-   - A barra com muitas abas dependia de rolagem horizontal extensa.
-   - O botão de alertas ocupava largura excessiva.
-   - Gráficos e blocos de resumo tinham altura maior que o necessário no celular.
-   - Tabelas extensas não possuíam uma área de rolagem interna suficientemente controlada.
-
-3. **Detalhe de Trabalho/Projeto excessivamente longo**
-   - Ações rápidas, resumo executivo, indicadores e linha do tempo eram empilhados um por linha.
-   - O usuário precisava percorrer várias telas antes de chegar às informações seguintes.
-
-4. **Agenda semanal muito alta**
-   - O calendário semanal expandia a página verticalmente, gerando uma rolagem longa no documento inteiro.
-   - Controles, filtros e cartões de resumo ocupavam espaço excessivo.
-
-5. **Sidebar funcional, porém ainda grande**
-   - Logo, itens, avatar, espaçamentos e largura do drawer permaneciam superdimensionados para celulares menores.
-
-6. **Modais mantinham proporções de desktop**
-   - Cabeçalho e conteúdo não tinham um comportamento específico de painel inferior no celular.
-   - A rolagem do conteúdo podia competir com a rolagem da página.
-
-7. **Regras globais forçavam excesso de empilhamento**
-   - Grades de métricas eram reduzidas indiscriminadamente para uma coluna.
-   - Botões primários e secundários eram forçados para 100% da largura, mesmo quando ações curtas poderiam coexistir na mesma linha.
-
-### Correções implementadas
-
-#### Estrutura global
-
-- Redução do espaço reservado no topo do conteúdo mobile, respeitando `safe-area-inset`.
-- Tipografia, espaçamentos e alturas de controles reduzidos apenas nos breakpoints móveis.
-- Separação entre grades de **métricas**, que agora podem usar duas colunas, e grades de **conteúdo**, que continuam em uma coluna quando necessário.
-- Remoção da regra global que obrigava todos os botões principais e secundários a ocupar a largura completa.
-- Breakpoint adicional para aparelhos muito estreitos, nos quais as métricas retornam com segurança para uma coluna.
-
-#### Sidebar
-
-- Drawer limitado a `min(82vw, 286px)`.
-- Logo, botão de abertura, botão de fechamento, itens de navegação, ícones e conta reduzidos proporcionalmente.
-- Manutenção da rolagem interna e das correções de opacidade introduzidas na V4.
-
-#### Dashboard
-
-- Indicadores organizados em duas colunas no celular.
-- Cards, ícones e textos compactados sem ocultar informações.
-- Hero, ações e status reduzidos.
-- Painéis e gráficos com alturas móveis menores.
-- Lista de próximos eventos com altura máxima e rolagem interna, evitando alongar toda a página.
-
-#### Financeiro
-
-- Inclusão de seletor mobile para trocar de módulo financeiro sem percorrer toda a faixa horizontal de abas.
-- Navegação tradicional preservada no desktop.
-- Botão de alertas reposicionado ao lado do seletor.
-- Indicadores em duas colunas e cards mais compactos.
-- Alturas específicas para gráficos de previsão, distribuição, fluxo de caixa e projeção.
-- Tabelas com área horizontal interna e células mais compactas.
-- Ações de cabeçalho organizadas em duas colunas quando houver espaço.
-- Despesas variáveis com indicadores em duas colunas e formulário/filtros reduzidos.
-
-#### Trabalhos e projetos
-
-- Ações do projeto organizadas em grade de duas colunas.
-- Resumo executivo, indicadores, informações e linha do tempo reorganizados em duas colunas no celular.
-- Painéis, ícones, textos e alertas automáticos compactados.
-- Fallback de uma coluna preservado para aparelhos muito estreitos.
-
-#### Agenda
-
-- Resumos e filtros reorganizados em duas colunas.
-- Calendário semanal limitado a uma altura baseada no viewport (`dvh`).
-- Rolagem vertical transferida para a área interna do calendário.
-- Largura mínima preservada com rolagem horizontal interna para não esmagar as colunas dos dias.
-- Controles, cabeçalho e itens de lista reduzidos.
-
-#### CRM, Clientes, Relatórios e Galerias
-
-- Indicadores reorganizados em duas colunas.
-- Barras de busca e filtros compactadas.
-- Cards e linhas de informação com menor altura.
-- Ações preservadas em áreas próprias para evitar toques acidentais.
-- Colunas de kanban mais estreitas e cartões com espaçamento reduzido.
-- Cabeçalhos, painéis e previews ajustados sem remover conteúdo.
-
-#### Modais
-
-- Criado comportamento mobile de painel inferior com altura máxima baseada em `100dvh`.
-- Cabeçalho fixo dentro do modal.
-- Rolagem restrita ao conteúdo interno.
-- Áreas de toque e botão de fechamento preservados com dimensões acessíveis.
-
-### Arquivos alterados nesta revisão
-
-- `src/components/Modal.jsx`
-- `src/components/Modal.css` — novo
-- `src/components/Sidebar.css`
-- `src/layouts/MainLayout.jsx`
-- `src/index.css`
-- `src/styles/responsiveSystem.css`
-- `src/styles/compactSystem.css`
-- `src/pages/Dashboard/Dashboard.css`
-- `src/pages/Financeiro/index.jsx`
-- `src/pages/Financeiro/VariableExpenses.css`
-- `src/pages/Agenda/Agenda.css`
-- `src/pages/Trabalhos/Trabalhos.css`
-- `src/pages/CRM/CRM.css`
-- `src/pages/Clientes/Clientes.css`
-- `src/pages/Relatorios/Relatorios.css`
-- `src/pages/Galerias/Galerias.css`
-- `RELATORIO-AUDITORIA.md`
-
-### Validações realmente executadas
-
-- Revisão integral e quadro a quadro da gravação mobile de 234,2 segundos.
-- Validação sintática de 138 arquivos JavaScript/JSX/TypeScript/TSX com o parser do TypeScript: **0 erros de sintaxe**.
-- Validação de imports relativos locais nos mesmos 138 arquivos: **0 referências ausentes**.
-- Parsing de 34 arquivos CSS com `tinycss2`: **0 erros de parsing no nível da folha de estilos**.
-- Comparação dos arquivos alterados contra a V4 para confirmar que as mudanças ficaram restritas aos componentes e módulos relacionados à responsividade.
-
-### Limitações desta revisão
-
-- `npm install --no-audit --no-fund` foi tentado, mas o registro npm disponível no ambiente retornou indisponibilidade `503` e timeout. Por isso, `npm run build` e `npm run lint` não puderam ser executados.
-- Não foi possível iniciar o Vite e testar interativamente os novos breakpoints em navegador neste ambiente.
-- A pasta `dist` presente no projeto não foi regenerada e não deve ser publicada como se contivesse estas alterações. É obrigatório gerar um novo build antes da publicação.
-- A validação visual final deve ser feita localmente em pelo menos 390 px, 430 px, 512 px, iPad vertical e iPad horizontal, conferindo especialmente Dashboard, Financeiro, detalhe de Trabalho e Agenda semanal.
-
-Esta revisão reduz a rolagem e a escala excessiva sem ocultar funcionalidades nem transformar indiscriminadamente todas as telas em cards. As regras de desktop e notebook foram preservadas fora dos breakpoints móveis.
+```powershell
+Remove-Item -Recurse -Force node_modules
+npm install
+npm run build
+npm run dev
+```

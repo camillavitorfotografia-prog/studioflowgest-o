@@ -28,7 +28,10 @@ const NON_OPERATIONAL_CATEGORY_BY_ORIGIN = {
 };
 const VARIABLE_EXPENSE_BACKUP_KEY = 'cv_studio_despesas_variaveis_v2';
 const readVariableBackup = () => { try { const value=JSON.parse(localStorage.getItem(VARIABLE_EXPENSE_BACKUP_KEY)||'[]'); return Array.isArray(value)?value:[]; } catch { return []; } };
-const writeVariableBackup = (value) => localStorage.setItem(VARIABLE_EXPENSE_BACKUP_KEY, JSON.stringify(Array.isArray(value)?value:[]));
+const writeVariableBackup = (value) => writeStorage(
+  VARIABLE_EXPENSE_BACKUP_KEY,
+  Array.isArray(value) ? value : [],
+);
 const mergeById = (...lists) => { const map=new Map(); lists.flat().forEach((item)=>{ if(!item?.id)return; const key=String(item.id); map.set(key,{...(map.get(key)||{}),...item}); }); return [...map.values()]; };
 const empty = {
   id:null, situacao:'pago_agora', descricao:'', categoria:'Equipamentos', valor:'', dataCompra:'', vencimento:'', parcelas:2,
@@ -48,6 +51,33 @@ const statusOf = (x) => {
   const due=x.vencimento||x.dataVencimento||x.data_vencimento;
   return due && due < new Date().toISOString().slice(0,10) ? 'vencida' : 'pendente';
 };
+
+const syncVariableFinance = async (rows) => {
+    if(!isSupabaseConfigured) return { ok:true };
+    for (const x of rows) {
+      await upsertRow({
+        table:'financas',
+        payload:{
+          id:String(x.id), project_id:x.projectId||null, client_id:x.clientId||null, descricao:x.descricao, categoria:x.categoria,
+          valor:x.valor, data:x.dataCompra||x.vencimento, data_vencimento:x.vencimento||null,
+          data_pagamento:x.dataPagamento||null, tipo:'variavel', tipo_geral:'Saida', status:x.status,
+          forma_pagamento:x.formaPagamento, conta_origem:x.contaOrigem, fornecedor:x.fornecedor||null,
+          observacoes:x.observacoes||null, detalhes:{
+            situacao:x.situacao, valorTotal:x.valorTotal, grupoParcelamentoId:x.grupoParcelamentoId,
+            parcelaNumero:x.parcelaNumero, totalParcelas:x.totalParcelas, profissional:x.profissional,
+            servicoRealizado:x.servicoRealizado, dataServico:x.dataServico, quantidade:x.quantidade,
+            previsaoEntrega:x.previsaoEntrega, statusPedido:x.statusPedido, local:x.local,
+            reembolsavel:Boolean(x.reembolsavel), vidaUtilMeses:x.vidaUtilMeses, origemRecursos:x.origemRecursos,
+            origemRecursosTipo:x.origemRecursosTipo||'', entradaOrigemId:x.entradaOrigemId||'', origemRecursosDetalhes:x.origemRecursosDetalhes||'', composicaoRecursos:Array.isArray(x.composicaoRecursos)?x.composicaoRecursos:[],
+            fonteRecursosNatureza:x.fonteRecursosNatureza||'', fonteRecursosDescricao:x.fonteRecursosDescricao||'', fonteRecursosValor:Number(x.fonteRecursosValor||0), valorFonteUtilizado:Number(x.valorFonteUtilizado||0),
+          },
+          updated_at:new Date().toISOString(),
+        },
+      });
+    }
+    return { ok:true };
+};
+
 
 export default function VariableExpenses(){
   const [items,setItems]=useState([]); const [projects,setProjects]=useState([]); const [clients,setClients]=useState([]);
@@ -132,7 +162,7 @@ export default function VariableExpenses(){
       writeVariableBackup(merged);
       writeStorage(STORAGE_KEYS.finances,mergeById(merged,allFinances));
       // Tenta reparar também o espelho oficial, sem bloquear a interface.
-      void syncFinance(recoveredFromEquipment).catch((error)=>{
+      void syncVariableFinance(recoveredFromEquipment).catch((error)=>{
         console.warn('Não foi possível sincronizar despesas recuperadas:',error);
       });
     }
@@ -185,31 +215,6 @@ export default function VariableExpenses(){
   },[fundingEntries,form.origemRecursosTipo]);
   const openNew=()=>{setForm({...empty,dataCompra:new Date().toISOString().slice(0,10)});setOpen(true)};
   const edit=(x)=>{const storedComposition=Array.isArray(x.composicaoRecursos)?x.composicaoRecursos:(Array.isArray(x.detalhes?.composicaoRecursos)?x.detalhes.composicaoRecursos:[]);setForm({...empty,...x,valor:currencyToInput(x.valorTotal||x.valor),parcelas:x.totalParcelas||x.parcelas||2,composicaoRecursos:storedComposition.map((line)=>({...line,id:line.id||makeId(),valor:currencyToInput(line.valor)}))});setOpen(true)};
-  const syncFinance=async(rows)=>{
-    if(!isSupabaseConfigured) return { ok:true };
-    for (const x of rows) {
-      await upsertRow({
-        table:'financas',
-        payload:{
-          id:String(x.id), project_id:x.projectId||null, client_id:x.clientId||null, descricao:x.descricao, categoria:x.categoria,
-          valor:x.valor, data:x.dataCompra||x.vencimento, data_vencimento:x.vencimento||null,
-          data_pagamento:x.dataPagamento||null, tipo:'variavel', tipo_geral:'Saida', status:x.status,
-          forma_pagamento:x.formaPagamento, conta_origem:x.contaOrigem, fornecedor:x.fornecedor||null,
-          observacoes:x.observacoes||null, detalhes:{
-            situacao:x.situacao, valorTotal:x.valorTotal, grupoParcelamentoId:x.grupoParcelamentoId,
-            parcelaNumero:x.parcelaNumero, totalParcelas:x.totalParcelas, profissional:x.profissional,
-            servicoRealizado:x.servicoRealizado, dataServico:x.dataServico, quantidade:x.quantidade,
-            previsaoEntrega:x.previsaoEntrega, statusPedido:x.statusPedido, local:x.local,
-            reembolsavel:Boolean(x.reembolsavel), vidaUtilMeses:x.vidaUtilMeses, origemRecursos:x.origemRecursos,
-            origemRecursosTipo:x.origemRecursosTipo||'', entradaOrigemId:x.entradaOrigemId||'', origemRecursosDetalhes:x.origemRecursosDetalhes||'', composicaoRecursos:Array.isArray(x.composicaoRecursos)?x.composicaoRecursos:[],
-            fonteRecursosNatureza:x.fonteRecursosNatureza||'', fonteRecursosDescricao:x.fonteRecursosDescricao||'', fonteRecursosValor:Number(x.fonteRecursosValor||0), valorFonteUtilizado:Number(x.valorFonteUtilizado||0),
-          },
-          updated_at:new Date().toISOString(),
-        },
-      });
-    }
-    return { ok:true };
-  };
   const save=async()=>{
     const total=parseCurrency(form.valor); if(!form.descricao.trim()||total<=0||!form.dataCompra){alert('Informe descrição, valor total e data da compra.');return;}
     const normalizedComposition=(Array.isArray(form.composicaoRecursos)?form.composicaoRecursos:[]).map((line)=>({
@@ -284,7 +289,7 @@ export default function VariableExpenses(){
       writeStorage(STORAGE_KEYS.finances,nextFinances);
       writeVariableBackup(nextVariableBackup);
       writeStorage(STORAGE_KEYS.equipment,nextEquipment);
-      await syncFinance(rows);
+      await syncVariableFinance(rows);
       if(form.categoria==='Equipamentos') {
         await syncEquipmentList(nextEquipment);
         writeStorage(STORAGE_KEYS.equipment,nextEquipment);

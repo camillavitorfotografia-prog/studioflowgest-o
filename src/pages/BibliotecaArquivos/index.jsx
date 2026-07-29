@@ -23,7 +23,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
-import { getDbStudioData } from '../../utils/dbData';
+import { getDbClientProjectDirectory } from '../../utils/dbData';
 import { capitalizeName } from '../../utils/masks';
 import {
   createLibraryFolder,
@@ -117,7 +117,7 @@ export default function BibliotecaArquivos() {
       const [libraryFiles, libraryFolders, studioData] = await Promise.all([
         listLibraryFiles(),
         listLibraryFolders(),
-        getDbStudioData(),
+        getDbClientProjectDirectory(),
       ]);
       setFiles(libraryFiles);
       setFolders(libraryFolders);

@@ -387,16 +387,24 @@ export default function Equipamentos() {
   }, []);
 
   const saveList = (list) => {
+    const previous = equipamentos;
+    const savedLocally = writeStorage(EQUIPMENT_STORAGE_KEY, list);
+
+    if (!savedLocally && !isSupabaseConfigured) {
+      alert('O navegador está sem espaço e o Supabase não está disponível. O equipamento não foi salvo.');
+      return false;
+    }
+
     setEquipamentos(list);
-    localStorage.setItem(
-      EQUIPMENT_STORAGE_KEY,
-      JSON.stringify(list),
-    );
     void syncEquipmentList(list).catch((error) => {
+      if (!savedLocally) setEquipamentos(previous);
       console.error('Erro ao sincronizar equipamentos:', error);
-      alert('O equipamento foi salvo neste navegador, mas não foi possível sincronizá-lo com o Supabase.');
+      alert(savedLocally
+        ? 'O equipamento foi salvo neste navegador, mas não foi possível sincronizá-lo com o Supabase.'
+        : 'Não foi possível salvar o equipamento. Verifique a conexão e tente novamente.');
     });
     emitEquipmentUpdate();
+    return true;
   };
 
   const totals = useMemo(
@@ -865,10 +873,7 @@ export default function Equipamentos() {
 
     setDeletingEquipmentId(String(equipment.id));
     setEquipamentos(nextEquipment);
-    localStorage.setItem(
-      EQUIPMENT_STORAGE_KEY,
-      JSON.stringify(nextEquipment),
-    );
+    writeStorage(EQUIPMENT_STORAGE_KEY, nextEquipment);
 
     if (String(selectedEquipmentId) === String(equipment.id)) {
       setSelectedEquipmentId(nextEquipment[0]?.id || '');
@@ -883,10 +888,7 @@ export default function Equipamentos() {
     } catch (error) {
       console.error('Erro ao excluir equipamento:', error);
       setEquipamentos(previousEquipment);
-      localStorage.setItem(
-        EQUIPMENT_STORAGE_KEY,
-        JSON.stringify(previousEquipment),
-      );
+      writeStorage(EQUIPMENT_STORAGE_KEY, previousEquipment);
       alert(
         error?.message
           ? `Não foi possível excluir o equipamento: ${error.message}`

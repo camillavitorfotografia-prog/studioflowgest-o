@@ -3,8 +3,17 @@ import { DEFAULT_SIDEBAR_SETTINGS } from './sidebarModules';
 
 export const SETTINGS_KEY = 'cv_studio_settings_v1';
 
+const loadProfilePersistence = async () => {
+  const module = await import('./dbData');
+  return {
+    loadProfileFromDb: module.loadProfileFromDb,
+    saveProfileToDb: module.saveProfileToDb,
+  };
+};
+
 export const DEFAULT_SETTINGS = {
   version: 2,
+  updatedAt: '',
   general: {
     theme: 'dark',
     language: 'pt-BR',
@@ -123,10 +132,28 @@ const merge = (base, value) => Object.fromEntries(
   ]),
 );
 
+const getStableTeamMemberId = (member = {}, index = 0) => {
+  const identity = [
+    member.nome,
+    member.email,
+    member.telefone,
+  ]
+    .filter(Boolean)
+    .join('-')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 48);
+
+  return `team-member-${index}-${identity || 'legacy'}`;
+};
+
 const normalizeTeamMember = (member = {}, index = 0) => ({
   id:
     member.id
-    || `team-member-${index}-${Date.now()}`,
+    || getStableTeamMemberId(member, index),
   nome: String(member.nome || '').trim(),
   funcao: String(member.funcao || 'Fotógrafo').trim(),
   telefone: String(member.telefone || '').trim(),
@@ -142,12 +169,13 @@ const normalizeTeamMember = (member = {}, index = 0) => ({
     || new Date().toISOString(),
 });
 
-const normalizeSettings = (value) => {
+export const normalizeSettings = (value) => {
   const merged = merge(DEFAULT_SETTINGS, value || {});
 
   return {
     ...merged,
     version: 2,
+    updatedAt: String(value?.updatedAt || merged.updatedAt || ''),
     team: {
       ...merged.team,
       members: Array.isArray(merged.team?.members)
@@ -201,14 +229,105 @@ export const loadSettings = () => {
   return migrated;
 };
 
-export const saveSettings = (settings) => {
+export const saveSettings = (settings, { preserveTimestamp = false } = {}) => {
   const normalized = normalizeSettings(settings);
 
-  writeStorage(SETTINGS_KEY, {
+  return writeStorage(SETTINGS_KEY, {
     ...normalized,
+    version: 2,
+    updatedAt: preserveTimestamp
+      ? normalized.updatedAt || new Date().toISOString()
+      : new Date().toISOString(),
+  });
+};
+
+/**
+ * Carrega a cópia persistida no perfil do Supabase. O localStorage continua
+ * sendo usado como cache rápido, mas deixa de ser a única fonte das
+ * configurações e da equipe central.
+ */
+export const loadSettingsFromDb = async () => {
+  try {
+    const local = loadSettings();
+    const { loadProfileFromDb, saveProfileToDb } = await loadProfilePersistence();
+    const profile = await loadProfileFromDb();
+    const remote = profile?.studioflowSettings
+      || profile?.studioflow_settings
+      || null;
+
+    if (!remote) {
+      // Migra a configuração local existente sem impedir a abertura da tela.
+      if (local?.team?.members?.length || local?.updatedAt) {
+        await saveProfileToDb({
+          ...(profile || {}),
+          studioflowSettings: local,
+        }).catch(() => null);
+      }
+      return local;
+    }
+
+    const normalizedRemote = normalizeSettings(remote);
+    const localTimestamp = Date.parse(local?.updatedAt || '') || 0;
+    const remoteTimestamp = Date.parse(normalizedRemote?.updatedAt || '') || 0;
+
+    // Uma gravação local mais recente não deve ser substituída por uma cópia
+    // remota antiga. Isso também recupera membros cadastrados antes da migração.
+    if (localTimestamp > remoteTimestamp) {
+      await saveProfileToDb({
+        ...(profile || {}),
+        studioflowSettings: local,
+      }).catch(() => null);
+      return local;
+    }
+
+    saveSettings(normalizedRemote, { preserveTimestamp: true });
+    return normalizedRemote;
+  } catch (error) {
+    console.warn('Não foi possível carregar as configurações remotas:', error);
+    return loadSettings();
+  }
+};
+
+/**
+ * Salva no perfil remoto sem apagar os demais dados do estúdio já existentes.
+ * Retorna também se o cache local pôde ser atualizado, permitindo que a
+ * interface não mostre uma confirmação falsa quando o navegador está cheio.
+ */
+export const saveSettingsToDb = async (settings) => {
+  const normalized = normalizeSettings({
+    ...settings,
     version: 2,
     updatedAt: new Date().toISOString(),
   });
+  const localSaved = saveSettings(normalized);
+
+  try {
+    const { loadProfileFromDb, saveProfileToDb } = await loadProfilePersistence();
+    const currentProfile = await loadProfileFromDb().catch(() => ({}));
+    const savedProfile = await saveProfileToDb({
+      ...(currentProfile || {}),
+      studioflowSettings: normalized,
+    });
+
+    const savedSettings = normalizeSettings(
+      savedProfile?.studioflowSettings || normalized,
+    );
+
+    if (!localSaved) saveSettings(savedSettings);
+
+    return {
+      ok: true,
+      localSaved,
+      settings: savedSettings,
+    };
+  } catch (error) {
+    return {
+      ok: localSaved,
+      localSaved,
+      settings: normalized,
+      error,
+    };
+  }
 };
 
 export const interpolateTemplate = (

@@ -1,0 +1,265 @@
+/* Auditoria de densidade e responsividade — reduz rolagem desnecessária sem
+   ocultar funcionalidades ou converter o sistema em um desktop encolhido. */
+:root {
+  --sf-audit-gap: clamp(8px, 1vw, 14px);
+  --sf-audit-padding: clamp(10px, 1.15vw, 16px);
+}
+
+/* Notebook e desktop compacto */
+@media (max-width: 1366px) and (min-width: 769px) {
+  .content-wrapper { padding: 14px 16px 20px !important; }
+  :is(.sf-finance-page, .sf-finance-section, .crm-responsive-page, .agenda-page,
+  .settings-page, .minimal-pricing-page, .sf-equipment-page, .sf-reports-page,
+  .sf-clients-page, .gallery-admin-page, .file-library-page, .documents-page) {
+    gap: 12px !important;
+  }
+  :is(.sf-card, .sf-table-card, .crm-stat-card, .agenda-summary-card,
+  .minimal-panel, .gallery-collection-card, .client-portal-card) {
+    padding: 13px !important;
+  }
+  :is(.settings-panel, .document-form, .documents-list) { padding: 18px !important; }
+  .settings-layout { min-height: 0 !important; }
+  .settings-tabs { top: 72px !important; height: calc(100dvh - 92px) !important; }
+  .sf-card.tall { padding: 14px !important; }
+}
+
+/* Formulários longos aproveitam duas colunas quando a largura permite. */
+@media (min-width: 520px) and (max-width: 900px) {
+  :is(.crm-lead-form__fields > div[style*='grid-template-columns'],
+  .agenda-form-grid, .gallery-form-grid, .client-area-form-grid,
+  .sf-equipment-form-grid, .settings-grid, .sf-form-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --sf-control-height: 38px;
+    --sf-touch-size: 40px;
+    --sf-card-padding: 10px;
+  }
+
+  html { font-size: 14px; }
+  body { line-height: 1.36; }
+
+  .content-wrapper {
+    padding: calc(50px + env(safe-area-inset-top, 0px)) 7px calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  :is(.sf-finance-page, .sf-finance-section, .crm-responsive-page, .agenda-page,
+  .settings-page, .minimal-pricing-page, .sf-equipment-page, .sf-reports-page,
+  .sf-clients-page, .gallery-admin-page, .file-library-page, .documents-page,
+  .client-area-page) {
+    gap: 9px !important;
+  }
+
+  h1 { font-size: clamp(1.25rem, 5.8vw, 1.48rem) !important; }
+  h2 { font-size: clamp(1.02rem, 4.6vw, 1.18rem) !important; }
+  h3 { font-size: .94rem !important; }
+
+  :is(.page-header, .sf-section-header, .crm-responsive-header, .agenda-header,
+  .settings-heading, .minimal-pricing-header, .sf-equipment-header,
+  .sf-reports-header, .sf-clients-header, .gallery-admin-heading,
+  .file-library-header, .client-area-page-header) {
+    gap: 7px !important;
+    margin-bottom: 5px !important;
+  }
+
+  :is(.page-header p, .sf-section-header p, .crm-responsive-header p,
+  .agenda-header p, .settings-heading p, .minimal-pricing-header p,
+  .sf-reports-header p) {
+    margin-top: 2px !important;
+    line-height: 1.35 !important;
+  }
+
+  :is(.sf-card, .sf-table-card, .dashboard-card, .crm-stat-card,
+  .agenda-summary-card, .equipment-card, .sf-report-summary-card,
+  .sf-report-table-card, .minimal-panel, .minimal-package-card,
+  .gallery-collection-card, .client-portal-card, .file-library-card) {
+    padding: 10px !important;
+    border-radius: 10px !important;
+  }
+
+  :is(.sf-card.metric strong, .crm-stat-card strong, .agenda-summary-card strong,
+  .sf-report-metric strong, .sf-kpi-value) {
+    margin-top: 4px !important;
+    font-size: 1.18rem !important;
+    line-height: 1.05 !important;
+  }
+
+  :is(.sf-metric-grid, .agenda-summary-grid, .crm-stats-grid,
+  .sf-project-executive-cards, .sf-equipment-metrics, .sf-reports-metrics,
+  .overview-cards, .file-library-summary, .client-area-summary) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+
+  :is(.sf-panel-grid, .sf-report-grid, .sf-reports-summary-grid,
+  .sf-reports-table-grid, .minimal-pricing-grid, .documents-grid,
+  .sf-equipment-content-grid) {
+    grid-template-columns: 1fr !important;
+    gap: 9px !important;
+  }
+
+  /* Navegações internas ocupam uma única faixa rolável em vez de várias linhas. */
+  :is(.sf-finance-nav, .settings-tabs, .minimal-category-tabs, .crm-tabs,
+  .agenda-tabs, .gallery-workspace-nav, .sf-reports-tabs) {
+    width: 100%;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    gap: 5px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding: 4px !important;
+    scrollbar-width: none;
+  }
+  :is(.sf-finance-nav, .settings-tabs, .minimal-category-tabs, .crm-tabs,
+  .agenda-tabs, .gallery-workspace-nav, .sf-reports-tabs)::-webkit-scrollbar { display: none; }
+  :is(.sf-finance-nav, .settings-tabs, .minimal-category-tabs, .crm-tabs,
+  .agenda-tabs, .gallery-workspace-nav, .sf-reports-tabs) > * {
+    flex: 0 0 auto !important;
+    min-height: 34px !important;
+    padding: 6px 9px !important;
+    white-space: nowrap;
+  }
+  .settings-tabs button span { display: inline !important; }
+  .settings-layout { display: block !important; min-height: 0 !important; background: transparent !important; border: 0 !important; }
+  .settings-tabs { position: static !important; height: auto !important; border-radius: 10px !important; }
+  .settings-panel { min-height: 0 !important; padding: 12px 10px !important; }
+  .settings-panel-title { padding-bottom: 10px !important; margin-bottom: 10px !important; }
+
+  /* Barras de ação permanecem acessíveis sem tornar cada botão uma linha. */
+  :is(.sf-reports-header-actions, .agenda-controls, .crm-header-actions,
+  .sf-clients-header-actions, .sf-projects-header-actions,
+  .sf-equipment-header-actions, .gallery-heading-actions,
+  .file-library-header-actions, .minimal-header-actions) {
+    width: 100%;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  :is(.sf-reports-header-actions, .agenda-controls, .crm-header-actions,
+  .sf-clients-header-actions, .sf-projects-header-actions,
+  .sf-equipment-header-actions, .gallery-heading-actions,
+  .file-library-header-actions, .minimal-header-actions) > * {
+    flex: 1 1 auto;
+    min-height: 38px !important;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea,
+  button {
+    min-height: 38px !important;
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea { padding: 7px 9px !important; }
+  textarea { min-height: 74px !important; }
+
+  /* Agenda cabe na altura disponível; a rolagem fica no calendário, não na página inteira. */
+  .agenda-calendar {
+    min-height: 0 !important;
+    height: min(560px, calc(100dvh - 210px)) !important;
+    overflow: auto !important;
+  }
+  .rbc-calendar { min-width: 560px !important; min-height: 430px; }
+  .rbc-date-cell { padding: 7px !important; }
+  .rbc-header { padding-bottom: 7px !important; }
+
+  /* CRM: cards compactos e formulário com rodapé sempre visível. */
+  .crm-kanban { grid-auto-columns: min(84vw, 300px) !important; gap: 7px !important; }
+  .crm-kanban-column { padding: 8px !important; }
+  .crm-kanban-card { padding: 8px !important; }
+  .crm-lead-form__fields { gap: 9px !important; padding: 9px 9px 11px !important; }
+  .crm-lead-form__actions { padding: 8px 9px max(8px, env(safe-area-inset-bottom)) !important; }
+  .crm-lead-form__submit { min-height: 40px !important; padding: 9px !important; }
+
+  /* Tabelas mantêm a largura útil dentro de um contêiner próprio. */
+  :is(.sf-table-card, .sf-report-table-card, .sf-variable-table-card,
+  .sf-equipment-table-card, .sf-client-table-scroll, .agenda-list) {
+    max-width: 100%;
+    overflow-x: auto !important;
+    overscroll-behavior-inline: contain;
+  }
+  :is(table th, .sf-table th) { padding: 8px 9px !important; }
+  :is(table td, .sf-table td) { padding: 8px 9px !important; }
+
+  /* Painéis longos exibem resumos em duas colunas quando possível. */
+  :is(.sf-project-dashboard-info-grid, .sf-project-resources-grid,
+  .sf-project-logistics-grid, .sf-project-profit-cost-grid,
+  .sf-project-governance-grid, .sf-project-client-experience-grid,
+  .sf-project-preparation-grid, .sf-project-commercial-grid,
+  .sf-project-post-production-grid, .sf-project-event-entry-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 7px !important;
+  }
+
+  /* Galerias, arquivos e área do cliente. */
+  .gallery-collection-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 7px !important; }
+  .gallery-collection-card { min-width: 0; }
+  .gallery-card-actions, .client-portal-card-actions, .file-library-item-actions { gap: 5px !important; }
+  .client-area-form-grid, .gallery-form-grid, .sf-equipment-form-grid { gap: 9px !important; }
+
+  /* Modal genérico: cabeçalho e rodapé não disputam espaço com os campos. */
+  .sf-modal-dialog { max-height: calc(100dvh - max(48px, env(safe-area-inset-top))) !important; }
+  .sf-modal-header { min-height: 44px !important; padding: 8px 9px !important; }
+  .sf-modal-content { padding: 10px 9px max(10px, env(safe-area-inset-bottom)) !important; }
+  .sf-modal-content--lead-form { height: calc(100dvh - max(48px, env(safe-area-inset-top)) - 44px) !important; padding: 0 !important; }
+  :is(.client-area-modal footer, .sf-client-modal-footer, .gallery-modal footer) {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    padding: 9px !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .content-wrapper { padding-left: 6px !important; padding-right: 6px !important; }
+  :is(.sf-metric-grid, .agenda-summary-grid, .crm-stats-grid,
+  .sf-project-executive-cards, .sf-equipment-metrics, .sf-reports-metrics,
+  .overview-cards, .file-library-summary, .client-area-summary) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .gallery-collection-grid { grid-template-columns: 1fr !important; }
+  :is(.sf-project-dashboard-info-grid, .sf-project-resources-grid,
+  .sf-project-logistics-grid, .sf-project-profit-cost-grid,
+  .sf-project-governance-grid, .sf-project-client-experience-grid,
+  .sf-project-preparation-grid, .sf-project-commercial-grid,
+  .sf-project-post-production-grid, .sf-project-event-entry-grid) {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 350px) {
+  :is(.sf-metric-grid, .agenda-summary-grid, .crm-stats-grid,
+  .sf-project-executive-cards, .sf-equipment-metrics, .sf-reports-metrics,
+  .overview-cards, .file-library-summary, .client-area-summary) {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Telas de notebook e monitores com janela reduzida: compactação moderada para
+   manter mais informação útil acima da dobra sem alterar a hierarquia. */
+@media (max-width: 1600px) and (min-width: 769px) {
+  :is(.page-header, .sf-section-header, .crm-responsive-header, .agenda-header,
+  .settings-heading, .minimal-pricing-header, .sf-equipment-header,
+  .sf-reports-header, .sf-clients-header, .gallery-admin-heading,
+  .file-library-header, .client-area-page-header) {
+    margin-bottom: 12px !important;
+  }
+
+  :is(.sf-metric-grid, .agenda-summary-grid, .crm-stats-grid,
+  .sf-projects-overview, .sf-equipment-metrics, .sf-reports-metrics,
+  .overview-cards, .file-library-summary, .client-area-summary) {
+    gap: 10px !important;
+  }
+
+  :is(.sf-card, .sf-table-card, .crm-stat-card, .agenda-summary-card,
+  .minimal-panel, .minimal-package-card, .gallery-collection-card,
+  .client-portal-card, .file-library-card) {
+    padding-top: 13px !important;
+    padding-bottom: 13px !important;
+  }
+}

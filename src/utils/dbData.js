@@ -3,11 +3,27 @@ import { parseCurrency } from './formatters';
 import { normalizeLeadStatus } from '../data/crm';
 import { isConfirmedPayment } from './financeEngine';
 import { normalizeProductionStatus } from './projectEngine.js';
+import { writeStorage } from './storage';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFILE_TABLE = 'perfil';
 const PROFILE_ID = 'studio-profile';
 const EQUIPMENT_DELETION_KEY = 'cv_studio_equipamentos_excluidos';
+
+const STUDIO_DATA_CACHE_TTL = 15_000;
+let studioDataCache = null;
+let studioDataCacheAt = 0;
+let studioDataRequest = null;
+let clientProjectDirectoryCache = null;
+let clientProjectDirectoryCacheAt = 0;
+let clientProjectDirectoryRequest = null;
+
+export const invalidateDbStudioDataCache = () => {
+  studioDataCache = null;
+  studioDataCacheAt = 0;
+  clientProjectDirectoryCache = null;
+  clientProjectDirectoryCacheAt = 0;
+};
 
 const readEquipmentTombstones = () => {
   try {
@@ -18,9 +34,9 @@ const readEquipmentTombstones = () => {
   }
 };
 
-const writeEquipmentTombstones = (ids) => {
-  localStorage.setItem(EQUIPMENT_DELETION_KEY, JSON.stringify([...ids]));
-};
+const writeEquipmentTombstones = (ids) => (
+  writeStorage(EQUIPMENT_DELETION_KEY, [...ids])
+);
 
 // Compatibilidade com o módulo Financeiro: impede que uma despesa recrie um
 // equipamento que já foi explicitamente excluído.
@@ -70,6 +86,7 @@ export const isMissingRelationError = (error, table) => {
 };
 
 export const emitDbUpdate = (detail = {}) => {
+  invalidateDbStudioDataCache();
   if (typeof window === 'undefined') return;
 
   window.dispatchEvent(new Event('storage'));
@@ -947,6 +964,12 @@ const LEAD_STATUS_COLUMNS = [
   'etapa',
 ];
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const isUuidValue = (value) => (
+  UUID_PATTERN.test(String(value || '').trim())
+);
+
 export const saveLeadRow = async ({ id, payload }) => {
   assertSupabaseConfigured();
 
@@ -957,7 +980,7 @@ export const saveLeadRow = async ({ id, payload }) => {
   if (rawStatus === undefined) {
     return saveRow({
       table: 'leads',
-      id,
+      id: isUuidValue(id) ? id : undefined,
       payload,
     });
   }
@@ -972,6 +995,11 @@ export const saveLeadRow = async ({ id, payload }) => {
   });
 
   let lastError = null;
+  // Leads antigos criados apenas no navegador usam IDs como `lead-...`.
+  // A coluna public.leads.id é UUID, então esses registros devem ser
+  // inseridos no Supabase para receber um UUID real, em vez de tentar
+  // executar UPDATE com um identificador incompatível.
+  const shouldUpdate = Boolean(id && isUuidValue(id));
 
   for (const statusColumn of LEAD_STATUS_COLUMNS) {
     let body = {
@@ -980,7 +1008,7 @@ export const saveLeadRow = async ({ id, payload }) => {
     };
 
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const request = id
+      const request = shouldUpdate
         ? supabase
           .from('leads')
           .update(body)
@@ -1075,8 +1103,13 @@ export const syncEquipmentList = async (items = []) => {
   // cópia antiga do estado, por outro evento de sincronização ou por um espelho
   // desatualizado do localStorage. A remoção do tombstone só deve acontecer em
   // uma futura ação explícita de restauração, que o módulo ainda não oferece.
-  localStorage.setItem('cv_studio_equipamentos', JSON.stringify(list));
-  if (!isSupabaseConfigured || unavailableTables.has('equipamentos')) return list;
+  const localSaved = writeStorage('cv_studio_equipamentos', list);
+  if (!isSupabaseConfigured || unavailableTables.has('equipamentos')) {
+    if (!localSaved) {
+      throw new Error('O navegador está sem espaço para salvar os equipamentos.');
+    }
+    return list;
+  }
 
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError) throw authError;
@@ -1242,7 +1275,7 @@ const safeMirrorWrite = (key, value, { maxBytes = 700_000 } = {}) => {
   }
 };
 
-const saveMirrors = ({ leads, clients, projects, transactions, equipment }) => {
+const saveMirrors = ({ leads, clients, transactions, equipment }) => {
   if (!unavailableTables.has('leads')) safeMirrorWrite('cv_crm_leads', leads);
   safeMirrorWrite('cv_studio_clients', clients);
   // Projetos podem exceder facilmente o limite do localStorage.
@@ -1253,7 +1286,7 @@ const saveMirrors = ({ leads, clients, projects, transactions, equipment }) => {
   if (!unavailableTables.has('equipamentos')) safeMirrorWrite('cv_studio_equipamentos', equipment);
 };
 
-export const getDbStudioData = async () => {
+const loadDbStudioData = async () => {
   const [
     rawLeads,
     rawClients,
@@ -1281,15 +1314,39 @@ export const getDbStudioData = async () => {
   const localEquipmentList = (Array.isArray(localEquipment) ? localEquipment : [])
     .filter((item) => !tombstones.has(String(item?.id || '')));
 
-  // O Supabase é a fonte oficial do patrimônio. Antes, registros existentes
-  // apenas no localStorage eram mesclados e enviados novamente ao banco durante
-  // o carregamento. Isso recriava equipamentos já excluídos. O espelho local só
-  // é usado quando o Supabase não está disponível ou a tabela não existe.
+  // O Supabase continua sendo a fonte oficial, mas uma resposta remota vazia
+  // não pode apagar um patrimônio que ainda existe no espelho local. Mesclamos
+  // por ID, respeitamos tombstones e migramos somente os itens que ainda não
+  // chegaram ao banco. Registros remotos vencem em caso de conflito.
+  const remoteById = new Map(
+    remoteEquipment.map((item) => [String(item.id), item]),
+  );
+  const localOnlyEquipment = localEquipmentList.filter((item) => (
+    item?.id && !remoteById.has(String(item.id))
+  ));
   const equipment = (
     isSupabaseConfigured && !unavailableTables.has('equipamentos')
-      ? remoteEquipment
+      ? [
+        ...remoteEquipment,
+        ...localOnlyEquipment,
+      ]
       : localEquipmentList
   );
+
+  if (
+    isSupabaseConfigured
+    && !unavailableTables.has('equipamentos')
+    && localOnlyEquipment.length > 0
+  ) {
+    try {
+      await syncEquipmentList(equipment);
+    } catch (error) {
+      // O carregamento não deve falhar nem apagar a cópia local se a migração
+      // estiver temporariamente indisponível. Uma próxima sincronização tenta
+      // novamente.
+      console.warn('Não foi possível migrar equipamentos locais para o Supabase:', error);
+    }
+  }
 
   const projects = rawProjects.map((project) => (
     mapProjectFromDb(
@@ -1320,6 +1377,74 @@ export const getDbStudioData = async () => {
   };
 };
 
+export const getDbStudioData = async ({ force = false } = {}) => {
+  const now = Date.now();
+
+  if (
+    !force
+    && studioDataCache
+    && now - studioDataCacheAt < STUDIO_DATA_CACHE_TTL
+  ) {
+    return studioDataCache;
+  }
+
+  if (!force && studioDataRequest) return studioDataRequest;
+
+  studioDataRequest = loadDbStudioData()
+    .then((result) => {
+      studioDataCache = result;
+      studioDataCacheAt = Date.now();
+      return result;
+    })
+    .finally(() => {
+      studioDataRequest = null;
+    });
+
+  return studioDataRequest;
+};
+
+const loadDbClientProjectDirectory = async () => {
+  const [rawClients, rawProjects] = await Promise.all([
+    selectAll('clientes'),
+    selectAll('projetos'),
+  ]);
+
+  const clients = rawClients.map(mapClientFromDb);
+  const projects = rawProjects.map((project) => (
+    mapProjectFromDb(project, clients, [])
+  ));
+
+  return { clients, projects };
+};
+
+export const getDbClientProjectDirectory = async ({ force = false } = {}) => {
+  const now = Date.now();
+
+  if (
+    !force
+    && clientProjectDirectoryCache
+    && now - clientProjectDirectoryCacheAt < STUDIO_DATA_CACHE_TTL
+  ) {
+    return clientProjectDirectoryCache;
+  }
+
+  if (!force && clientProjectDirectoryRequest) {
+    return clientProjectDirectoryRequest;
+  }
+
+  clientProjectDirectoryRequest = loadDbClientProjectDirectory()
+    .then((result) => {
+      clientProjectDirectoryCache = result;
+      clientProjectDirectoryCacheAt = Date.now();
+      return result;
+    })
+    .finally(() => {
+      clientProjectDirectoryRequest = null;
+    });
+
+  return clientProjectDirectoryRequest;
+};
+
 export const subscribeDbUpdates = (callback) => {
   let disposed = false;
   let timer = null;
@@ -1328,6 +1453,7 @@ export const subscribeDbUpdates = (callback) => {
 
   const schedule = () => {
     if (disposed) return;
+    invalidateDbStudioDataCache();
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       if (!disposed) callback();
@@ -1355,6 +1481,7 @@ export const subscribeDbUpdates = (callback) => {
     );
 
     const tables = [
+      'leads',
       'clientes',
       'projetos',
       'financas',
@@ -1811,6 +1938,11 @@ export const saveProfileToDb = async (profile) => {
     },
     {
       id: PROFILE_ID,
+      data: profile,
+      updated_at: now,
+    },
+    {
+      id: PROFILE_ID,
       perfil: profile,
       updated_at: now,
     },
@@ -1832,6 +1964,7 @@ export const saveProfileToDb = async (profile) => {
 
       return (
         saved?.dados
+        || saved?.data
         || saved?.perfil
         || saved?.profile
         || profile

@@ -1,4 +1,6 @@
-﻿export const INTEGRATION_KEYS = {
+import { writeStorage } from './storage';
+
+export const INTEGRATION_KEYS = {
   leads: 'cv_crm_leads',
   clients: 'cv_studio_clients',
   projects: 'cv_studio_projects',
@@ -22,7 +24,16 @@ const safeParse = (key, fallback = []) => {
   }
 };
 
-const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const save = (key, value) => {
+  if (!writeStorage(key, value)) {
+    throw new Error(
+      'O navegador ficou sem espaço para salvar esta alteração. '
+      + 'Libere espaço e tente novamente.',
+    );
+  }
+
+  return true;
+};
 
 const createId = (prefix) => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;

@@ -54,6 +54,12 @@ import {
   deriveFinancialStatus,
   formatCurrency,
 } from '../../utils/financeEngine';
+import {
+  buildOfficialProjectRegistry,
+  getOfficialProjectDate,
+  getOfficialProjectStatus,
+  isCompletedOfficialProject,
+} from '../../utils/officialProjects';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import './Agenda.css';
 
@@ -230,6 +236,27 @@ const normalizeManual = (item) => {
 const getEventTiming = (event) => {
   const now = new Date();
 
+  if (event.sourceType === 'trabalho') {
+    if (isSameDay(event.start, now)) return 'hoje';
+    if (event.start > endOfDay(now)) return 'futuro';
+    if (event.end < startOfDay(now)) {
+      if (event.category === 'Entrega' && !event.completed) {
+        return 'atrasado';
+      }
+
+      return event.completed ? 'realizado' : 'passado';
+    }
+
+    return 'em_andamento';
+  }
+
+  if (
+    event.sourceType === 'manual'
+    && event.end < startOfDay(now)
+  ) {
+    return 'passado';
+  }
+
   if (event.end < startOfDay(now)) return 'atrasado';
   if (isSameDay(event.start, now)) return 'hoje';
   if (event.start > endOfDay(now)) return 'futuro';
@@ -250,6 +277,7 @@ export default function Agenda() {
 
   const [studio, setStudio] = useState({
     projects: [],
+    clients: [],
     leads: [],
     transactions: [],
   });
@@ -269,6 +297,7 @@ export default function Agenda() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [showOnlyToday, setShowOnlyToday] = useState(false);
+  const [agendaScope, setAgendaScope] = useState('projects');
 
   useEffect(() => {
     let active = true;
@@ -280,6 +309,7 @@ export default function Agenda() {
         setStudio({
           ...data,
           projects: data.projects || [],
+          clients: data.clients || [],
           leads: data.leads || [],
           transactions: data.transactions || [],
         });
@@ -323,16 +353,28 @@ export default function Agenda() {
     };
   }, []);
 
+  const officialProjects = useMemo(() => (
+    buildOfficialProjectRegistry({
+      projects: studio.projects || [],
+      clients: studio.clients || [],
+      includeUndated: false,
+      includeCancelled: false,
+      includeArchived: false,
+    })
+  ), [studio.clients, studio.projects]);
+
   const projectEvents = useMemo(() => {
     const unique = new Map();
 
-    (studio.projects || []).forEach((project) => {
-      const start = parseDate(
-        project.data
-          || project.data_trabalho
-          || project.dataTrabalho,
-        project.horario,
+    officialProjects.forEach((project) => {
+      const projectDate = getOfficialProjectDate(project);
+      const startTime = (
+        project.horaInicio
+        || project.horario
+        || project.agenda?.horario
+        || ''
       );
+      const start = parseDate(projectDate, startTime);
 
       if (!start) return;
 
@@ -344,15 +386,29 @@ export default function Agenda() {
 
       if (!sourceId) return;
 
-      const end = new Date(
-        start.getTime()
-        + Number(project.duracaoHoras || 2) * 3600000,
+      const explicitEnd = parseDate(
+        projectDate,
+        project.horaFim || project.agenda?.horaFim || '',
       );
+      const durationHours = Number(
+        project.duracaoHoras
+        || project.duracao
+        || project.cargaHoraria
+        || 2,
+      );
+      const safeDuration = Number.isFinite(durationHours)
+        && durationHours > 0
+        ? durationHours
+        : 2;
+      const end = explicitEnd && explicitEnd > start
+        ? explicitEnd
+        : new Date(start.getTime() + safeDuration * 3600000);
 
       const service = (
         project.tipoServico
         || project.tipo_servico
         || project.tipoTrabalho
+        || project.categoria
         || 'Trabalho'
       );
 
@@ -368,15 +424,23 @@ export default function Agenda() {
         client,
         category: categories.includes(service)
           ? service
-          : service === 'Pre-wedding'
+          : String(service).toLowerCase().includes('ensaio')
+            || service === 'Pre-wedding'
             ? 'Ensaio'
-            : 'Trabalho',
+            : String(service).toLowerCase().includes('casamento')
+              ? 'Casamento'
+              : 'Trabalho',
         start,
         end,
-        allDay: !project.horario,
-        location: project.local || project.cliente?.cidade || '',
-        description: project.observacoes || '',
-        status: project.status,
+        allDay: !startTime,
+        location:
+          project.local
+          || project.agenda?.local
+          || project.cliente?.cidade
+          || '',
+        description: project.observacoes || project.descricao || '',
+        status: getOfficialProjectStatus(project),
+        completed: isCompletedOfficialProject(project),
         sourceType: 'trabalho',
         origem: 'trabalho',
         sourceId,
@@ -390,10 +454,10 @@ export default function Agenda() {
     });
 
     return [...unique.values()];
-  }, [studio.projects]);
+  }, [officialProjects]);
 
   const projectDeliveryEvents = useMemo(() => (
-    (studio.projects || [])
+    officialProjects
       .map((project) => {
         const deliveryDate = (
           project.dataPrevistaEntrega
@@ -427,7 +491,8 @@ export default function Agenda() {
           allDay: false,
           location: '',
           description: `Prazo de entrega do ${service}.`,
-          status: project.status,
+          status: getOfficialProjectStatus(project),
+          completed: Boolean(project.dataRealEntrega),
           sourceType: 'trabalho',
           origem: 'trabalho',
           sourceId: project.id,
@@ -439,7 +504,7 @@ export default function Agenda() {
         };
       })
       .filter(Boolean)
-  ), [studio.projects]);
+  ), [officialProjects]);
 
   const crmEvents = useMemo(() => {
     const items = [];
@@ -674,10 +739,22 @@ export default function Agenda() {
     projectEvents,
   ]);
 
+  const scopedEvents = useMemo(() => (
+    agendaScope === 'projects'
+      ? projectEvents
+      : allEvents
+  ), [agendaScope, allEvents, projectEvents]);
+
+  const availableCategories = useMemo(() => (
+    categories.filter((category) => (
+      scopedEvents.some((event) => event.category === category)
+    ))
+  ), [scopedEvents]);
+
   const filteredEvents = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    return allEvents.filter((event) => {
+    return scopedEvents.filter((event) => {
       if (
         categoryFilter
         && event.category !== categoryFilter
@@ -686,6 +763,8 @@ export default function Agenda() {
       }
 
       if (
+        agendaScope === 'complete'
+        &&
         sourceFilter
         && event.sourceType !== sourceFilter
       ) {
@@ -719,10 +798,11 @@ export default function Agenda() {
       return true;
     });
   }, [
-    allEvents,
+    agendaScope,
     categoryFilter,
     search,
     showOnlyToday,
+    scopedEvents,
     sourceFilter,
   ]);
 
@@ -773,6 +853,12 @@ export default function Agenda() {
       ).length,
       overdue: eventsWithTiming.filter(
         (event) => event.timing === 'atrasado',
+      ).length,
+      completed: eventsWithTiming.filter(
+        (event) => (
+          event.sourceType === 'trabalho'
+          && event.completed
+        ),
       ).length,
       upcoming: eventsWithTiming.filter(
         (event) => event.start > endOfDay(now),
@@ -909,6 +995,13 @@ export default function Agenda() {
     setShowOnlyToday(false);
   };
 
+  const changeScope = (scope) => {
+    setAgendaScope(scope);
+    setCategoryFilter('');
+    setSourceFilter('');
+    setShowOnlyToday(false);
+  };
+
   const calendarView = view === 'list'
     ? 'month'
     : view;
@@ -917,23 +1010,38 @@ export default function Agenda() {
     <section className="agenda-page">
       <header className="agenda-header">
         <div>
-          <span>Agenda integrada</span>
+          <span>
+            {agendaScope === 'projects'
+              ? 'Agenda de trabalhos'
+              : 'Agenda integrada'}
+          </span>
           <h1>
             {format(date, "MMMM 'de' yyyy", {
               locale: ptBR,
             })}
           </h1>
           <p>
-            Projetos, follow-ups, tarefas e compromissos em uma única agenda.
+            {agendaScope === 'projects'
+              ? 'Datas oficiais dos trabalhos fechados, sincronizadas com a aba Trabalhos.'
+              : 'Projetos, follow-ups, tarefas e compromissos em uma única agenda.'}
           </p>
         </div>
 
         <button
           className="agenda-primary"
-          onClick={() => openNew()}
+          onClick={() => {
+            if (agendaScope === 'projects') {
+              navigate('/trabalhos');
+              return;
+            }
+
+            openNew();
+          }}
         >
           <CalendarPlus />
-          Novo evento
+          {agendaScope === 'projects'
+            ? 'Abrir Trabalhos'
+            : 'Novo evento'}
         </button>
       </header>
 
@@ -950,6 +1058,33 @@ export default function Agenda() {
         </div>
       )}
 
+      <div className="agenda-scope-switch" aria-label="Modo da agenda">
+        <button
+          type="button"
+          className={agendaScope === 'projects' ? 'active' : ''}
+          onClick={() => changeScope('projects')}
+        >
+          Trabalhos fechados
+          <span>{projectEvents.length}</span>
+        </button>
+
+        <button
+          type="button"
+          className={agendaScope === 'complete' ? 'active' : ''}
+          onClick={() => changeScope('complete')}
+        >
+          Agenda completa
+          <span>{allEvents.length}</span>
+        </button>
+
+        {agendaScope === 'projects' && (
+          <small>
+            <CheckCircle2 />
+            Mesma fonte de dados da aba Trabalhos
+          </small>
+        )}
+      </div>
+
       <div className="agenda-summary-grid">
         <SummaryCard
           label="Hoje"
@@ -960,10 +1095,14 @@ export default function Agenda() {
         />
 
         <SummaryCard
-          label="Atrasados"
-          value={summary.overdue}
-          icon={<AlertTriangle />}
-          tone="red"
+          label={agendaScope === 'projects' ? 'Realizados' : 'Atrasados'}
+          value={agendaScope === 'projects'
+            ? summary.completed
+            : summary.overdue}
+          icon={agendaScope === 'projects'
+            ? <CheckCircle2 />
+            : <AlertTriangle />}
+          tone={agendaScope === 'projects' ? 'green' : 'red'}
         />
 
         <SummaryCard
@@ -981,7 +1120,7 @@ export default function Agenda() {
         />
       </div>
 
-      <div className="agenda-filters">
+      <div className={`agenda-filters ${agendaScope === 'projects' ? 'projects-scope' : ''}`}>
         <label className="agenda-search">
           <Search />
           <input
@@ -1001,7 +1140,7 @@ export default function Agenda() {
           >
             <option value="">Todas as categorias</option>
 
-            {categories.map((category) => (
+            {availableCategories.map((category) => (
               <option key={category} value={category}>
                 {category}
               </option>
@@ -1009,21 +1148,28 @@ export default function Agenda() {
           </select>
         </label>
 
-        <label>
-          <ListFilter />
-          <select
-            value={sourceFilter}
-            onChange={(event) => {
-              setSourceFilter(event.target.value);
-            }}
-          >
-            <option value="">Todas as origens</option>
-            <option value="manual">Manual</option>
-            <option value="trabalho">Projetos</option>
-            <option value="crm">CRM</option>
-            <option value="financeiro">Financeiro</option>
-          </select>
-        </label>
+        {agendaScope === 'complete' ? (
+          <label>
+            <ListFilter />
+            <select
+              value={sourceFilter}
+              onChange={(event) => {
+                setSourceFilter(event.target.value);
+              }}
+            >
+              <option value="">Todas as origens</option>
+              <option value="manual">Manual</option>
+              <option value="trabalho">Projetos</option>
+              <option value="crm">CRM</option>
+              <option value="financeiro">Financeiro</option>
+            </select>
+          </label>
+        ) : (
+          <div className="agenda-sync-state">
+            <CheckCircle2 />
+            Exibindo somente trabalhos oficiais, não cancelados e não arquivados
+          </div>
+        )}
 
         <button
           type="button"
@@ -1103,12 +1249,14 @@ export default function Agenda() {
       </div>
 
       <div className="agenda-legend">
-        {[
-          ['trabalho', 'Projetos', '#c9a06c'],
-          ['crm', 'CRM', '#60a5fa'],
-          ['manual', 'Manual', '#aa88b5'],
-          ['financeiro', 'Financeiro', '#34d399'],
-        ].map(([key, label, color]) => (
+        {(agendaScope === 'projects'
+          ? [['trabalho', 'Trabalhos fechados', '#c9a06c']]
+          : [
+            ['trabalho', 'Projetos', '#c9a06c'],
+            ['crm', 'CRM', '#60a5fa'],
+            ['manual', 'Manual', '#aa88b5'],
+            ['financeiro', 'Financeiro', '#34d399'],
+          ]).map(([key, label, color]) => (
           <span key={key}>
             <i style={{ background: color }} />
             {label}
@@ -1134,8 +1282,10 @@ export default function Agenda() {
             onView={setView}
             startAccessor="start"
             endAccessor="end"
-            selectable
-            onSelectSlot={openNew}
+            selectable={agendaScope === 'complete'}
+            onSelectSlot={agendaScope === 'complete'
+              ? openNew
+              : undefined}
             onSelectEvent={setSelected}
             components={{
               event: (props) => (
@@ -1292,7 +1442,11 @@ function EventList({
                     ? 'Hoje'
                     : event.timing === 'atrasado'
                       ? 'Atrasado'
-                      : 'Próximo'}
+                      : event.timing === 'realizado'
+                        ? 'Realizado'
+                        : event.timing === 'passado'
+                          ? 'Data passada'
+                          : 'Próximo'}
                 </span>
               </button>
             ))}
@@ -1388,7 +1542,9 @@ function EventDetails({
             Este compromisso foi criado automaticamente a partir de{' '}
             {event.sourceType === 'crm'
               ? 'um lead do CRM.'
-              : 'um projeto.'}
+              : event.sourceType === 'financeiro'
+                ? 'um lançamento financeiro.'
+                : 'um projeto.'}
           </div>
         )}
 

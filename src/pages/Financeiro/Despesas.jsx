@@ -185,7 +185,12 @@ function DateInput({
 }
 
 export default function Despesas({ area = 'fixa' }) {
-  if (area === 'variavel') return <VariableExpenses />;
+  return area === 'variavel'
+    ? <VariableExpenses />
+    : <FixedExpenses area={area} />;
+}
+
+function FixedExpenses({ area = 'fixa' }) {
   const [transacoes, setTransacoes] = useState([]);
   const [recorrencias, setRecorrencias] = useState([]);
   const [saldos, setSaldos] = useState({ salario: 0, empresa: 0, reserva: 0 });

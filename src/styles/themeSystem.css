@@ -1,0 +1,670 @@
+/* StudioFlow — tokens semânticos e correções de contraste entre temas.
+   Esta camada é carregada por último para neutralizar apenas cores fixas que
+   impediam o tema claro de funcionar em módulos específicos. */
+:root {
+  --surface-page: var(--bg-main);
+  --surface-card: var(--bg-card);
+  --surface-card-strong: #171717;
+  --surface-card-soft: rgba(255, 255, 255, 0.025);
+  --surface-input: #0d0e0e;
+  --surface-hover: rgba(255, 255, 255, 0.045);
+  --surface-selected: rgba(201, 160, 108, 0.11);
+  --surface-overlay: rgba(0, 0, 0, 0.68);
+  --text-muted: var(--text-secondary);
+  --text-subtle: #777a80;
+  --border-strong: rgba(244, 241, 234, 0.14);
+  --calendar-grid: rgba(255, 255, 255, 0.07);
+  --shadow-card: 0 10px 28px rgba(0, 0, 0, 0.22);
+  --tone-gold-bg: #18130a;
+  --tone-red-bg: #1b0d0d;
+  --tone-blue-bg: #0d1726;
+  --tone-green-bg: #0d1b16;
+  --tone-purple-bg: #171126;
+}
+
+:root[data-theme='light'] {
+  --bg-main: #f4f3ef;
+  --bg-card: #ffffff;
+  --bg-menu: #fbfaf7;
+  --text-main: #202126;
+  --text-secondary: #62656d;
+  --border-color: rgba(31, 33, 39, 0.13);
+  --shadow-sm: 0 5px 16px rgba(27, 30, 36, 0.07);
+  --shadow-lg: 0 16px 38px rgba(27, 30, 36, 0.12);
+  --surface-page: #f4f3ef;
+  --surface-card: #ffffff;
+  --surface-card-strong: #f7f6f2;
+  --surface-card-soft: #f8f7f4;
+  --surface-input: #ffffff;
+  --surface-hover: rgba(31, 33, 39, 0.045);
+  --surface-selected: rgba(166, 123, 69, 0.1);
+  --surface-overlay: rgba(24, 26, 31, 0.46);
+  --text-muted: #62656d;
+  --text-subtle: #7b7d84;
+  --border-strong: rgba(31, 33, 39, 0.2);
+  --calendar-grid: rgba(31, 33, 39, 0.11);
+  --shadow-card: 0 10px 28px rgba(27, 30, 36, 0.08);
+  --tone-gold-bg: #fff6e3;
+  --tone-red-bg: #fff0ef;
+  --tone-blue-bg: #edf5ff;
+  --tone-green-bg: #edf9f2;
+  --tone-purple-bg: #f5f0ff;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] { color-scheme: dark; }
+
+body,
+.main-content,
+.content-wrapper,
+.studioflow-shell {
+  background: var(--surface-page);
+  color: var(--text-main);
+}
+
+/* Inputs e autofill devem acompanhar o tema, inclusive em formulários com
+   estilos antigos fixados para o modo escuro. */
+:root[data-theme='light'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
+:root[data-theme='light'] select,
+:root[data-theme='light'] textarea {
+  color: var(--text-main);
+  background-color: var(--surface-input);
+  border-color: var(--border-color);
+}
+
+:root[data-theme='light'] input::placeholder,
+:root[data-theme='light'] textarea::placeholder { color: #92949a; }
+
+:root[data-theme='light'] .sf-secondary-button,
+:root[data-theme='light'] .minimal-outline-button,
+:root[data-theme='light'] .agenda-secondary {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+
+/* Cards e tabelas compartilhados. */
+:root[data-theme='light'] :is(
+  .glass,
+  .sf-card,
+  .sf-table-card,
+  .dashboard-card,
+  .system-state-card,
+  .sf-project-card,
+  .client-card,
+  .equipment-card,
+  .sf-report-summary-card,
+  .sf-report-table-card
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-card);
+}
+
+:root[data-theme='light'] :is(.sf-table, table) th {
+  color: var(--text-muted);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.sf-table, table) td { border-color: var(--border-color); }
+:root[data-theme='light'] :is(.sf-table, table) tbody tr:hover { background: var(--surface-hover); }
+
+/* Sidebar e menus. */
+:root[data-theme='light'] :is(.sidebar, .sf-app-sidebar) {
+  color: var(--text-main);
+  background: var(--bg-menu);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.nav-item, .sidebar-module-item) { color: var(--text-muted); }
+:root[data-theme='light'] :is(.nav-item:hover, .sidebar-module-item:hover) {
+  color: var(--text-main);
+  background: var(--surface-hover);
+}
+
+/* CRM */
+:root[data-theme='light'] :is(
+  .crm-responsive-page,
+  .crm-stats-panel,
+  .crm-stat-card,
+  .crm-kanban-column,
+  .crm-kanban-card,
+  .crm-details-panel,
+  .lead-details-info-grid > div
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .crm-kanban-column { background: var(--surface-card-strong); }
+:root[data-theme='light'] :is(.crm-responsive-page p, .crm-responsive-page span, .crm-responsive-page small) {
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .crm-lead-form__actions {
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .crm-lead-form__fields > div[style*='background'] {
+  background: var(--surface-card-strong) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-muted) !important;
+}
+:root[data-theme='light'] .crm-lead-form__fields input:not([type='range']),
+:root[data-theme='light'] .crm-lead-form__fields select,
+:root[data-theme='light'] .crm-lead-form__fields textarea {
+  background: var(--surface-input) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+:root[data-theme='light'] .crm-lead-form__fields label > span { color: var(--text-muted) !important; }
+
+/* Agenda e React Big Calendar */
+:root[data-theme='light'] :is(
+  .agenda-summary-card,
+  .agenda-scope-switch,
+  .agenda-controls,
+  .agenda-calendar,
+  .agenda-list,
+  .agenda-modal,
+  .agenda-details,
+  .agenda-form
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .agenda-scope-switch > button span {
+  color: var(--text-muted);
+  background: var(--surface-card-strong);
+}
+:root[data-theme='light'] .agenda-scope-switch > button.active {
+  color: #765424;
+  background: rgba(201, 160, 108, .15);
+  box-shadow: inset 0 0 0 1px rgba(156, 111, 50, .22);
+}
+:root[data-theme='light'] .agenda-scope-switch > button.active span {
+  color: #765424;
+  background: rgba(201, 160, 108, .17);
+}
+:root[data-theme='light'] .agenda-scope-switch > small {
+  color: #35724b;
+}
+:root[data-theme='light'] .agenda-sync-state {
+  color: #35724b;
+  background: rgba(22, 163, 74, .06);
+  border-color: rgba(22, 163, 74, .18);
+}
+:root[data-theme='light'] :is(.agenda-page button:not(.agenda-primary), .agenda-page .agenda-search) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .rbc-month-view,
+:root[data-theme='light'] .rbc-time-view,
+:root[data-theme='light'] .rbc-agenda-view { background: var(--surface-card) !important; }
+:root[data-theme='light'] :is(.rbc-day-bg, .rbc-month-row, .rbc-time-content, .rbc-timeslot-group, .rbc-header) {
+  border-color: var(--calendar-grid) !important;
+}
+:root[data-theme='light'] .rbc-day-bg:hover { background: var(--surface-hover) !important; }
+:root[data-theme='light'] .rbc-off-range .rbc-button-link { color: #aaaeb5 !important; }
+:root[data-theme='light'] .rbc-button-link { color: var(--text-main) !important; }
+
+/* Configurações */
+:root[data-theme='light'] :is(
+  .settings-layout,
+  .settings-tabs,
+  .settings-panel,
+  .settings-sidebar-item,
+  .template-card,
+  .integration-grid article,
+  .role-grid article,
+  .danger-zone,
+  .sidebar-preference,
+  .settings-team-form,
+  .settings-team-list article,
+  .integration-card,
+  .integration-detail-panel
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .settings-tabs { background: var(--surface-card-strong); }
+:root[data-theme='light'] .settings-heading {
+  background: linear-gradient(var(--surface-page) 76%, transparent);
+}
+:root[data-theme='light'] :is(.settings-field > span, .settings-toggle, .settings-panel-title p, .settings-heading p) {
+  color: var(--text-muted);
+}
+:root[data-theme='light'] :is(.settings-field input, .settings-field select, .settings-field textarea) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.sidebar-preview, .integration-grid article, .role-grid article) {
+  background: var(--surface-card-strong);
+}
+:root[data-theme='light'] .settings-tabs button { color: var(--text-muted); }
+:root[data-theme='light'] .settings-tabs button:hover,
+:root[data-theme='light'] .settings-tabs button.active { color: #8a6232; }
+
+/* Precificação */
+:root[data-theme='light'] :is(
+  .minimal-pricing-page,
+  .minimal-panel,
+  .minimal-package-card,
+  .proposal-output-panel,
+  .minimal-readonly,
+  .minimal-context-bar,
+  .sf-pricing-card,
+  .sf-builder-card,
+  .sf-inspector-card,
+  .sf-capacity-card
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .minimal-pricing-page input,
+  .minimal-pricing-page select,
+  .minimal-pricing-page textarea
+) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.minimal-category-tabs, .minimal-extra-row, .minimal-switches) button {
+  color: var(--text-muted);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.minimal-category-tabs, .minimal-extra-row, .minimal-switches) button.active {
+  color: #805b2f;
+  background: var(--surface-selected);
+  border-color: rgba(166, 123, 69, 0.35);
+}
+
+/* Galerias */
+:root[data-theme='light'] :is(
+  .gallery-admin-page,
+  .gallery-collection-card,
+  .gallery-workspace,
+  .gallery-workspace-header,
+  .overview-card,
+  .gallery-empty-panel,
+  .sharing-card,
+  .gallery-storage-card,
+  .gallery-modal,
+  .cover-picker
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.gallery-admin-page input, .gallery-admin-page select, .gallery-admin-page textarea) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .gallery-modal-backdrop { background: var(--surface-overlay); }
+
+/* Biblioteca de arquivos */
+:root[data-theme='light'] :is(
+  .file-library-page,
+  .file-library-toolbar,
+  .file-library-card,
+  .file-library-item,
+  .file-library-preview-modal,
+  .file-library-folder-modal
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.file-library-page input, .file-library-page select, .file-library-page textarea) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .file-library-modal-backdrop { background: var(--surface-overlay); }
+
+/* Área do cliente */
+:root[data-theme='light'] :is(
+  .client-portal-card,
+  .client-area-modal,
+  .client-area-section-options label,
+  .client-area-sections-fieldset
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .client-area-section-options label { background: var(--surface-card-strong); }
+:root[data-theme='light'] .client-area-section-options label.selected { background: var(--surface-selected); }
+:root[data-theme='light'] :is(.client-area-section-copy strong, .client-area-modal-title h2) { color: var(--text-main); }
+:root[data-theme='light'] :is(.client-area-section-copy small, .client-area-modal-title p) { color: var(--text-muted); }
+:root[data-theme='light'] .client-area-modal footer { background: var(--surface-card-strong); border-color: var(--border-color); }
+:root[data-theme='light'] .client-area-modal-backdrop { background: var(--surface-overlay); }
+
+/* Documentos */
+:root[data-theme='light'] .documents-page { color: var(--text-main); }
+:root[data-theme='light'] :is(.document-form, .documents-list, .document-preview) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.document-form input, .document-form select, .document-toolbar input, .document-toolbar select, .document-toolbar > div) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .documents-list article { border-color: var(--border-color); }
+:root[data-theme='light'] .document-preview button { color: var(--text-main); background: var(--surface-card-strong); border-color: var(--border-color); }
+/* O papel do documento permanece claro propositalmente em ambos os temas. */
+
+/* Equipamentos, relatórios, clientes, trabalhos e financeiro já usam variáveis
+   em grande parte; estes seletores cobrem superfícies legadas restantes. */
+:root[data-theme='light'] :is(
+  .sf-equipment-toolbar,
+  .sf-equipment-chart-card,
+  .sf-equipment-exit-panel,
+  .sf-report-metric,
+  .sf-report-summary-card,
+  .sf-report-table-card,
+  .sf-client-toolbar,
+  .sf-project-dashboard-panel,
+  .sf-project-profitability-panel,
+  .sf-project-documents-panel,
+  .sf-project-history-panel,
+  .sf-project-governance-panel,
+  .sf-project-client-experience-panel,
+  .sf-project-preparation-panel,
+  .sf-project-commercial-delivery-panel,
+  .sf-project-post-production-panel,
+  .sf-project-event-operation-panel,
+  .sf-project-advanced-panel,
+  .sf-variable-table-card,
+  .sf-metric-card
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .sf-equipment-page input, .sf-equipment-page select, .sf-equipment-page textarea,
+  .sf-reports-page input, .sf-reports-page select, .sf-reports-page textarea,
+  .sf-clients-page input, .sf-clients-page select, .sf-clients-page textarea,
+  .sf-finance-page input, .sf-finance-page select, .sf-finance-page textarea
+) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+
+/* Modais compartilhados. */
+:root[data-theme='light'] :is(.sf-modal-dialog, .modal, .project-modal, .equipment-modal) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.sf-modal-backdrop, .modal-overlay, .sf-modal-overlay) {
+  background: var(--surface-overlay);
+}
+
+/* Scrollbars */
+:root[data-theme='light'] ::-webkit-scrollbar-track { background: #efeee9; }
+:root[data-theme='light'] ::-webkit-scrollbar-thumb { background: #b9bbc0; }
+
+/* Cobertura complementar das superfícies explicitamente escuras encontradas
+   na auditoria dos módulos. */
+:root[data-theme='light'] :is(
+  .agenda-filters label,
+  .agenda-filters button,
+  .agenda-controls > div,
+  .agenda-info-block
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.agenda-form input, .agenda-form select, .agenda-form textarea) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .agenda-overlay { background: var(--surface-overlay); }
+:root[data-theme='light'] .agenda-modal button:not(.agenda-primary) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+
+:root[data-theme='light'] :is(
+  .settings-model-grid article,
+  .settings-team-form,
+  .settings-team-list article,
+  .settings-team-empty,
+  .sidebar-preview
+) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .settings-team-status {
+  color: var(--text-muted);
+  background: #ecebe7;
+}
+:root[data-theme='light'] .sf-switch {
+  background: #d4d5d8;
+  border-color: #c1c3c7;
+}
+
+:root[data-theme='light'] .minimal-category-tabs { background: var(--surface-card-strong); }
+:root[data-theme='light'] :is(
+  .minimal-fields select,
+  .minimal-fields input,
+  .minimal-readonly
+) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .minimal-extra-row button,
+  .minimal-switches button,
+  .minimal-finance-small > div,
+  .minimal-margin-row,
+  .minimal-student-summary > div,
+  .minimal-cost-breakdown,
+  .sf-saved-option-item,
+  .sf-inspector-metrics div
+) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+
+:root[data-theme='light'] :is(
+  .gallery-workspace,
+  .gallery-production-strip,
+  .gallery-workspace-nav,
+  .manager-photo-card,
+  .photo-menu,
+  .cover-live-preview,
+  .delivery-summary article,
+  .gallery-theme-segmented
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.manager-photo-media, .gallery-cover-preview, .gallery-watermark-sample) {
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .gallery-form-grid input,
+  .gallery-form-grid select,
+  .gallery-form-grid textarea,
+  .cover-controls select,
+  .cover-controls textarea,
+  .cover-controls input
+) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .gallery-workspace-nav button { color: var(--text-muted); }
+:root[data-theme='light'] .gallery-workspace-nav button.active {
+  color: #805b2f !important;
+  background: var(--surface-selected) !important;
+  border-color: rgba(166, 123, 69, .3) !important;
+}
+:root[data-theme='light'] .gallery-admin-page button.secondary,
+:root[data-theme='light'] .gallery-admin-page button.icon,
+:root[data-theme='light'] .gallery-admin-page a.secondary {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+
+:root[data-theme='light'] :is(
+  .file-library-toolbar,
+  .file-library-search,
+  .file-library-view-toggle,
+  .file-library-empty,
+  .file-library-upload-queue,
+  .file-library-preview-content,
+  .file-library-item
+) {
+  color: var(--text-main);
+  background: var(--surface-card);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .file-library-search input,
+  .file-library-toolbar select,
+  .file-library-folder-modal input
+) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .file-library-header-actions .secondary,
+  .file-library-folder-modal .secondary,
+  .file-library-generic-preview button,
+  .file-library-preview-modal footer button
+) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .file-library-view-toggle button.active {
+  color: #805b2f;
+  background: var(--surface-selected);
+}
+
+:root[data-theme='light'] :is(
+  .client-area-toolbar,
+  .client-area-empty,
+  .client-area-section-options label,
+  .client-portal-sections span
+) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(
+  .client-area-form-grid input,
+  .client-area-form-grid select,
+  .client-area-form-grid textarea
+) {
+  color: var(--text-main);
+  background: var(--surface-input);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] :is(.client-portal-card-actions button, .client-portal-card-actions a) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .client-area-section-icon {
+  color: var(--text-muted);
+  background: #ecebe7;
+}
+
+/* Ajustes específicos para controles com !important e superfícies administrativas
+   que ainda mantinham o modo escuro por regras legadas mais específicas. */
+:root[data-theme='light'] .sf-extra-payment-select {
+  color: var(--text-main) !important;
+  background: var(--surface-input) !important;
+  border-color: var(--border-color) !important;
+}
+:root[data-theme='light'] .sf-extra-payment-select.is-paid {
+  color: #24634c !important;
+  background: #eaf7f1 !important;
+  border-color: rgba(36, 99, 76, .35) !important;
+}
+:root[data-theme='light'] :is(
+  .sf-client-photo-selection,
+  .sf-client-photo-participant,
+  .sf-client-photo-price-note,
+  .sf-extra-payment-toggle,
+  .sf-project-view-switch,
+  .sf-projects-overview > div
+) {
+  color: var(--text-main);
+  background: var(--surface-card-strong);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .sf-extra-payment-toggle.is-paid {
+  color: #24634c;
+  background: #eaf7f1;
+  border-color: rgba(36, 99, 76, .35);
+}
+:root[data-theme='light'] .gallery-workspace-header {
+  background: color-mix(in srgb, var(--surface-card) 96%, transparent);
+}
+:root[data-theme='light'] .gallery-workspace-nav button {
+  color: var(--text-muted) !important;
+  background: transparent !important;
+}
+:root[data-theme='light'] .photo-menu button {
+  color: var(--text-main) !important;
+}
+:root[data-theme='light'] .gallery-modal.upload-modal {
+  color: var(--text-main);
+  background: var(--surface-card);
+}
+:root[data-theme='light'] .gallery-dropzone {
+  color: var(--text-main) !important;
+  background:
+    radial-gradient(circle at top, rgba(166, 123, 69, .09), transparent 46%),
+    var(--surface-card-strong) !important;
+  border-color: rgba(166, 123, 69, .5) !important;
+  box-shadow: inset 0 0 0 1px rgba(31, 33, 39, .04);
+}
+:root[data-theme='light'] .gallery-dropzone strong { color: var(--text-main); }
+:root[data-theme='light'] .gallery-dropzone span { color: var(--text-muted); }
+:root[data-theme='light'] .gallery-upload-list > div { color: var(--text-main); }
+
+/* O CRM tinha grande parte das superfícies em estilos inline. Os componentes
+   agora usam os tokens acima, e estes seletores cobrem os elementos restantes. */
+:root[data-theme='light'] :is(
+  .crm-responsive-inner,
+  .crm-stats-header,
+  .crm-stats-grid,
+  .crm-kanban,
+  .crm-kanban-column,
+  .crm-kanban-card,
+  .crm-search,
+  .crm-table
+) {
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+:root[data-theme='light'] .crm-search input { color: var(--text-main); }
+:root[data-theme='light'] .cliente-info strong { color: var(--text-main); }
+

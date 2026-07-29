@@ -1,4 +1,5 @@
 import { isNonOperationalIncome } from './incomeClassification';
+import { writeStorage } from './storage';
 export const FIXED_EXPENSE_CATEGORIES = [
   'Aluguel',
   'Energia',
@@ -178,9 +179,9 @@ export const appendFinancialAudit = ({
     createdAt: new Date().toISOString(),
   };
 
-  localStorage.setItem(
+  writeStorage(
     FINANCE_STORAGE_KEYS.audit,
-    JSON.stringify([entry, ...current].slice(0, 2000)),
+    [entry, ...current].slice(0, 2000),
   );
 
   return entry;
@@ -509,7 +510,9 @@ export const loadDistributionConfig = async () => {
 
   const databaseConfig = data?.detalhes?.percentuais || data?.detalhes;
   const config = isDistributionConfigValid(databaseConfig) ? databaseConfig : localConfig;
-  localStorage.setItem(FINANCE_STORAGE_KEYS.config, JSON.stringify(config));
+  // O carregamento apenas atualiza o espelho local. Não deve emitir um novo
+  // evento global, pois isso iniciaria outra leitura do Financeiro.
+  writeStorage(FINANCE_STORAGE_KEYS.config, config, { emit: false });
   return config;
 };
 
@@ -518,7 +521,11 @@ export const saveDistributionConfig = async (config) => {
     throw new Error('A soma dos percentuais deve ser exatamente 100%.');
   }
   const normalized = Object.fromEntries(FINANCIAL_DESTINATIONS.map((key) => [key, Number(config[key])]));
-  localStorage.setItem(FINANCE_STORAGE_KEYS.config, JSON.stringify(normalized));
+  if (!writeStorage(FINANCE_STORAGE_KEYS.config, normalized)) {
+    throw new Error(
+      'O navegador ficou sem espaço para salvar a configuração financeira.',
+    );
+  }
   if (!isSupabaseConfigured) return normalized;
 
   const { data: authData } = await supabase.auth.getUser();

@@ -35,7 +35,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react';
-import { getDbStudioData } from '../../utils/dbData';
+import { getDbClientProjectDirectory } from '../../utils/dbData';
 import { capitalizeName, maskCurrency } from '../../utils/masks';
 import { parseCurrency } from '../../utils/formatters';
 import {
@@ -164,7 +164,7 @@ export default function Galerias() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [galleryRows, studio] = await Promise.all([listGalleries({ includeTrash: trashMode }), getDbStudioData()]);
+      const [galleryRows, studio] = await Promise.all([listGalleries({ includeTrash: trashMode }), getDbClientProjectDirectory()]);
       setGalleries(trashMode ? galleryRows.filter((item) => item.status === 'trash') : galleryRows.filter((item) => item.status !== 'trash'));
       setClients(studio.clients || []);
       setProjects(studio.projects || []);
