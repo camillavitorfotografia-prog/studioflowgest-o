@@ -29,4 +29,7 @@ export const emitThemeChange = (value) => {
   return theme;
 };
 
-export const isSettingsStorageEvent = (event) => event?.key === SETTINGS_KEY;
+export const isSettingsStorageEvent = (event) => {
+  const key = String(event?.key || '');
+  return key === SETTINGS_KEY || key.endsWith(`:${SETTINGS_KEY}`);
+};

@@ -342,12 +342,17 @@ const dataUrlToBlob = async (value) => {
 };
 
 const uploadTemplateAsset = async ({ templateId, pageId, assetId, dataUrl }) => {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  const userId = userData?.user?.id;
+  if (!userId) throw new Error('Sessão inválida. Entre novamente no StudioFlow.');
+
   const extension = extensionFromDataUrl(dataUrl);
   const hash = stableHash(dataUrl);
   const safeTemplate = String(templateId || 'template').replace(/[^a-zA-Z0-9_-]/g, '-');
   const safePage = String(pageId || 'page').replace(/[^a-zA-Z0-9_-]/g, '-');
   const safeAsset = String(assetId || 'asset').replace(/[^a-zA-Z0-9_-]/g, '-');
-  const path = `${DOCUMENT_ASSET_PREFIX}/${safeTemplate}/${safePage}/${safeAsset}-${hash}.${extension}`;
+  const path = `${userId}/${DOCUMENT_ASSET_PREFIX}/${safeTemplate}/${safePage}/${safeAsset}-${hash}.${extension}`;
   const blob = await dataUrlToBlob(dataUrl);
   const { error } = await supabase.storage
     .from(DOCUMENT_ASSET_BUCKET)

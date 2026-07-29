@@ -98,7 +98,39 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const personalExternalEntries = realizedAnnualRows.filter(isPersonalExternalRow);
   const standalone = realizedAnnualRows.filter((r) => r.entry_kind === 'operational_income' && !isPersonalExternalRow(r));
   const expenses = realizedAnnualRows.filter((r) => r.entry_kind === 'expense_paid');
-  const pendingExpenses = annualRows.filter((r) => r.entry_kind === 'expense_pending');
+  const allPendingExpenses = annualRows.filter((r) => r.entry_kind === 'expense_pending');
+  const pendingExpenses = allPendingExpenses.filter((r) => {
+    const dueKey = parseReportDate(r.due_date || r.effective_date)?.toISOString().slice(0, 10) || '';
+    return Boolean(dueKey && dueKey <= todayKey);
+  });
+  const futurePendingExpenses = allPendingExpenses.filter((r) => {
+    const dueKey = parseReportDate(r.due_date || r.effective_date)?.toISOString().slice(0, 10) || '';
+    return Boolean(dueKey && dueKey > todayKey);
+  });
+  const fixedExpenseRegistrationKeys = new Set();
+  (studio.recurrences || []).forEach((item) => {
+    const key = String(item?.id || '').trim() || [
+      String(item?.descricao || '').trim().toLowerCase(),
+      String(item?.categoria || '').trim().toLowerCase(),
+      Number(item?.valor || 0).toFixed(2),
+      Number(item?.diaVencimento || 1),
+    ].join('|');
+    if (key) fixedExpenseRegistrationKeys.add(key);
+  });
+  (studio.transactions || [])
+    .filter((item) => String(item.tipo || item.source_type || '').toLowerCase() === 'configuracao_recorrencia')
+    .forEach((item) => {
+      const details = item.detalhes || item.details || {};
+      const key = String(
+        item.recurrence_id
+        || item.recorrenciaId
+        || details.id
+        || item.id
+        || '',
+      ).trim();
+      if (key) fixedExpenseRegistrationKeys.add(key.replace(/^recurrence-row-/, ''));
+    });
+  const fixedExpenseRegistrations = fixedExpenseRegistrationKeys.size;
   const nonOperationalRows = realizedAnnualRows.filter((r) => ['non_operational_income', 'personal_external_income'].includes(r.entry_kind));
   const nonOperationalEntries = nonOperationalRows.filter((r) => !isPersonalExternalRow(r));
   const ignoredMirrors = annualRows.filter((r) => r.entry_kind === 'ignored_mirror');
@@ -172,7 +204,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   allocations.filter((r) => r.account_code === 'empresa').forEach((r) => { const m = parseReportDate(r.effective_date)?.getMonth(); if (m != null) monthly[m].companyReceived += rowAmount(r); });
   expenses.forEach((r) => { const m = parseReportDate(r.effective_date)?.getMonth(); if (m != null) monthly[m].expenses += rowAmount(r); });
   futureIncomeRows.forEach((r) => { const m = parseReportDate(r.effective_date || r.data)?.getMonth(); if (m != null) monthly[m].forecastReceived += rowAmount(r); });
-  pendingExpenses.forEach((r) => { const m = parseReportDate(r.due_date || r.effective_date)?.getMonth(); if (m != null) monthly[m].forecastExpenses += rowAmount(r); });
+  allPendingExpenses.forEach((r) => { const m = parseReportDate(r.due_date || r.effective_date)?.getMonth(); if (m != null) monthly[m].forecastExpenses += rowAmount(r); });
   monthly.forEach((m) => { m.received=money(m.received); m.forecastReceived=money(m.forecastReceived); m.companyReceived=money(m.companyReceived); m.expenses=money(m.expenses); m.forecastExpenses=money(m.forecastExpenses); m.result=money(m.received-m.expenses); });
 
   const expensesByCategory = {}; expenses.forEach((r) => { const k=rowCategory(r); expensesByCategory[k]=(expensesByCategory[k]||0)+rowAmount(r); });
@@ -232,6 +264,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
         reference: rowDetails(r).documentoReferencia || '',
       })),
     pendingExpenses: pendingExpenses.map((r)=>({date:r.due_date||r.effective_date,description:rowDescription(r),category:rowCategory(r),amount:rowAmount(r)})),
+    futurePendingExpenses: futurePendingExpenses.map((r)=>({date:r.due_date||r.effective_date,description:rowDescription(r),category:rowCategory(r),amount:rowAmount(r)})),
     undatedExpenses, reconciliation, projectsWithoutDateRows, orphanAnnualProjectRows,
     profitabilityRows: projectRows.map((r)=>({clientName:r.clientName,service:r.service,received:r.receivedInYear,expenses:0,profit:r.receivedInYear})).sort((a,b)=>b.profit-a.profit),
     mostContractedService: topEntry(byService), mostSoldEssay: topEntry(byEssay,(v)=>v.count), topOrigin:topEntry(byOrigin), topCity:topEntry(byCity), topClient:topEntry(byClient),
@@ -260,7 +293,13 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
     },
     warnings: {
       receiptsWithoutDate: rows.filter((r)=>['operational_allocation','operational_income'].includes(r.entry_kind)&&!r.effective_date).length,
-      expensesWithoutDate:undatedExpenses.length, pendingExpenses:pendingExpenses.length, pendingExpensesAmount:money(pendingExpenses.reduce((s,r)=>s+rowAmount(r),0)),
+      expensesWithoutDate:undatedExpenses.length,
+      pendingExpenses:pendingExpenses.length,
+      pendingExpensesAmount:money(pendingExpenses.reduce((s,r)=>s+rowAmount(r),0)),
+      fixedExpenseRegistrations,
+      scheduledExpenseOccurrences: allPendingExpenses.length,
+      futurePendingExpenses: futurePendingExpenses.length,
+      futurePendingExpensesAmount: money(futurePendingExpenses.reduce((s,r)=>s+rowAmount(r),0)),
       reconciliationItems:0, projectsWithoutDate:projectsWithoutDateRows.length, duplicateProjectsRemoved:base.duplicateProjects, hiddenDuplicateProjects:0,
       orphanAnnualProjects:orphanAnnualProjectRows.length, excludedProjects:base.excludedProjects, orphanedProjects:base.orphanedProjects.length,
       previousYearContractReceipts, futureYearContractReceipts, unlinkedReceipts, ignoredFinanceContractReceipts:ignoredMirrors.length, nonOperationalEntries:nonOperationalEntries.length, personalExternalEntries:personalExternalEntries.length,

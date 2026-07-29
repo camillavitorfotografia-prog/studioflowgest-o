@@ -8,6 +8,14 @@ import { writeStorage } from './storage';
 const today = () => new Date().toISOString().slice(0, 10);
 const PROFILE_TABLE = 'perfil';
 const PROFILE_ID = 'studio-profile';
+
+const getCurrentUserId = async () => {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
+  const userId = data?.user?.id;
+  if (!userId) throw new Error('Sessão inválida. Entre novamente no StudioFlow.');
+  return userId;
+};
 const EQUIPMENT_DELETION_KEY = 'cv_studio_equipamentos_excluidos';
 
 const STUDIO_DATA_CACHE_TTL = 15_000;
@@ -1304,6 +1312,7 @@ const loadDbStudioData = async () => {
   const leads = rawLeads.map(mapLeadFromDb);
   const clients = rawClients.map(mapClientFromDb);
   const transactions = rawTransactions.map(mapTransactionFromDb);
+  const recurrences = readLocalArray('cv_studio_recorrencias');
   const localEquipment = (() => {
     try { return JSON.parse(localStorage.getItem('cv_studio_equipamentos') || '[]'); } catch { return []; }
   })();
@@ -1369,6 +1378,7 @@ const loadDbStudioData = async () => {
     clients,
     projects,
     transactions,
+    recurrences,
     equipment,
     checklists: {},
     contracts: {},
@@ -1909,11 +1919,14 @@ export const convertLeadToClientProject = async (lead) => {
 
 export const loadProfileFromDb = async () => {
   assertSupabaseConfigured();
+  const userId = await getCurrentUserId();
 
   const { data, error } = await supabase
     .from(PROFILE_TABLE)
     .select('*')
-    .eq('id', PROFILE_ID)
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) throw error;
@@ -1929,25 +1942,31 @@ export const loadProfileFromDb = async () => {
 
 export const saveProfileToDb = async (profile) => {
   const now = new Date().toISOString();
+  const userId = await getCurrentUserId();
+  const profileId = `${PROFILE_ID}-${userId}`;
 
   const candidates = [
     {
-      id: PROFILE_ID,
+      id: profileId,
+      user_id: userId,
       dados: profile,
       updated_at: now,
     },
     {
-      id: PROFILE_ID,
+      id: profileId,
+      user_id: userId,
       data: profile,
       updated_at: now,
     },
     {
-      id: PROFILE_ID,
+      id: profileId,
+      user_id: userId,
       perfil: profile,
       updated_at: now,
     },
     {
-      id: PROFILE_ID,
+      id: profileId,
+      user_id: userId,
       profile,
       updated_at: now,
     },

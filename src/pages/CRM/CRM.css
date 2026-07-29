@@ -2539,3 +2539,212 @@ overflow-x:auto;
     min-height: 230px;
   }
 }
+
+/* V130 — CRM legível e totalmente operável por toque. */
+@media (max-width: 1100px) {
+  .crm-pipeline-mobile-workspace,
+  .crm-pipeline-lead-card,
+  .crm-pipeline-lead-card.is-list {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .crm-pipeline-mobile-list {
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .crm-responsive-page {
+    padding: 0 !important;
+    gap: 14px !important;
+  }
+
+  .crm-pipeline-shell {
+    padding: 12px !important;
+    overflow: visible !important;
+  }
+
+  .crm-pipeline-heading {
+    align-items: flex-start;
+    min-height: 0;
+    padding-bottom: 10px;
+  }
+
+  .crm-pipeline-heading > div {
+    display: grid;
+    gap: 2px;
+  }
+
+  .crm-pipeline-heading strong {
+    font-size: 18px !important;
+  }
+
+  .crm-pipeline-heading span {
+    font-size: 14px !important;
+  }
+
+  .crm-pipeline-stage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .crm-pipeline-stage-summary button {
+    min-height: 62px !important;
+    padding: 10px 12px !important;
+    border-radius: 13px;
+  }
+
+  .crm-pipeline-stage-summary button span {
+    overflow: visible;
+    white-space: normal;
+    font-size: 15px !important;
+    line-height: 1.25;
+  }
+
+  .crm-pipeline-stage-summary button strong {
+    min-width: 30px;
+    height: 30px;
+    font-size: 14px !important;
+  }
+
+  .crm-pipeline-mobile-workspace__header {
+    min-height: 48px;
+    padding: 10px 12px;
+  }
+
+  .crm-pipeline-mobile-workspace__header strong,
+  .crm-pipeline-mobile-workspace__header span {
+    font-size: 16px !important;
+  }
+
+  .crm-pipeline-mobile-list {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    padding: 10px !important;
+  }
+
+  .crm-pipeline-lead-card {
+    padding: 14px !important;
+    border-radius: 13px;
+  }
+
+  .crm-pipeline-lead-card__identity strong {
+    font-size: 18px !important;
+    line-height: 1.3 !important;
+    white-space: normal;
+  }
+
+  .crm-pipeline-lead-card__identity span {
+    margin-top: 3px;
+    font-size: 15px !important;
+    line-height: 1.4;
+    white-space: normal;
+  }
+
+  .crm-pipeline-lead-card__menu {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+
+  .crm-pipeline-lead-card__badges {
+    margin-top: 10px;
+    gap: 6px;
+  }
+
+  .crm-pipeline-lead-card__badges span {
+    padding: 4px 9px;
+    font-size: 13px !important;
+  }
+
+  .crm-pipeline-lead-card__action {
+    margin-top: 11px;
+    padding-top: 10px;
+    align-items: flex-start;
+  }
+
+  .crm-pipeline-lead-card__action span {
+    overflow: visible;
+    white-space: normal;
+    font-size: 14px !important;
+    line-height: 1.35;
+  }
+
+  .crm-pipeline-lead-card__action strong {
+    font-size: 16px !important;
+  }
+
+  .crm-pipeline-lead-card__status,
+  .crm-pipeline-lead-card__saving {
+    width: 100%;
+    min-height: 50px !important;
+    margin-top: 10px;
+    padding: 4px 10px;
+    overflow: visible !important;
+  }
+
+  .crm-pipeline-lead-card__status select {
+    width: 100%;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 34px 0 6px !important;
+    overflow: visible !important;
+    text-overflow: ellipsis;
+    font-size: 16px !important;
+    line-height: 44px;
+  }
+
+  .crm-pipeline-lead-card__saving {
+    font-size: 15px !important;
+  }
+
+  .crm-responsive-page :is(.crm-action-card, .crm-followups-card,
+  .crm-task-card, .crm-recovery-card) {
+    min-height: 0 !important;
+    padding: 14px !important;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 1100px) {
+  .crm-pipeline-stage-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .crm-pipeline-mobile-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* V131 — o resumo do funil ocupa menos altura sem reduzir a legibilidade. */
+@media (min-width: 360px) and (max-width: 599px) {
+  .crm-pipeline-stage-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .crm-pipeline-stage-summary button {
+    min-height: 58px !important;
+    padding: 8px !important;
+  }
+
+  .crm-pipeline-stage-summary button span {
+    font-size: 14px !important;
+    line-height: 1.18 !important;
+  }
+
+  .crm-pipeline-stage-summary button strong {
+    min-width: 28px !important;
+    width: 28px !important;
+    height: 28px !important;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 1100px) {
+  .crm-pipeline-stage-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}

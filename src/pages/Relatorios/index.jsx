@@ -192,34 +192,59 @@ export default function Relatorios() {
         </div>
       </div>}
 
+      {!loading && warningCount === 0 && (
+        <div className="sf-reports-ok" role="status">
+          <CircleDollarSign size={18} />
+          <div>
+            <strong>Consolidação concluída sem inconsistências.</strong>
+            <span>Não há recebimentos, despesas vencidas ou trabalhos sem data exigindo ação neste momento.</span>
+          </div>
+        </div>
+      )}
+
       {!loading && warningCount > 0 && (
         <div className="sf-reports-warning">
           <AlertTriangle size={18} />
           <div>
-            <strong>Pendências reais que precisam de conferência.</strong>
-            <span>
-              {report.warnings.receiptsWithoutDate} recebimento(s) sem data · {report.warnings.expensesWithoutDate} despesa(s) paga(s) sem data · {report.warnings.projectsWithoutDate} projeto(s) sem data · {report.warnings.pendingExpenses} despesa(s) pendente(s) · {report.warnings.reconciliationItems} divergência(s) financeira(s).
-            </span>
+            <strong>Atenção necessária</strong>
+            <ul className="sf-reports-warning-list">
+              {report.warnings.receiptsWithoutDate > 0 && <li>{report.warnings.receiptsWithoutDate} recebimento(s) sem data.</li>}
+              {report.warnings.expensesWithoutDate > 0 && <li>{report.warnings.expensesWithoutDate} despesa(s) paga(s) sem data.</li>}
+              {report.warnings.projectsWithoutDate > 0 && <li>{report.warnings.projectsWithoutDate} trabalho(s) sem data.</li>}
+              {report.warnings.pendingExpenses > 0 && <li>{report.warnings.pendingExpenses} ocorrência(s) vencida(s) e ainda não paga(s).</li>}
+              {report.warnings.reconciliationItems > 0 && <li>{report.warnings.reconciliationItems} divergência(s) financeira(s).</li>}
+              {report.warnings.orphanAnnualProjects > 0 && <li>{report.warnings.orphanAnnualProjects} trabalho(s) sem cliente oficial vinculado.</li>}
+            </ul>
           </div>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="sf-reports-expense-context">
+          <strong>{report.warnings.fixedExpenseRegistrations || 0} despesas fixas cadastradas</strong>
+          <span>
+            {report.warnings.scheduledExpenseOccurrences || 0} ocorrência(s) gerada(s) no exercício · {report.warnings.futurePendingExpenses || 0} futura(s), ainda não vencida(s).
+          </span>
         </div>
       )}
 
       {!loading && informationCount > 0 && (
-        <div className="sf-reports-info">
-          <CircleDollarSign size={18} />
+        <details className="sf-reports-details">
+          <summary>Detalhes técnicos da consolidação</summary>
           <div>
-            <strong>Informações de consolidação — não são erros.</strong>
-            <span>{report.warnings.ignoredFinanceContractReceipts || 0} espelho(s) de receita de projeto ignorado(s) para evitar duplicidade · {report.warnings.duplicateProjectsRemoved} duplicado(s) desconsiderado(s) · {report.warnings.excludedProjects} cancelado(s), arquivado(s) ou excluído(s) fora dos totais.</span>
+            <p>{report.warnings.ignoredFinanceContractReceipts || 0} espelho(s) de receita ignorado(s) para evitar duplicidade.</p>
+            <p>{report.warnings.duplicateProjectsRemoved} registro(s) duplicado(s) desconsiderado(s).</p>
+            <p>{report.warnings.excludedProjects} trabalho(s) cancelado(s), arquivado(s) ou excluído(s) fora dos totais.</p>
           </div>
-        </div>
+        </details>
       )}
 
-      {!loading && <div className="sf-report-actions">
-        <button className="sf-secondary-button" onClick={() => goTo('despesas-sem-data')}>Ver despesas sem data</button>
-        <button className="sf-secondary-button" onClick={() => goTo('projetos-sem-data')}>Ver projetos sem data</button>
-        <button className="sf-secondary-button" onClick={() => goTo('divergencias-financeiras')}>Ver divergências financeiras</button>
-        <button className="sf-secondary-button" onClick={() => goTo('projetos-sem-cliente')}>Vincular clientes</button>
-        <button className="sf-secondary-button" onClick={() => goTo('despesas-pendentes')}>Conferir despesas pendentes</button>
+      {!loading && warningCount > 0 && <div className="sf-report-actions">
+        {report.warnings.expensesWithoutDate > 0 && <button className="sf-secondary-button" onClick={() => goTo('despesas-sem-data')}>Ver despesas sem data</button>}
+        {report.warnings.projectsWithoutDate > 0 && <button className="sf-secondary-button" onClick={() => goTo('projetos-sem-data')}>Ver trabalhos sem data</button>}
+        {report.warnings.reconciliationItems > 0 && <button className="sf-secondary-button" onClick={() => goTo('divergencias-financeiras')}>Ver divergências</button>}
+        {report.warnings.orphanAnnualProjects > 0 && <button className="sf-secondary-button" onClick={() => goTo('projetos-sem-cliente')}>Vincular clientes</button>}
+        {report.warnings.pendingExpenses > 0 && <button className="sf-secondary-button" onClick={() => goTo('despesas-pendentes')}>Conferir vencidas</button>}
       </div>}
 
       {!loading && <>

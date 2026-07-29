@@ -263,3 +263,247 @@
     padding-bottom: 13px !important;
   }
 }
+
+/* V130 — acessibilidade móvel real: legibilidade sem transformar o desktop em uma tela encolhida. */
+@media (max-width: 820px) {
+  html {
+    font-size: 16px !important;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    line-height: 1.46 !important;
+  }
+
+  .content-wrapper {
+    width: 100%;
+    max-width: 100%;
+    padding:
+      calc(62px + env(safe-area-inset-top, 0px))
+      12px
+      calc(92px + env(safe-area-inset-bottom, 0px)) !important;
+    overflow-x: clip;
+  }
+
+  h1 { font-size: clamp(28px, 7.5vw, 34px) !important; line-height: 1.12 !important; }
+  h2 { font-size: clamp(22px, 5.8vw, 28px) !important; line-height: 1.18 !important; }
+  h3 { font-size: 18px !important; line-height: 1.28 !important; }
+
+  p,
+  li,
+  label,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea,
+  button {
+    font-size: 16px !important;
+  }
+
+  small,
+  .sf-muted,
+  .muted,
+  .helper-text,
+  .field-help,
+  .text-secondary,
+  .page-subtitle {
+    font-size: 14px !important;
+    line-height: 1.45 !important;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  button,
+  .sf-primary-button,
+  .sf-secondary-button {
+    min-height: 46px !important;
+  }
+
+  textarea {
+    min-height: 96px !important;
+  }
+
+  :is(.sf-card, .sf-table-card, .dashboard-card, .crm-stat-card,
+  .agenda-summary-card, .equipment-card, .sf-report-summary-card,
+  .sf-report-table-card, .minimal-panel, .gallery-collection-card,
+  .client-portal-card, .file-library-card, .sf-project-card) {
+    padding: 14px !important;
+    border-radius: 14px !important;
+  }
+
+  :is(.sf-metric-grid, .agenda-summary-grid, .crm-stats-grid,
+  .sf-project-executive-cards, .sf-equipment-metrics, .sf-reports-metrics,
+  .overview-cards, .file-library-summary, .client-area-summary) {
+    gap: 10px !important;
+  }
+
+  :is(.sf-card.metric strong, .crm-stat-card strong, .agenda-summary-card strong,
+  .sf-report-metric strong, .sf-kpi-value) {
+    font-size: 22px !important;
+    line-height: 1.12 !important;
+  }
+
+  :is(.metric-label, .crm-stat-card__label, .agenda-summary-card span,
+  .sf-report-metric .metric-label) {
+    font-size: 14px !important;
+    line-height: 1.35 !important;
+  }
+
+  :is(.sf-table-card, .sf-report-table-card, .sf-variable-table-card,
+  .sf-equipment-table-card, .sf-client-table-scroll, .agenda-list) {
+    max-width: 100%;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sf-modal-dialog,
+  .modal-content,
+  [role='dialog'] {
+    max-width: calc(100vw - 16px) !important;
+    max-height: calc(100dvh - 16px - env(safe-area-inset-top, 0px)) !important;
+  }
+
+  .sf-modal-content {
+    overflow-y: auto !important;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 1100px) {
+  .content-wrapper {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  :is(.sf-panel-grid, .sf-report-grid, .documents-grid,
+  .sf-equipment-content-grid, .gallery-collection-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* V131 — correções finais para iPhone/iPad: nenhuma informação útil deve ficar
+   escondida atrás de uma tabela de desktop, altura fixa ou largura mínima. */
+@media (max-width: 820px) {
+  /* O calendário mensal precisa caber na largura real do aparelho. */
+  .agenda-calendar {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 520px !important;
+    overflow: visible !important;
+  }
+
+  .agenda-calendar .rbc-calendar,
+  .rbc-calendar {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 520px !important;
+  }
+
+  .rbc-month-view,
+  .rbc-time-view,
+  .rbc-agenda-view {
+    min-width: 0 !important;
+  }
+
+  /* Relatórios convertidos em cards não podem herdar a largura mínima da tabela. */
+  .sf-report-table-card,
+  .sf-report-table-card .sf-table,
+  .sf-report-table-card table,
+  .sf-report-table-card tbody,
+  .sf-report-table-card tr,
+  .sf-report-table-card td {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Inputs nativos do iOS preservam texto e seta sem recorte. */
+  select {
+    width: 100%;
+    padding-right: 42px !important;
+    line-height: 1.25 !important;
+  }
+
+  /* A última ação nunca fica coberta pela barra inferior do navegador. */
+  :is(.sf-finance-page, .sf-finance-section, .crm-responsive-page,
+  .agenda-page, .settings-page, .minimal-pricing-page, .sf-equipment-page,
+  .sf-reports-page, .sf-clients-page, .gallery-admin-page,
+  .file-library-page, .documents-page, .client-area-page) {
+    padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 1100px) {
+  /* No iPad, os textos continuam legíveis e os controles mantêm área de toque. */
+  p,
+  li,
+  label,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea,
+  button {
+    font-size: 16px !important;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  button {
+    min-height: 44px !important;
+  }
+}
+
+/* V132 — prioridade final para o Financeiro no iPhone/iPad. O seletor de
+   módulo substitui a faixa de abas de desktop, que era cortada no Safari. */
+@media (max-width: 820px) {
+  .sf-finance-page .sf-finance-nav {
+    display: none !important;
+  }
+
+  .sf-finance-page .sf-finance-mobile-nav {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 6px !important;
+    border-radius: 12px !important;
+  }
+
+  .sf-finance-page .sf-finance-mobile-nav > span {
+    display: none !important;
+  }
+
+  .sf-finance-page .sf-finance-mobile-nav select {
+    width: 100% !important;
+    min-height: 48px !important;
+    height: 48px !important;
+    padding: 0 42px 0 12px !important;
+    font-size: 16px !important;
+  }
+
+  .sf-finance-page .sf-finance-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+  }
+
+  .sf-finance-page .sf-finance-alert-button {
+    min-height: 48px !important;
+    padding: 8px 12px !important;
+    font-size: 16px !important;
+  }
+
+  .sf-finance-page .sf-section-header h1 {
+    font-size: clamp(28px, 7vw, 34px) !important;
+  }
+
+  .sf-finance-page .sf-section-header p,
+  .sf-finance-page .sf-muted {
+    font-size: 16px !important;
+    line-height: 1.48 !important;
+  }
+}

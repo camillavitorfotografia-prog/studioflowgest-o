@@ -1460,14 +1460,14 @@ function FixedExpenses({ area = 'fixa' }) {
 
   return (
     <div
-      className="sf-finance-section"
+      className="sf-finance-section sf-expenses-page"
       style={{
         display: 'flex',
         flexDirection: 'column',
         gap: '24px',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
+      <div className="sf-expenses-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
           <p style={{ color: 'var(--text-secondary)', marginTop: '6px' }}>
@@ -1497,6 +1497,7 @@ function FixedExpenses({ area = 'fixa' }) {
       </div>
 
       <div
+        className="sf-expenses-filters"
         style={{
           display: 'grid',
           gridTemplateColumns:
@@ -1602,8 +1603,8 @@ function FixedExpenses({ area = 'fixa' }) {
         </div>
       )}
 
-      <div className="sf-table-card">
-        <table className="sf-table">
+      <div className="sf-table-card sf-expenses-table-card">
+        <table className="sf-table sf-expenses-table">
           <thead>
             <tr>
               <th>Descrição / Categoria</th>
@@ -1617,7 +1618,7 @@ function FixedExpenses({ area = 'fixa' }) {
           <tbody>
             {filteredDespesas.map((expense) => (
               <tr key={expense.id}>
-                <td>
+                <td data-label="Descrição / Categoria">
                   <strong>{expense.descricao}</strong>
                   <small>
                     <Tag size={12} /> {expense.categoria || 'Geral'}
@@ -1625,20 +1626,20 @@ function FixedExpenses({ area = 'fixa' }) {
                     {expense.fornecedor ? ` | ${expense.fornecedor}` : ''}
                   </small>
                 </td>
-                <td>{formatDateBR(expense.vencimento) || '-'}</td>
-                <td>
+                <td data-label="Vencimento">{formatDateBR(expense.vencimento) || '-'}</td>
+                <td data-label="Pagamento">
                   <span className="sf-pill">
                     <CreditCard size={12} /> {expense.formaPagamento || expense.contaOrigem || '-'}
                   </span>
                 </td>
-                <td>
+                <td data-label="Status">
                   <span className={`sf-status ${expense.statusDerivado.toLowerCase()}`}>
                     {expense.statusDerivado}
                   </span>
                 </td>
-                <td className="negative">-{formatCurrency(expense.valor)}</td>
-                <td>
-                  <div className="sf-actions">
+                <td data-label="Valor" className="negative">-{formatCurrency(expense.valor)}</td>
+                <td data-label="Ações">
+                  <div className="sf-actions sf-expenses-actions">
                     {expense.statusDerivado !== 'paga' && expense.statusDerivado !== 'cancelada' && (
                       <button title="Marcar como paga" onClick={() => markAsPaid(expense)}>
                         <PackagePlus size={17} />

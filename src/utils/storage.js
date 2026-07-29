@@ -318,7 +318,10 @@ export const clearTransientStorage = () => {
     const key = localStorage.key(index);
     if (
       key
-      && TRANSIENT_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
+      && TRANSIENT_STORAGE_PREFIXES.some((prefix) => (
+        key.startsWith(prefix)
+        || key.includes(`:${prefix}`)
+      ))
     ) {
       keys.push(key);
     }
