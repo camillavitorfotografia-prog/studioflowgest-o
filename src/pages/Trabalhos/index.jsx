@@ -975,7 +975,6 @@ export default function Trabalhos() {
       void load();
     }, 0);
 
-    window.addEventListener('focus', load);
 
     const unsubscribe = isSupabaseConfigured
       ? subscribeDbUpdates(load)
@@ -994,7 +993,6 @@ export default function Trabalhos() {
       })();
 
     return () => {
-      window.removeEventListener('focus', load);
       unsubscribe();
     };
   }, [load]);

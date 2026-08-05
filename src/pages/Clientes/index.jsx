@@ -853,7 +853,6 @@ export default function Clientes() {
     };
 
     setTimeout(refresh, 0);
-    window.addEventListener('focus', refresh);
     window.addEventListener(
       'sf_storage_update',
       refresh,
@@ -862,7 +861,6 @@ export default function Clientes() {
 
     return () => {
       active = false;
-      window.removeEventListener('focus', refresh);
       window.removeEventListener(
         'sf_storage_update',
         refresh,

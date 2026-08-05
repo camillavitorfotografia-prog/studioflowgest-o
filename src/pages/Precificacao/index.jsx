@@ -932,11 +932,9 @@ export default function Precificacao() {
     };
 
     setTimeout(() => { void loadData(); }, 0);
-    window.addEventListener('focus', loadData);
     const unsubscribe = subscribeDbUpdates(loadData);
     return () => {
       active = false;
-      window.removeEventListener('focus', loadData);
       unsubscribe();
     };
   }, []);

@@ -336,10 +336,8 @@ function FixedExpenses({ area = 'fixa' }) {
     const refresh = () => { void loadLocalData(); };
     refresh();
     const unsubscribe = subscribeDbUpdates(refresh);
-    window.addEventListener('focus', refresh);
     return () => {
       unsubscribe();
-      window.removeEventListener('focus', refresh);
     };
   }, []);
 

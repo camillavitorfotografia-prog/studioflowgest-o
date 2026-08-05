@@ -240,11 +240,9 @@ export default function Perfil() {
     };
 
     setTimeout(() => { void syncData(); }, 0);
-    window.addEventListener('focus', syncData);
     const unsubscribe = subscribeDbUpdates(syncData);
     return () => {
       active = false;
-      window.removeEventListener('focus', syncData);
       unsubscribe();
     };
   }, []);

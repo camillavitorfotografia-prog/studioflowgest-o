@@ -74,6 +74,10 @@ const CONTACT_RESULTS = [
   'Outro',
 ];
 
+let crmLeadsMemoryCache = null;
+let crmLeadsCacheUpdatedAt = 0;
+const CRM_CACHE_TTL_MS = 5 * 60 * 1000;
+
 const WHATSAPP_TEMPLATES = [
   {
     id: 'primeiro_contato',
@@ -2356,8 +2360,33 @@ const getLeadAutomaticSummary = (lead = {}) => {
   };
 };
 
+const CRM_CONTACT_DRAFT_KEY = 'studioflow_crm_contact_draft_v1';
+
+const readContactDraft = (leadId) => {
+  if (!leadId) return null;
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(CRM_CONTACT_DRAFT_KEY) || 'null');
+    return parsed?.leadId === String(leadId) ? parsed.form : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeContactDraft = (leadId, form) => {
+  if (!leadId) return;
+  sessionStorage.setItem(CRM_CONTACT_DRAFT_KEY, JSON.stringify({
+    leadId: String(leadId),
+    form,
+    updatedAt: new Date().toISOString(),
+  }));
+};
+
+const clearContactDraft = () => {
+  sessionStorage.removeItem(CRM_CONTACT_DRAFT_KEY);
+};
+
 export default function CRM() {
-  const [leads, setLeads] = useState([]);
+  const [leads, setLeads] = useState(() => (Array.isArray(crmLeadsMemoryCache) ? crmLeadsMemoryCache : []));
   const [selectedLead, setSelectedLead] = useState(null);
   const [editingLead, setEditingLead] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -2411,7 +2440,7 @@ export default function CRM() {
   const [saveStatus, setSaveStatus] = useState('saved');
   const [pageError, setPageError] = useState('');
   const [updatingLeadId, setUpdatingLeadId] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => !Array.isArray(crmLeadsMemoryCache));
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
 
   const fetchLeads = async () => {
@@ -2419,6 +2448,8 @@ export default function CRM() {
       const localLeads = readLocalLeads();
 
       if (!isSupabaseConfigured) {
+        crmLeadsMemoryCache = localLeads;
+        crmLeadsCacheUpdatedAt = Date.now();
         setLeads(localLeads);
         return localLeads;
       }
@@ -2479,6 +2510,8 @@ export default function CRM() {
       }));
       writeStorage(STORAGE_KEYS.leads, serializedRows);
 
+      crmLeadsMemoryCache = mergedLeads;
+      crmLeadsCacheUpdatedAt = Date.now();
       setLeads(mergedLeads);
 
       return mergedLeads;
@@ -2504,14 +2537,17 @@ export default function CRM() {
       void fetchLeads();
     };
 
-    setTimeout(load, 0);
-    window.addEventListener('focus', load);
+    const cacheIsFresh = Array.isArray(crmLeadsMemoryCache)
+      && (Date.now() - crmLeadsCacheUpdatedAt) < CRM_CACHE_TTL_MS;
+
+    if (!cacheIsFresh) setTimeout(load, 0);
+    else setIsLoading(false);
+
     window.addEventListener('sf_storage_update', load);
     window.addEventListener('storage', load);
 
     return () => {
       active = false;
-      window.removeEventListener('focus', load);
       window.removeEventListener('sf_storage_update', load);
       window.removeEventListener('storage', load);
     };
@@ -2824,11 +2860,19 @@ export default function CRM() {
   };
 
   const handleOpenContactModal = (lead = selectedLead) => {
-    if (lead) {
-      setSelectedLead(lead);
+    const isReactEvent = Boolean(lead?.nativeEvent || lead?.currentTarget || lead?.target);
+    const targetLead = isReactEvent ? selectedLead : (lead || selectedLead);
+
+    if (!targetLead?.id) {
+      setPageError('Não foi possível identificar o lead selecionado. Feche e abra o cadastro novamente.');
+      return;
+    }
+    if (targetLead) {
+      setSelectedLead(targetLead);
     }
 
-    setContactForm({
+    const draft = readContactDraft(targetLead?.id);
+    setContactForm(draft || {
       ...createEmptyContactForm(),
       dataContato: getLocalDateTimeInputValue(),
     });
@@ -2839,15 +2883,20 @@ export default function CRM() {
   const handleCloseContactModal = () => {
     if (isSavingContact) return;
 
+    const hasDraft = Boolean(contactForm.descricao.trim() || contactForm.proximoFollowup);
+    if (hasDraft && !window.confirm('Existem alterações não salvas. Deseja fechar e manter este rascunho?')) {
+      return;
+    }
+
     setIsContactModalOpen(false);
-    setContactForm(createEmptyContactForm());
   };
 
   const handleContactFieldChange = (field, value) => {
-    setContactForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setContactForm((current) => {
+      const next = { ...current, [field]: value };
+      writeContactDraft(selectedLead?.id, next);
+      return next;
+    });
   };
 
   const handleRegisterContact = async (event) => {
@@ -2924,29 +2973,47 @@ export default function CRM() {
     ));
 
     setSelectedLead(optimisticLead);
+    crmLeadsMemoryCache = leads.map((lead) => (
+      String(lead.id) === String(currentLead.id) ? optimisticLead : lead
+    ));
 
     try {
+      let persistedLead = optimisticLead;
+
+      if (isSupabaseConfigured) {
+        const remoteResult = await saveLeadCanonicalRemote({
+          candidate: currentLead,
+          payload,
+        });
+        persistedLead = enrichLeadBudgetFields(mapLeadFromDb(remoteResult.savedRow));
+      }
+
       saveLeadLocal({
-        id: currentLead.id,
+        id: persistedLead.id || currentLead.id,
+        replaceId: persistedLead.id && String(persistedLead.id) !== String(currentLead.id)
+          ? currentLead.id
+          : '',
         payload: {
           ...currentLead,
           ...payload,
+          ...persistedLead,
         },
       });
 
-      const updatedLeads = await fetchLeads();
-      window.dispatchEvent(new Event('sf_storage_update'));
-
-      const refreshedLead = updatedLeads.find(
-        (lead) => lead.id === currentLead.id,
-      );
-
-      if (refreshedLead) {
-        setSelectedLead(refreshedLead);
-      }
-
+      setLeads((current) => current.map((lead) => (
+        String(lead.id) === String(currentLead.id)
+          ? persistedLead
+          : lead
+      )));
+      setSelectedLead(persistedLead);
+      crmLeadsMemoryCache = (crmLeadsMemoryCache || leads).map((lead) => (
+        String(lead.id) === String(currentLead.id) ? persistedLead : lead
+      ));
+      crmLeadsCacheUpdatedAt = Date.now();
+      clearContactDraft();
       setIsContactModalOpen(false);
       setContactForm(createEmptyContactForm());
+      window.dispatchEvent(new Event('sf_storage_update'));
     } catch (err) {
       console.error(
         'Erro ao registrar contato do lead:',
@@ -2968,6 +3035,7 @@ export default function CRM() {
         await fetchLeads();
 
         setSelectedLead(localLead);
+        clearContactDraft();
         setIsContactModalOpen(false);
         setContactForm(createEmptyContactForm());
       } else {
@@ -7931,8 +7999,8 @@ export default function CRM() {
       {selectedLead && (
         <div
           role="presentation"
-          onClick={() => {
-            if (isContactModalOpen) return;
+          onClick={(event) => {
+            if (event.target !== event.currentTarget || isContactModalOpen) return;
 
             setSelectedLead(null);
             setHistoryFilters(createEmptyHistoryFilters());
@@ -8050,18 +8118,35 @@ export default function CRM() {
                 }
 
                 .lead-details-content {
-                  padding: 14px !important;
+                  padding: 10px !important;
+                }
+
+                .lead-details-v2 > header {
+                  padding: 12px 12px 10px !important;
+                }
+
+                .lead-details-kpis {
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                  gap: 8px;
+                }
+
+                .lead-details-info-grid {
+                  grid-template-columns: 1fr;
                 }
 
                 .lead-details-actions {
-                  display: flex;
-                  overflow-x: auto;
-                  scrollbar-width: none;
+                  display: grid;
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                  overflow: visible;
+                  gap: 7px;
                 }
 
                 .lead-details-actions button {
-                  min-width: 128px;
-                  flex: 0 0 auto;
+                  min-width: 0;
+                  width: 100%;
+                  min-height: 42px;
+                  padding: 8px 7px !important;
+                  white-space: normal;
                 }
               }
             `}
@@ -8873,7 +8958,7 @@ export default function CRM() {
 
                     <button
                       type="button"
-                      onClick={handleOpenContactModal}
+                      onClick={() => handleOpenContactModal()}
                       style={{
                         background: '#c5a059',
                         color: '#17120c',
@@ -9303,7 +9388,7 @@ export default function CRM() {
 
                 <button
                   type="button"
-                  onClick={handleOpenContactModal}
+                  onClick={() => handleOpenContactModal()}
                   style={{
                     background: 'var(--tone-gold-bg)',
                     color: '#d8b56e',
@@ -9425,9 +9510,12 @@ export default function CRM() {
         isOpen={isContactModalOpen}
         onClose={handleCloseContactModal}
         title="Registrar contato"
+        closeOnBackdrop={false}
+        contentClassName="crm-contact-modal-content"
       >
         <form
           onSubmit={handleRegisterContact}
+          className="crm-contact-form"
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -9463,6 +9551,7 @@ export default function CRM() {
           </div>
 
           <div
+            className="crm-contact-form-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
@@ -9537,7 +9626,10 @@ export default function CRM() {
                 );
               }}
             />
-          </label>          <div
+          </label>
+
+          <div
+            className="crm-contact-form-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',

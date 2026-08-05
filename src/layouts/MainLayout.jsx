@@ -1,13 +1,60 @@
-import { Outlet } from 'react-router-dom';
+import { useLocation, useOutlet } from 'react-router-dom';
+import { useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 
+/**
+ * Mantém os módulos já visitados montados em memória.
+ *
+ * O Outlet padrão desmonta uma página quando a rota muda. Como cada módulo do
+ * StudioFlow carrega dados próprios, isso fazia a tela buscar tudo novamente ao
+ * voltar. Aqui cada rota visitada ganha um painel persistente: navegar apenas
+ * alterna qual painel está visível, sem destruir estado, formulários ou scroll.
+ */
 export default function MainLayout() {
+  const location = useLocation();
+  const outlet = useOutlet();
+  const routeCacheRef = useRef(new Map());
+  const scrollPositionsRef = useRef(new Map());
+
+  const routeKey = `${location.pathname}${location.search}`;
+  const cache = routeCacheRef.current;
+
+  // Atualiza somente o elemento da rota ativa. Os demais continuam com a mesma
+  // instância React e, portanto, não são desmontados.
+  cache.set(routeKey, outlet);
+
+  const activatePanel = (key, node) => {
+    const active = key === routeKey;
+    return (
+      <section
+        key={key}
+        className="sf-route-panel"
+        hidden={!active}
+        aria-hidden={!active}
+        data-route-key={key}
+        ref={(element) => {
+          if (!element) return;
+          if (!active) {
+            scrollPositionsRef.current.set(key, element.scrollTop);
+          } else {
+            const saved = scrollPositionsRef.current.get(key);
+            if (typeof saved === 'number' && element.scrollTop !== saved) {
+              element.scrollTop = saved;
+            }
+          }
+        }}
+      >
+        {node}
+      </section>
+    );
+  };
+
   return (
     <div className="studioflow-shell">
       <Sidebar />
 
       <main className="content-wrapper">
-        <Outlet />
+        {[...cache.entries()].map(([key, node]) => activatePanel(key, node))}
       </main>
 
       <style>{`
@@ -24,6 +71,15 @@ export default function MainLayout() {
           padding: 18px 20px 24px;
           margin-top: 0;
           transition: margin-left 180ms ease, width 180ms ease, padding 180ms ease;
+        }
+
+        .sf-route-panel {
+          width: 100%;
+          min-width: 0;
+        }
+
+        .sf-route-panel[hidden] {
+          display: none !important;
         }
 
         @media (min-width: 1440px) {

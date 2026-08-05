@@ -903,3 +903,62 @@
     padding: 4px !important;
   }
 }
+
+/* Correção definitiva dos cartões de clientes em telas móveis */
+@media (max-width: 680px) {
+  .sf-clients-page,
+  .sf-clients-page .sf-table-card,
+  .sf-client-list,
+  .sf-client-list-body,
+  .sf-client-row {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0 !important;
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+
+  .sf-client-list-body {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 8px !important;
+  }
+
+  .sf-client-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px !important;
+    padding: 12px !important;
+  }
+
+  .sf-client-row-name,
+  .sf-client-row-actions,
+  .sf-client-row > div {
+    grid-column: 1 / -1 !important;
+    width: 100%;
+    min-width: 0 !important;
+  }
+
+  .sf-client-row > div {
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+  }
+
+  .sf-client-row strong,
+  .sf-client-row small {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere;
+  }
+
+  .sf-client-row > div:not(.sf-client-row-name):not(.sf-client-row-actions)::before {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .sf-client-row-actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, .72fr) !important;
+  }
+}

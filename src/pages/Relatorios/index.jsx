@@ -61,12 +61,10 @@ export default function Relatorios() {
     };
 
     void load();
-    window.addEventListener('focus', load);
     const unsubscribe = subscribeDbUpdates(load);
 
     return () => {
       active = false;
-      window.removeEventListener('focus', load);
       unsubscribe();
     };
   }, []);

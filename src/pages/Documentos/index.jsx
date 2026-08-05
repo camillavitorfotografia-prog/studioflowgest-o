@@ -223,7 +223,6 @@ export default function Documentos() {
     void refresh();
     window.addEventListener('sf_storage_update', handleRefresh);
     window.addEventListener('storage', handleRefresh);
-    window.addEventListener('focus', handleRefresh);
 
     return () => {
       active = false;
@@ -231,7 +230,6 @@ export default function Documentos() {
       window.clearTimeout(refreshTimer);
       window.removeEventListener('sf_storage_update', handleRefresh);
       window.removeEventListener('storage', handleRefresh);
-      window.removeEventListener('focus', handleRefresh);
     };
   }, []);
 

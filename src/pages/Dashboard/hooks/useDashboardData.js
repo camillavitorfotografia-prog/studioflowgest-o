@@ -69,13 +69,10 @@ export default function useDashboardData() {
     };
 
     void safeLoad();
-    const onFocus = () => void safeLoad({ silent: true });
-    window.addEventListener('focus', onFocus);
     const unsubscribe = subscribeDbUpdates(() => void safeLoad({ silent: true }));
 
     return () => {
       active = false;
-      window.removeEventListener('focus', onFocus);
       unsubscribe();
     };
   }, [load]);

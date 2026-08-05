@@ -248,16 +248,20 @@ export function AuthProvider({ children }) {
           nextUserId
           && nextUserId === appliedUserIdRef.current,
         );
-        const isBackgroundRefresh = [
+        const isExistingSessionEvent = isSameAuthenticatedUser && [
+          'SIGNED_IN',
           'TOKEN_REFRESHED',
           'USER_UPDATED',
-        ].includes(event) && isSameAuthenticatedUser;
+          'INITIAL_SESSION',
+        ].includes(event);
 
-        if (isBackgroundRefresh) {
-          // Atualizações automáticas do token não desmontam a tela nem repetem
-          // consultas de segurança e migrações de cache.
+        if (isExistingSessionEvent) {
+          // O Supabase pode emitir SIGNED_IN novamente quando o navegador volta
+          // ao primeiro plano. Isso é apenas uma renovação da mesma sessão e
+          // nunca deve colocar o aplicativo inteiro em estado de carregamento.
           setSession(nextSession ?? null);
           setUser(nextSession?.user ?? null);
+          setAuthError('');
           return;
         }
 

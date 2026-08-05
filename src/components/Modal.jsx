@@ -11,6 +11,7 @@ export default function Modal({
   children,
   maxWidth = '500px',
   contentClassName = '',
+  closeOnBackdrop = true,
 }) {
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -39,7 +40,7 @@ export default function Modal({
       className="sf-modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
+        if (closeOnBackdrop && event.target === event.currentTarget) {
           onClose();
         }
       }}

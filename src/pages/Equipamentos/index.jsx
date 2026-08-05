@@ -373,14 +373,12 @@ export default function Equipamentos() {
 
     void load();
 
-    window.addEventListener('focus', load);
     window.addEventListener('sf_storage_update', load);
 
     const unsubscribe = subscribeDbUpdates(load);
 
     return () => {
       active = false;
-      window.removeEventListener('focus', load);
       window.removeEventListener('sf_storage_update', load);
       unsubscribe();
     };

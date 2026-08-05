@@ -1468,15 +1468,8 @@ export const subscribeDbUpdates = (callback) => {
     }, 120);
   };
 
-  const handleVisibility = () => {
-    if (document.visibilityState === 'visible') schedule();
-  };
-
   window.addEventListener('sf_storage_update', schedule);
   window.addEventListener('storage', schedule);
-  window.addEventListener('focus', schedule);
-  window.addEventListener('pageshow', schedule);
-  document.addEventListener('visibilitychange', handleVisibility);
 
   if ('BroadcastChannel' in window) {
     broadcastChannel = new BroadcastChannel('studioflow-db-updates');
@@ -1517,9 +1510,6 @@ export const subscribeDbUpdates = (callback) => {
     window.clearTimeout(timer);
     window.removeEventListener('sf_storage_update', schedule);
     window.removeEventListener('storage', schedule);
-    window.removeEventListener('focus', schedule);
-    window.removeEventListener('pageshow', schedule);
-    document.removeEventListener('visibilitychange', handleVisibility);
     broadcastChannel?.close();
     if (realtimeChannel) void supabase.removeChannel(realtimeChannel);
   };

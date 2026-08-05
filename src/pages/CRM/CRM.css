@@ -2748,3 +2748,24 @@ overflow-x:auto;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 }
+
+/* CRM mobile stability and compact detail panel */
+.crm-contact-modal-content { min-width: 0; }
+.crm-contact-form { min-width: 0; }
+.crm-contact-form textarea { width: 100%; max-width: 100%; }
+
+@media (max-width: 680px) {
+  .crm-contact-form-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .crm-contact-form input,
+  .crm-contact-form select,
+  .crm-contact-form textarea {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+}
