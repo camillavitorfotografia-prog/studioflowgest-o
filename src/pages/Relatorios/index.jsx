@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BriefcaseBusiness,
@@ -40,34 +40,54 @@ export default function Relatorios() {
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(false);
+  const loadedOnceRef = useRef(false);
+  const requestIdRef = useRef(0);
+
+  const loadReportData = useCallback(async ({ silent = false } = {}) => {
+    const requestId = ++requestIdRef.current;
+    const showInitialLoader = !silent && !loadedOnceRef.current;
+
+    if (showInitialLoader) setLoading(true);
+
+    try {
+      const [data, canonicalResult] = await Promise.all([
+        getDbStudioData(),
+        supabase.from('finance_ledger_canonical').select('*'),
+      ]);
+
+      if (canonicalResult.error) throw canonicalResult.error;
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+
+      setStudio({ ...data, canonicalFinanceRows: canonicalResult.data || [] });
+      loadedOnceRef.current = true;
+      setMessage('');
+    } catch (error) {
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      setMessage(error?.message || 'Não foi possível carregar os dados dos relatórios.');
+    } finally {
+      if (mountedRef.current && requestId === requestIdRef.current && showInitialLoader) {
+        setLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    let active = true;
+    mountedRef.current = true;
+    void loadReportData();
 
-    const load = async () => {
-      setLoading(true);
-      try {
-        const [data, canonicalResult] = await Promise.all([
-          getDbStudioData(),
-          supabase.from('finance_ledger_canonical').select('*'),
-        ]);
-        if (canonicalResult.error) throw canonicalResult.error;
-        if (active) setStudio({ ...data, canonicalFinanceRows: canonicalResult.data || [] });
-      } catch (error) {
-        if (active) setMessage(error?.message || 'Não foi possível carregar os dados dos relatórios.');
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    void load();
-    const unsubscribe = subscribeDbUpdates(load);
+    // Atualizações posteriores são silenciosas: os dados atuais permanecem
+    // visíveis enquanto a nova consolidação é buscada em segundo plano.
+    const unsubscribe = subscribeDbUpdates(() => {
+      void loadReportData({ silent: true });
+    });
 
     return () => {
-      active = false;
+      mountedRef.current = false;
+      requestIdRef.current += 1;
       unsubscribe();
     };
-  }, []);
+  }, [loadReportData]);
 
   const availableYears = useMemo(
     () => getAvailableReportYears(studio),
@@ -136,7 +156,7 @@ export default function Relatorios() {
           <span className="sf-reports-eyebrow">Inteligência anual</span>
           <h1>Relatório anual</h1>
           <p>
-            Consolidação anual de contratos, recebimentos e despesas pagas, usando as parcelas cadastradas em Clientes como fonte oficial dos contratos e o Financeiro apenas para receitas avulsas e despesas.
+            Consolidação anual de contratos, recebimentos e despesas pagas. Os cartões contratuais usam o histórico acumulado de cada contrato; os cartões fiscais usam somente os pagamentos efetivados no exercício selecionado.
           </p>
         </div>
 
@@ -181,8 +201,8 @@ export default function Relatorios() {
 
       {!loading && <div className="sf-reports-basis-note">
         <div>
-          <strong>Trabalhos de {effectiveYear}</strong>
-          <span>Filtrados pela data do evento ou serviço.</span>
+          <strong>Contratos dos trabalhos de {effectiveYear}</strong>
+          <span>Valor contratado, recebido acumulado e saldo atual consideram todo o histórico de pagamento desses contratos.</span>
         </div>
         <div>
           <strong>Base financeira de {effectiveYear}</strong>
@@ -250,7 +270,8 @@ export default function Relatorios() {
         <Metric icon={Users} label={`Clientes com trabalho em ${effectiveYear}`} value={report.totals.clients} raw />
         <Metric icon={BriefcaseBusiness} label={`Trabalhos únicos em ${effectiveYear}`} value={report.totals.projects} raw />
         <Metric icon={DollarSign} label={`Valor contratado dos trabalhos de ${effectiveYear}`} value={report.totals.contracted} />
-        <Metric icon={CircleDollarSign} label={`Saldo desses contratos de ${effectiveYear}`} value={report.totals.remaining} />
+        <Metric icon={TrendingUp} label={`Recebido nesses contratos até hoje (acumulado)`} value={report.totals.receivedAppliedToAnnualContracts} />
+        <Metric icon={CircleDollarSign} label={`Saldo atual desses contratos`} value={report.totals.remaining} />
         <Metric icon={TrendingUp} label={`Receita recebida em ${effectiveYear} (regime de caixa)`} value={report.totals.taxCashBasisRevenue} />
         <Metric icon={TrendingDown} label={`Despesas pagas em ${effectiveYear}`} value={report.totals.taxCashBasisExpenses} />
         <Metric icon={WalletCards} label="Resultado pelo regime de caixa" value={report.totals.taxCashBasisResult} />
