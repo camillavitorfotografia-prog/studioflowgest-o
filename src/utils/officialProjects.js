@@ -79,58 +79,6 @@ const updatedAt = (project = {}) => {
   return 0;
 };
 
-
-const genericServices = new Set([
-  '',
-  'outro',
-  'serviço não informado',
-  'servico nao informado',
-  'não informado',
-  'nao informado',
-]);
-
-const isGenericService = (project = {}) => genericServices.has(projectService(project));
-
-const projectCompletenessScore = (project = {}) => {
-  let score = 0;
-  if (!isGenericService(project)) score += 100;
-  if (project.external_id || project.externalId) score += 12;
-  if (project.import_fingerprint || project.importFingerprint) score += 10;
-  if (project.tipoServico || project.tipo_servico || project.servico || project.categoria) score += 8;
-  if (project.valorContratado ?? project.valor_contratado ?? project.financeiro?.valorContratado) score += 6;
-  if (project.financeiro && Object.keys(project.financeiro).length > 0) score += 5;
-  if (project.contrato && Object.keys(project.contrato).length > 0) score += 4;
-  if (project.timeline_completa || project.timelineCompleta) score += 3;
-  return score;
-};
-
-const sameImportOrigin = (left = {}, right = {}) => {
-  const leftExternal = text(left.external_id || left.externalId);
-  const rightExternal = text(right.external_id || right.externalId);
-  if (leftExternal && rightExternal && leftExternal === rightExternal) return true;
-
-  const leftFingerprint = text(left.import_fingerprint || left.importFingerprint);
-  const rightFingerprint = text(right.import_fingerprint || right.importFingerprint);
-  if (leftFingerprint && rightFingerprint && leftFingerprint === rightFingerprint) return true;
-
-  return false;
-};
-
-const clientDateKey = (project = {}) => [
-  getOfficialProjectClientId(project),
-  text(getOfficialProjectDate(project)).slice(0, 10),
-].join('|');
-
-const chooseCanonicalProject = (current, candidate) => {
-  if (!current) return candidate;
-
-  const currentScore = projectCompletenessScore(current);
-  const candidateScore = projectCompletenessScore(candidate);
-  if (candidateScore !== currentScore) return candidateScore > currentScore ? candidate : current;
-
-  return updatedAt(candidate) >= updatedAt(current) ? candidate : current;
-};
-
 const duplicateKey = (project = {}) => [
   getOfficialProjectClientId(project),
   text(getOfficialProjectDate(project)).slice(0, 10),
@@ -180,41 +128,10 @@ export const buildOfficialProjectRegistry = ({
   filtered.forEach((project) => {
     const key = duplicateKey(project);
     const current = bySignature.get(key);
-    bySignature.set(key, chooseCanonicalProject(current, project));
+    if (!current || updatedAt(project) >= updatedAt(current)) bySignature.set(key, project);
   });
 
-  // Importações antigas criaram, em alguns casos, duas linhas para o mesmo
-  // cliente e a mesma data: uma genérica ("Outro") e outra com o serviço
-  // correto. Esses pares não são trabalhos distintos. Mantemos o registro mais
-  // completo e específico, sem colapsar dois trabalhos reais quando ambos têm
-  // serviços específicos diferentes.
-  const byClientDate = new Map();
-  [...bySignature.values()].forEach((project) => {
-    const key = clientDateKey(project);
-    const current = byClientDate.get(key);
-
-    if (!current) {
-      byClientDate.set(key, project);
-      return;
-    }
-
-    const shouldMerge = (
-      isGenericService(current)
-      || isGenericService(project)
-      || sameImportOrigin(current, project)
-    );
-
-    if (shouldMerge) {
-      byClientDate.set(key, chooseCanonicalProject(current, project));
-      return;
-    }
-
-    // Dois serviços específicos na mesma data podem ser trabalhos legítimos.
-    // Mantemos ambos usando a assinatura completa como chave secundária.
-    byClientDate.set(`${key}|${duplicateKey(project)}`, project);
-  });
-
-  return [...byClientDate.values()].map((project) => {
+  return [...bySignature.values()].map((project) => {
     const client = clientsById.get(getOfficialProjectClientId(project));
     return {
       ...project,
