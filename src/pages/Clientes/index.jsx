@@ -1803,44 +1803,24 @@ export default function Clientes() {
       : Array.isArray(targetClient.historico_contatos)
         ? targetClient.historico_contatos
         : [];
+    const storedContracts = readStorage(STORAGE_KEYS.contracts, []);
     const relations = getClientRelations(clientId, {
       projects: studio.projects,
-      contracts: readStorage(STORAGE_KEYS.contracts, []),
+      contracts: storedContracts,
     });
+    const projectIds = relations.projects.map((project) => project.id).filter(Boolean);
     const historyCount = clientHistory.length;
 
-    if (relations.contracts.length || relations.payments.length) {
-      alert(
-        `Este cliente ainda possui ${relations.contracts.length} contrato(s) e `
-        + `${relations.payments.length} pagamento(s). Mescle ou desvincule esses registros antes de excluir.`,
-      );
-      return;
-    }
+    const relatedSummary = [
+      relations.projects.length ? `${relations.projects.length} trabalho(s)` : '',
+      relations.contracts.length ? `${relations.contracts.length} contrato(s)` : '',
+      relations.payments.length ? `${relations.payments.length} pagamento(s)` : '',
+      historyCount ? `${historyCount} contato(s)` : '',
+    ].filter(Boolean).join(', ');
 
-    const hasProjects = relations.projects.length > 0;
-    let deletionMode = 'registration';
-
-    if (hasProjects) {
-      const option = window.prompt(
-        `${clientName} possui ${relations.projects.length} trabalho(s).\n\n`
-        + 'Digite 1 para ARQUIVAR o cliente.\n'
-        + 'Digite 2 para EXCLUIR APENAS O CADASTRO e preservar os trabalhos.\n'
-        + 'Digite 3 para EXCLUIR O CLIENTE E TODOS OS TRABALHOS.\n\n'
-        + 'Nenhum dado será apagado sem a sua confirmação.',
-        '1',
-      );
-      if (!option) return;
-      deletionMode = option === '1' ? 'archive' : option === '2' ? 'registration' : option === '3' ? 'all' : '';
-      if (!deletionMode) { alert('Opção inválida. Nenhuma alteração foi feita.'); return; }
-    }
-
-    const confirmationMessage = deletionMode === 'archive'
-      ? `Arquivar ${clientName}? Os trabalhos e vínculos serão preservados.`
-      : deletionMode === 'all'
-        ? `Excluir definitivamente ${clientName} e ${relations.projects.length} trabalho(s)? Esta ação não pode ser desfeita.`
-        : hasProjects
-          ? `Excluir apenas o cadastro de ${clientName}? Os trabalhos serão preservados sem vínculo com o cadastro.`
-          : `Excluir ${clientName}${historyCount ? ` e seus ${historyCount} registro(s) de contato` : ''}?`;
+    const confirmationMessage = relatedSummary
+      ? `Excluir definitivamente ${clientName} e todos os dados vinculados (${relatedSummary})?\n\nOs valores desse cliente também serão removidos de Trabalhos, Financeiro, Dashboard e Relatórios. Esta ação não pode ser desfeita.`
+      : `Excluir definitivamente ${clientName}? Esta ação não pode ser desfeita.`;
 
     if (!window.confirm(confirmationMessage)) return;
 
@@ -1849,59 +1829,29 @@ export default function Clientes() {
     setSyncStatus('saving');
 
     try {
-      if (deletionMode === 'archive') {
-        const archivedAt = new Date().toISOString();
-        if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
-          const { error: archiveError } = await supabase.from('clientes').update({ status: 'arquivado', updated_at: archivedAt }).eq('id', clientId);
-          if (archiveError) throw archiveError;
-        }
-        const nextClients = studio.clients.map((client) => String(client.id) === String(clientId)
-          ? { ...client, status: 'arquivado', archivedAt }
-          : client);
-        saveLocalStudio(nextClients, studio.projects);
-        setStudio({ clients: nextClients, projects: studio.projects });
-        setSelectedClientId(null);
-        setIsModalOpen(false);
-        emitDbUpdate();
-        return;
-      }
-
-      let nextProjects = deletionMode === 'all'
-        ? studio.projects.filter((project) => !relations.projects.some((related) => String(related.id) === String(project.id)))
-        : studio.projects;
-
-      if (hasProjects && deletionMode === 'registration') {
-        nextProjects = studio.projects.map((project) => {
-          const linkedId = String(
-            project.clientId || project.clienteId || project.cliente_id || project.client_id || '',
-          );
-          if (linkedId !== String(clientId)) return project;
-          return {
-            ...project,
-            clientId: null,
-            clienteId: null,
-            cliente_id: null,
-            client_id: null,
-            clienteNome: clientName,
-            cliente_nome_importado: clientName,
-            clienteNomeImportado: clientName,
-          };
-        });
-      }
-
       if (isSupabaseConfigured && !CLIENTS_LOCAL_MODE) {
-        if (hasProjects) {
-          const projectIds = relations.projects.map((project) => project.id).filter(Boolean);
-          if (projectIds.length && deletionMode === 'all') {
-            const { error: projectsDeleteError } = await supabase.from('projetos').delete().in('id', projectIds);
-            if (projectsDeleteError) throw projectsDeleteError;
-          } else if (projectIds.length) {
-            const { error: unlinkError } = await supabase
-              .from('projetos')
-              .update({ cliente_id: null, cliente_nome_importado: clientName || null })
-              .in('id', projectIds);
-            if (unlinkError) throw unlinkError;
-          }
+        // Remove primeiro os lançamentos financeiros para que nenhum valor do
+        // cliente continue aparecendo em Dashboard, Financeiro ou Relatórios.
+        if (projectIds.length) {
+          const { error: financeByProjectError } = await supabase
+            .from('financas')
+            .delete()
+            .in('project_id', projectIds);
+          if (financeByProjectError) throw financeByProjectError;
+        }
+
+        const { error: financeByClientError } = await supabase
+          .from('financas')
+          .delete()
+          .eq('client_id', clientId);
+        if (financeByClientError) throw financeByClientError;
+
+        if (projectIds.length) {
+          const { error: projectsDeleteError } = await supabase
+            .from('projetos')
+            .delete()
+            .in('id', projectIds);
+          if (projectsDeleteError) throw projectsDeleteError;
         }
 
         const { error: clientError } = await supabase
@@ -1914,10 +1864,23 @@ export default function Clientes() {
       const nextClients = studio.clients.filter(
         (client) => String(client.id) !== String(clientId),
       );
+      const relatedProjectIds = new Set(projectIds.map(String));
+      const nextProjects = studio.projects.filter(
+        (project) => !relatedProjectIds.has(String(project.id || '')),
+      );
+      const nextContracts = storedContracts.filter((contract) => ![
+        contract.clientId,
+        contract.clienteId,
+        contract.cliente_id,
+        contract.client_id,
+      ].some((id) => String(id || '') === String(clientId)));
+
+      writeStorage(STORAGE_KEYS.contracts, nextContracts);
       saveLocalStudio(nextClients, nextProjects);
-      setStudio({ clients: nextClients, projects: nextProjects });
+      const nextStudio = { clients: nextClients, projects: nextProjects };
+      clientsMemoryCache = { data: nextStudio, timestamp: Date.now() };
+      setStudio(nextStudio);
       setSelectedClientId((current) => String(current) === String(clientId) ? null : current);
-      emitDbUpdate();
 
       if (String(formData.id || '') === String(clientId)) {
         setIsModalOpen(false);
@@ -1930,6 +1893,8 @@ export default function Clientes() {
           datasImportantes: [],
         });
       }
+
+      emitDbUpdate();
     } catch (error) {
       console.error('Erro ao excluir cliente:', error);
       const message = `Não foi possível excluir o cliente: ${error.message || 'erro desconhecido'}`;
