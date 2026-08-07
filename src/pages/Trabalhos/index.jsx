@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Accessibility,
   AlertOctagon,
@@ -513,6 +514,7 @@ const projectToDraft = (project = {}) => {
 };
 
 export default function Trabalhos() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [rawProjects, setRawProjects] = useState([]);
   const [activeMenuId, setActiveMenuId] = useState(null);
@@ -7610,19 +7612,42 @@ export default function Trabalhos() {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      className="sf-secondary-button"
-                      disabled={savingDashboard}
-                      onClick={() => {
-                        void saveProjectDocuments();
-                      }}
-                    >
-                      <Save size={15} />
-                      {savingDashboard
-                        ? 'Salvando...'
-                        : 'Salvar documentos'}
-                    </button>
+                    <div className="sf-project-documents-actions">
+                      <button
+                        type="button"
+                        className="sf-secondary-button"
+                        onClick={() => {
+                          const clientId = selectedProject?.clienteId
+                            || selectedProject?.clientId
+                            || selectedProject?.cliente_id
+                            || selectedProject?.client_id
+                            || '';
+                          const params = new URLSearchParams({
+                            type: 'contrato',
+                            clientId: String(clientId || ''),
+                            projectId: String(selectedProject?.id || ''),
+                          });
+                          navigate(`/documentos?${params.toString()}`);
+                        }}
+                      >
+                        <FileCheck2 size={15} />
+                        Criar contrato
+                      </button>
+
+                      <button
+                        type="button"
+                        className="sf-secondary-button"
+                        disabled={savingDashboard}
+                        onClick={() => {
+                          void saveProjectDocuments();
+                        }}
+                      >
+                        <Save size={15} />
+                        {savingDashboard
+                          ? 'Salvando...'
+                          : 'Salvar documentos'}
+                      </button>
+                    </div>
                   </header>
 
                   <div className="sf-project-document-summary">

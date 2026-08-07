@@ -421,14 +421,15 @@ export async function generateAnnualReportPdf({ report, studio = {} }) {
 
   drawSectionTitle(
     'Resumo do exercício',
-    'Projetos são filtrados pela data do trabalho. Recebimentos e despesas são filtrados pela data efetiva de pagamento registrada no StudioFlow.',
+    'Contratos são filtrados pela data do trabalho. Recebido acumulado e saldo usam todo o histórico do contrato; receitas e despesas do exercício usam a data efetiva do pagamento.',
   );
 
   drawMetricGrid([
     { label: 'Clientes com trabalho no ano', value: String(report.totals.clients) },
     { label: 'Trabalhos com data no ano', value: String(report.totals.projects) },
     { label: 'Valor contratado desses trabalhos', value: money(report.totals.contracted) },
-    { label: 'Saldo desses contratos', value: money(report.totals.remaining) },
+    { label: 'Recebido nesses contratos até hoje', value: money(report.totals.receivedAppliedToAnnualContracts) },
+    { label: 'Saldo atual desses contratos', value: money(report.totals.remaining) },
     { label: 'Faturamento da empresa recebido', value: money(report.totals.annualReceived), color: COLORS.positive },
     { label: 'Receitas pessoais externas', value: money(report.totals.personalExternalIncome || 0), color: COLORS.gold },
     { label: 'Despesas pagas no ano', value: money(report.totals.annualExpenses), color: COLORS.negative },

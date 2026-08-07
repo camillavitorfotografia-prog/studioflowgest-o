@@ -1827,7 +1827,28 @@ export const convertLeadToClientProject = async (lead) => {
     mappedLead.dataEvento || '',
   ).slice(0, 10);
 
-  const existingProject = (projectCandidates || []).find((project) => {
+  const normalizeProjectService = (value = '') => (
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  );
+
+  const sameServiceFamily = (left = '', right = '') => {
+    const a = normalizeProjectService(left);
+    const b = normalizeProjectService(right);
+
+    if (!a || !b) return true;
+    if (a === b) return true;
+
+    // Evita duplicar o mesmo booking quando um projeto já existente tem um
+    // título mais completo, como "Ensaio Pré Casamento e Casamento", e o CRM
+    // informa apenas "Casamento".
+    return a.includes(b) || b.includes(a);
+  };
+
+  const projectMatchesBooking = (project) => {
     const linkedLeadId =
       project.lead_id
       || project.leadId
@@ -1846,37 +1867,61 @@ export const convertLeadToClientProject = async (lead) => {
       project.cliente_id
       || project.client_id;
 
-    if (
-      String(projectClientId || '')
-      !== String(client.id)
-    ) {
+    if (String(projectClientId || '') !== String(client.id)) {
       return false;
     }
 
-    const projectService = String(
+    const projectService =
       project.tipo_servico
       || project.servico
-      || '',
-    ).trim().toLowerCase();
+      || project.financeiro?.projectData?.tipoServico
+      || project.financeiro?.projectData?.titulo
+      || '';
 
     const projectDate = String(
       project.data
       || project.data_trabalho
+      || project.financeiro?.projectData?.data
       || '',
     ).slice(0, 10);
 
-    const projectTotal = Number(
-      project.valor_contratado || 0,
-    );
-
+    // Data + cliente representam a reserva operacional. O valor não entra na
+    // chave de identificação porque ele pode ser preenchido depois no CRM.
     return Boolean(
-      normalizedService
-      && normalizedEventDate
-      && projectService === normalizedService
+      normalizedEventDate
       && projectDate === normalizedEventDate
-      && projectTotal === total
+      && sameServiceFamily(projectService, normalizedService)
     );
-  });
+  };
+
+  const matchingProjects = (projectCandidates || [])
+    .filter(projectMatchesBooking)
+    .sort((a, b) => {
+      const score = (project) => {
+        const linkedLeadId =
+          project.lead_id
+          || project.leadId
+          || project.crm_lead_id
+          || project.financeiro?.crmLeadId
+          || project.financeiro?.crm_lead_id;
+        const hasOperationalData = Boolean(
+          project.financeiro?.projectData
+          || project.financeiro?.workflowStatus
+          || project.financeiro?.statusProducao,
+        );
+        const hasValue = Number(project.valor_contratado || 0) > 0;
+
+        return (
+          (String(linkedLeadId || '') === String(mappedLead.id || '') ? 100 : 0)
+          + (hasOperationalData ? 20 : 0)
+          + (hasValue ? 10 : 0)
+        );
+      };
+
+      return score(b) - score(a);
+    });
+
+  const existingProject = matchingProjects[0] || null;
 
   const currentFinance =
     existingProject?.financeiro

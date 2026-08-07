@@ -55,6 +55,7 @@ const STATUS_ALIASES = {
   aguardando_resposta: 'aguardando_retorno',
   aguardando_retorno: 'aguardando_retorno',
   contrato_fechado: 'aprovado',
+  fechado: 'aprovado',
   aprovado: 'aprovado',
   ganho: 'aprovado',
   evento_realizado: 'evento_realizado',

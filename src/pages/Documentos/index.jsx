@@ -3,6 +3,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   CheckCircle2,
   Copy,
@@ -96,6 +97,7 @@ const buildDocumentSignature = (document = {}) => (
 );
 
 export default function Documentos() {
+  const location = useLocation();
   const settings = useMemo(
     () => loadSettings(),
     [],
@@ -119,6 +121,41 @@ export default function Documentos() {
   );
 
   const [draft, setDraft] = useState(EMPTY_DRAFT);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedType = params.get('type');
+    const requestedClientId = params.get('clientId');
+    const requestedProjectId = params.get('projectId');
+
+    if (!requestedType && !requestedClientId && !requestedProjectId) return;
+
+    setDraft((current) => {
+      const project = projects.find((item) => (
+        String(item.id) === String(requestedProjectId || '')
+      ));
+
+      return {
+        ...current,
+        type: requestedType || current.type,
+        clientId: requestedClientId || current.clientId,
+        projectId: requestedProjectId || current.projectId,
+        service:
+          current.service
+          || project?.tipoServico
+          || project?.tipo_servico
+          || '',
+        total:
+          current.total
+          || String(
+            project?.valorContratado
+            ?? project?.valor_contratado
+            ?? '',
+          ),
+      };
+    });
+  }, [location.search, projects]);
+
   const [filter, setFilter] = useState('todos');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);

@@ -6545,3 +6545,20 @@
       minmax(200px, 218px);
   }
 }
+
+
+.sf-project-documents-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .sf-project-documents-actions {
+    width: 100%;
+  }
+
+  .sf-project-documents-actions > button {
+    flex: 1 1 160px;
+  }
+}

@@ -198,6 +198,10 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
   const annualClientIds = new Set(annualProjects.map(projectClientId).filter(Boolean));
   const contracted = money(projectRows.reduce((s,r) => s+r.contracted,0));
   const remaining = money(projectRows.reduce((s,r) => s+r.remaining,0));
+  // Base contratual acumulada: este valor não é filtrado pela data do recebimento.
+  // Ele representa quanto dos contratos dos trabalhos do ano já foi efetivamente
+  // abatido, inclusive quando o pagamento ocorreu em outro exercício.
+  const receivedAppliedToAnnualContracts = money(Math.max(0, contracted - remaining));
 
   const monthly = REPORT_MONTH_LABELS.map((label, month) => ({ month, label, received:0, forecastReceived:0, companyReceived:0, expenses:0, forecastExpenses:0, result:0 }));
   receipts.forEach((r) => { const m = parseReportDate(r.date)?.getMonth(); if (m != null) monthly[m].received += r.amount; });
@@ -237,6 +241,7 @@ export const buildAnnualReport = (studio = {}, selectedYear = new Date().getFull
     totals: {
       projects: projectRows.length, clients: annualClientIds.size, contracted, remaining,
       receivedForAnnualProjects: money(projectRows.reduce((s,r)=>s+r.receivedTotal,0)),
+      receivedAppliedToAnnualContracts,
       annualReceived: annualRevenue, companyReceived: money(accountTotals.empresa), personalReceived: money(accountTotals.salario), reserveReceived: money(accountTotals.reserva), unclassifiedAccountReceived: money(accountTotals.nao_informada),
       annualExpenses, annualResult: money(annualRevenue-annualExpenses), companyResult: money(accountTotals.empresa-annualExpenses),
       taxCashBasisRevenue: annualRevenue, taxCashBasisExpenses: annualExpenses, taxCashBasisResult: money(annualRevenue-annualExpenses),

@@ -127,6 +127,130 @@ const normalizeLeadEmail = (value = '') => (
   String(value || '').trim().toLowerCase()
 );
 
+const syncClosedLeadClientRecord = async (lead = {}) => {
+  if (!isSupabaseConfigured) return null;
+
+  const normalizedStatus = normalizeLeadStatus(lead.status);
+  if (normalizedStatus !== 'aprovado') return null;
+
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
+
+  const userId = authData?.user?.id;
+  if (!userId) {
+    throw new Error('Sessão do usuário não encontrada para sincronizar o cliente.');
+  }
+
+  const leadPhone = normalizeLeadPhone(lead.whatsapp || lead.telefone);
+  const leadAltPhone = normalizeLeadPhone(lead.telefone);
+  const leadEmail = normalizeLeadEmail(lead.email);
+  const leadName = String(lead.nome || '').trim();
+  const normalizedLeadName = leadName.toLowerCase();
+
+  const { data: clientRows, error: lookupError } = await supabase
+    .from('clientes')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (lookupError) throw lookupError;
+
+  const existingClient = (clientRows || []).find((client) => {
+    const candidateWhatsapp = normalizeLeadPhone(client.whatsapp);
+    const candidatePhone = normalizeLeadPhone(client.telefone);
+    const candidateEmail = normalizeLeadEmail(client.email);
+    const candidateName = String(client.nome || '').trim().toLowerCase();
+
+    const phoneMatches = Boolean(leadPhone && (
+      leadPhone === candidateWhatsapp
+      || leadPhone === candidatePhone
+      || (leadAltPhone && leadAltPhone === candidateWhatsapp)
+      || (leadAltPhone && leadAltPhone === candidatePhone)
+    ));
+
+    const emailMatches = Boolean(
+      leadEmail && candidateEmail && leadEmail === candidateEmail
+    );
+
+    const nameMatches = Boolean(
+      normalizedLeadName && candidateName === normalizedLeadName
+    );
+
+    return phoneMatches || emailMatches || nameMatches;
+  }) || null;
+
+  const keep = (value, fallback = '') => (
+    String(value ?? '').trim() ? value : fallback
+  );
+
+  const now = new Date().toISOString();
+  const payload = {
+    user_id: userId,
+    nome: keep(lead.nome, existingClient?.nome || 'Cliente sem nome'),
+    email: keep(lead.email, existingClient?.email || ''),
+    telefone: keep(lead.telefone, existingClient?.telefone || existingClient?.whatsapp || ''),
+    whatsapp: keep(lead.whatsapp || lead.telefone, existingClient?.whatsapp || existingClient?.telefone || ''),
+    cidade: keep(lead.cidade, existingClient?.cidade || ''),
+    origem: keep(lead.origem, existingClient?.origem || ''),
+    indicacao: keep(lead.indicacao, existingClient?.indicacao || ''),
+    observacoes: keep(lead.observacoes, existingClient?.observacoes || ''),
+    data_primeiro_contato: lead.dataPrimeiroContato || existingClient?.data_primeiro_contato || null,
+    data_ultimo_contato: lead.dataUltimoContato || existingClient?.data_ultimo_contato || null,
+    data_proximo_retorno: lead.dataProximoFollowup || existingClient?.data_proximo_retorno || null,
+    status_comercial: 'cliente ativo',
+    cliente_desde: existingClient?.cliente_desde || now,
+    updated_at: now,
+  };
+
+  let savedClient;
+
+  if (existingClient?.id) {
+    const { data, error } = await supabase
+      .from('clientes')
+      .update(payload)
+      .eq('id', existingClient.id)
+      .eq('user_id', userId)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    savedClient = data;
+  } else {
+    const { data, error } = await supabase
+      .from('clientes')
+      .insert([{
+        ...payload,
+        created_at: now,
+      }])
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    savedClient = data;
+  }
+
+  if (!savedClient?.id) {
+    throw new Error('O cliente não foi confirmado pelo banco após a sincronização.');
+  }
+
+  const savedPhone = normalizeLeadPhone(savedClient.whatsapp || savedClient.telefone);
+  const savedEmail = normalizeLeadEmail(savedClient.email);
+  const savedName = String(savedClient.nome || '').trim();
+
+  if (leadName && savedName !== leadName) {
+    throw new Error('O nome editado no CRM não foi aplicado ao cadastro do cliente.');
+  }
+
+  if (leadPhone && savedPhone !== leadPhone && savedPhone !== leadAltPhone) {
+    throw new Error('O WhatsApp editado no CRM não foi aplicado ao cadastro do cliente.');
+  }
+
+  if (leadEmail && savedEmail !== leadEmail) {
+    throw new Error('O e-mail editado no CRM não foi aplicado ao cadastro do cliente.');
+  }
+
+  return savedClient;
+};
+
 const findDuplicateLead = (
   leads = [],
   candidate = {},
@@ -2737,20 +2861,36 @@ export default function CRM() {
         )),
       ]));
 
-      // Se o lead já está fechado, qualquer edição feita no CRM precisa
-      // sincronizar imediatamente o cadastro de Clientes e o Trabalho ligado
-      // a ele. Isso também cobre o caso em que o usuário muda para Fechado
-      // diretamente dentro do formulário de edição.
-      if (normalizeLeadStatus(persistedLead.status) === 'aprovado') {
+      // Regra definitiva: todo lead Fechado precisa refletir imediatamente
+      // em Clientes. Primeiro atualizamos/criamos e verificamos o cliente
+      // diretamente no Supabase; só depois sincronizamos o Trabalho. Assim,
+      // uma falha na criação/atualização do projeto nunca deixa o cadastro do
+      // cliente com dados antigos.
+      const shouldSyncClosedLead = (
+        normalizeLeadStatus(leadValues.status) === 'aprovado'
+        || normalizeLeadStatus(persistedLead.status) === 'aprovado'
+      );
+
+      if (shouldSyncClosedLead) {
         try {
-          await convertLeadToClientProject(persistedLead);
+          await syncClosedLeadClientRecord({
+            ...leadValues,
+            ...persistedLead,
+            status: 'aprovado',
+          });
+
+          await convertLeadToClientProject({
+            ...leadValues,
+            ...persistedLead,
+            status: 'aprovado',
+          });
         } catch (syncError) {
           console.error(
             'Lead salvo, mas não foi possível sincronizar Cliente/Trabalho:',
             syncError.message,
           );
           throw new Error(
-            `O lead foi salvo, mas a atualização em Clientes não foi concluída: ${syncError.message}`,
+            `O lead foi salvo, mas a sincronização com Clientes/Trabalhos falhou: ${syncError.message}`,
           );
         }
       }

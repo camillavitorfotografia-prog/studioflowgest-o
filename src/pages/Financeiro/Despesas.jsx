@@ -1666,7 +1666,9 @@ function FixedExpenses({ area = 'fixa' }) {
             {filteredDespesas.length === 0 && (
               <tr>
                 <td colSpan="6" className="empty">
-                  Nenhuma despesa cadastrada nesta área.
+                  {area === 'fixa'
+                    ? 'Nenhuma despesa fixa cadastrada. Os indicadores permanecem zerados até que recorrências como internet, contador, assinaturas, aluguel ou energia sejam adicionadas.'
+                    : 'Nenhuma despesa variável cadastrada nesta área.'}
                 </td>
               </tr>
             )}
