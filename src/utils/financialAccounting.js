@@ -1,4 +1,6 @@
 import { calculateDepreciation } from './financeEngine';
+import { calculateProjectAmounts } from './dbData';
+import { getProjectExtraPhotosSummary } from './extraPhotos';
 import { parseLedgerDate } from './financialLedger';
 
 const normalize = (value = '') => String(value)
@@ -127,6 +129,7 @@ export const getCanonicalEquipmentForAccounting = (equipment = [], referenceDate
 };
 
 export const buildFinancialAccounting = ({
+  projects = [],
   transactions = [],
   canonicalRows = null,
   equipment = [],
@@ -252,6 +255,28 @@ export const buildFinancialAccounting = ({
   const totalCashBalance = money(Object.values(accounts).reduce((sum, value) => sum + value, 0));
   const projected30 = money(totalCashBalance + receivableNext30 - payableNext30);
 
+  // Saldo contratual global: independe do ano em que o evento será realizado.
+  // Um casamento de 2027 já é uma obrigação financeira válida em 2026 e,
+  // portanto, deve aparecer em "A receber" assim que o trabalho for fechado.
+  const activeContractProjects = (Array.isArray(projects) ? projects : []).filter((project) => {
+    const clientId = String(project.clientId || project.clienteId || project.client_id || project.cliente_id || '').trim();
+    if (!clientId) return false;
+    const status = normalize(project.statusProducao || project.workflowStatus || project.status || '');
+    return !['cancelado', 'cancelada', 'cancelled'].includes(status);
+  });
+  const contractReceivableRows = activeContractProjects.map((project) => {
+    const amounts = calculateProjectAmounts(project);
+    const extraPhotos = getProjectExtraPhotosSummary(project);
+    const remaining = money(Math.max(0, Number(amounts.remaining ?? amounts.restante ?? 0)) + Number(extraPhotos.pending || 0));
+    return {
+      projectId: project.id,
+      clientId: project.clientId || project.clienteId || project.client_id || project.cliente_id || '',
+      eventDate: project.dataEvento || project.data || project.data_evento || '',
+      amount: remaining,
+    };
+  }).filter((row) => row.amount > 0);
+  const totalContractReceivable = money(contractReceivableRows.reduce((sum, row) => sum + row.amount, 0));
+
   return {
     today,
     next30,
@@ -264,6 +289,7 @@ export const buildFinancialAccounting = ({
     pendingNext30,
     overdueExpenses,
     receivableNext30Rows,
+    contractReceivableRows,
     ignoredMirrors,
     futureRows,
     accounts: {
@@ -278,6 +304,7 @@ export const buildFinancialAccounting = ({
     paidFixedMonth,
     paidVariableMonth,
     receivableNext30,
+    totalContractReceivable,
     payableNext30,
     monthlyDepreciation,
     canonicalEquipment,

@@ -1,5 +1,4 @@
 import { parseCurrency, parseDate } from '../../../utils/formatters';
-import { calculateProjectAmounts } from '../../../utils/dbData';
 import { parseLedgerDate } from '../../../utils/financialLedger';
 import { buildFinancialAccounting } from '../../../utils/financialAccounting';
 import { buildExtraPhotoFinancialRows } from '../../../utils/extraPhotos';
@@ -34,28 +33,28 @@ export function buildDashboardMetrics({
   weekEnd.setDate(weekStart.getDate() + 6);
   weekEnd.setHours(23, 59, 59, 999);
 
-  const accounting = buildFinancialAccounting({ transactions, canonicalRows, equipment, referenceDate: now });
+  const accounting = buildFinancialAccounting({ projects, transactions, canonicalRows, equipment, referenceDate: now });
   const persistedFinanceIds = new Set(
     [...transactions, ...canonicalRows].map((row) => String(row.id || row.source_id || row.sourceId || '')),
   );
   const extraPhotoRows = buildExtraPhotoFinancialRows(projects)
     .filter((row) => !persistedFinanceIds.has(String(row.id || '')));
   const paidExtraPhotoRows = extraPhotoRows.filter((row) => row.isPaid && rowDate(row) && rowDate(row) <= now);
-  const pendingExtraPhotoRows = extraPhotoRows.filter((row) => !row.isPaid);
   const monthlyExtraPhotos = paidExtraPhotoRows
     .filter((row) => {
       const date = rowDate(row);
       return date && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
     })
     .reduce((total, row) => total + amount(row), 0);
-  const officialYearProjects = projects.filter((project) => isOfficialProject(project) && isCurrentYearProject(project, currentYear));
+  const officialProjects = projects.filter((project) => isOfficialProject(project));
+  const officialYearProjects = officialProjects.filter((project) => isCurrentYearProject(project, currentYear));
   const activeProjectRows = officialYearProjects.filter((project) => !FINISHED_PROJECT_STATUSES.has(projectStatus(project)));
   const overdueProjects = activeProjectRows.filter((project) => {
     const date = projectDate(project);
     return date && date < today;
   });
 
-  const futureEvents = officialYearProjects.map((project) => ({
+  const futureEvents = officialProjects.map((project) => ({
     id: project.id,
     clientId: projectClientId(project),
     cliente: project.clienteNome || project.cliente?.nome || 'Cliente sem nome',
@@ -75,12 +74,10 @@ export function buildDashboardMetrics({
     return date >= weekStart && date <= weekEnd;
   });
 
-  const officialProjectIds = new Set(officialYearProjects.map((project) => String(project.id || '')));
-  const pendingExtraPhotos = pendingExtraPhotoRows
-    .filter((row) => officialProjectIds.has(String(row.projectId || '')))
-    .reduce((total, row) => total + amount(row), 0);
-  const receivable = officialYearProjects.reduce((total, project) => total + calculateProjectAmounts(project).remaining, 0)
-    + pendingExtraPhotos;
+  // O contas a receber é financeiro, não calendário: inclui contratos de qualquer
+  // ano de evento. A fonte central fica no financialAccounting para manter o
+  // Dashboard e o Financeiro usando exatamente a mesma regra.
+  const receivable = accounting.totalContractReceivable;
   const activeLeads = leads.filter((lead) => ACTIVE_LEAD_STATUSES.has(normalizeStatus(lead.status)));
   const wonLeads = leads.filter((lead) => WON_LEAD_STATUSES.has(normalizeStatus(lead.status)));
   const conversionRate = leads.length ? Math.round((wonLeads.length / leads.length) * 100) : 0;

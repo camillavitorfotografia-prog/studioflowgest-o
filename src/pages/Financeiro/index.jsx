@@ -15,6 +15,7 @@ import {
   Download,
   FileSpreadsheet,
   Gauge,
+  HandCoins,
   Landmark,
   LineChart,
   MessageCircle,
@@ -859,7 +860,7 @@ function useFinanceData() {
       receitaBruta,
       receitaContratada: indicators.receitasPrevistasMes,
       receitaRecebida: totalRecebidoHistorico,
-      contasAReceber: accounting.receivableNext30,
+      contasAReceber: accounting.totalContractReceivable,
       inadimplente: indicators.receitasVencidas,
       despesasFixas,
       despesasVariaveis,
@@ -1276,6 +1277,7 @@ function FinanceDashboard({ data }) {
     const receivedMonth = accounting.operationalReceivedMonth;
     const paidMonth = accounting.paidExpensesMonth;
     const receivableNext30 = accounting.receivableNext30;
+    const totalContractReceivable = accounting.totalContractReceivable;
     const payableNext30 = accounting.payableNext30;
     const overdueRevenues = [];
     const overdueExpenses = accounting.overdueExpenses;
@@ -1419,6 +1421,7 @@ function FinanceDashboard({ data }) {
       receivedMonth,
       paidMonth,
       receivableNext30,
+      totalContractReceivable,
       payableNext30,
       overdueRevenues,
       overdueExpenses,
@@ -1558,9 +1561,17 @@ function FinanceDashboard({ data }) {
         />
 
         <ExecutiveMetric
+          icon={HandCoins}
+          label="A receber dos contratos"
+          value={executive.totalContractReceivable}
+          detail="Saldo pendente de todos os trabalhos, independentemente do ano do evento"
+        />
+
+        <ExecutiveMetric
           icon={CircleDollarSign}
           label="A receber em 30 dias"
           value={executive.receivableNext30}
+          detail="Somente recebimentos com data prevista nos próximos 30 dias"
         />
 
         <ExecutiveMetric
@@ -2536,6 +2547,19 @@ function Receitas({ data }) {
       )
   ), [filteredList]);
 
+  const currentMonthLabel = useMemo(() => (
+    new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' })
+      .format(new Date())
+  ), []);
+
+  const filteredPeriodLabel = useMemo(() => {
+    if (periodFilter === 'todos') return 'todo o período';
+    if (periodFilter === 'mes-atual') return currentMonthLabel;
+    if (periodFilter === 'proximos-30') return 'próximos 30 dias';
+    if (periodFilter === 'vencidas') return 'vencidas';
+    return 'filtros aplicados';
+  }, [currentMonthLabel, periodFilter]);
+
   const openCreateModal = () => {
     setEditingId(null);
     setFormData({
@@ -2886,27 +2910,27 @@ function Receitas({ data }) {
       <div className="sf-metric-grid">
         <Metric
           icon={ArrowUpCircle}
-          label="Faturamento no mês"
+          label={`Faturamento — ${currentMonthLabel}`}
           value={data.receitaBruta}
           tone="positive"
         />
 
         <Metric
           icon={CircleDollarSign}
-          label="Previsto no mês"
+          label={`Previsto — ${currentMonthLabel}`}
           value={totalMensalPrevisto}
         />
 
         <Metric
           icon={CalendarClock}
-          label="Recebimentos vencidos"
+          label="Recebimentos vencidos — até hoje"
           value={data.inadimplente}
           tone="negative"
         />
 
         <Metric
           icon={Users}
-          label="Total filtrado"
+          label={`Total — ${filteredPeriodLabel}`}
           value={filteredTotal}
         />
       </div>
@@ -3829,7 +3853,9 @@ function AgendaFinanceira({ data }) {
 
     const revenues = data.consolidated.todasReceitas
       .filter((item) => (
-        deriveFinancialStatus(item) !== 'cancelada'
+        !['cancelada', 'recebida', 'confirmada', 'confirmado'].includes(
+          String(deriveFinancialStatus(item) || '').toLowerCase(),
+        )
         && item.vencimento
         && item.vencimento >= todayValue
         && item.vencimento <= limitValue
@@ -3846,7 +3872,9 @@ function AgendaFinanceira({ data }) {
 
     const expenses = data.consolidated.despesas
       .filter((item) => (
-        deriveFinancialStatus(item) !== 'cancelada'
+        !['cancelada', 'paga', 'pago', 'confirmada', 'confirmado'].includes(
+          String(deriveFinancialStatus(item) || '').toLowerCase(),
+        )
         && item.vencimento
         && item.vencimento >= todayValue
         && item.vencimento <= limitValue
@@ -3920,7 +3948,7 @@ function AgendaFinanceira({ data }) {
     <div className="sf-finance-section">
       <SectionHeader
         title="Agenda Financeira"
-        subtitle="Vencimentos de receitas e despesas organizados por data."
+        subtitle="Somente valores em aberto no período selecionado; itens recebidos, pagos ou cancelados não entram nos totais."
         action={
           <select
             value={days}
@@ -3949,19 +3977,19 @@ function AgendaFinanceira({ data }) {
       >
         <ExecutiveMetric
           icon={ArrowUpCircle}
-          label="Entradas previstas"
+          label={`Entradas em aberto — ${days} dias`}
           value={summary.income}
           tone="positive"
         />
         <ExecutiveMetric
           icon={ArrowDownCircle}
-          label="Saídas previstas"
+          label={`Saídas em aberto — ${days} dias`}
           value={summary.expense}
           tone="negative"
         />
         <ExecutiveMetric
           icon={Wallet}
-          label="Saldo do período"
+          label={`Saldo projetado — ${days} dias`}
           value={summary.balance}
           tone={summary.balance >= 0 ? 'positive' : 'negative'}
         />
