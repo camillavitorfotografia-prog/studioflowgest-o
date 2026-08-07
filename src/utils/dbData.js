@@ -1744,6 +1744,9 @@ export const convertLeadToClientProject = async (lead) => {
   );
 
   const clientPayload = {
+    // O CRM passa a ser a fonte principal dos dados comerciais do cliente
+    // depois que o lead é fechado. Campos preenchidos no CRM sobrescrevem
+    // a versão antiga do cadastro; campos vazios preservam o que já existe.
     nome: preserveText(
       mappedLead.nome,
       existingClient?.nome || 'Cliente sem nome',
@@ -1765,9 +1768,35 @@ export const convertLeadToClientProject = async (lead) => {
       mappedLead.cidade,
       existingClient?.cidade,
     ),
+    origem: preserveText(
+      mappedLead.origem,
+      existingClient?.origem,
+    ),
+    indicacao: preserveText(
+      mappedLead.indicacao,
+      existingClient?.indicacao,
+    ),
+    observacoes: preserveText(
+      mappedLead.observacoes,
+      existingClient?.observacoes,
+    ),
+    data_primeiro_contato:
+      mappedLead.dataPrimeiroContato
+      || existingClient?.data_primeiro_contato
+      || null,
+    data_ultimo_contato:
+      mappedLead.dataUltimoContato
+      || existingClient?.data_ultimo_contato
+      || null,
+    data_proximo_retorno:
+      mappedLead.dataProximoFollowup
+      || existingClient?.data_proximo_retorno
+      || null,
+    status_comercial: 'cliente ativo',
     cliente_desde:
       existingClient?.cliente_desde
       || now,
+    updated_at: now,
   };
 
   const client = await saveRow({
@@ -1855,26 +1884,29 @@ export const convertLeadToClientProject = async (lead) => {
       ? existingProject.financeiro
       : {};
 
+  const existingTotal = Number(existingProject?.valor_contratado || 0);
+  const effectiveTotal = total > 0 ? total : existingTotal;
+  const existingReceived = Number(existingProject?.valor_recebido || 0);
+
   const projectPayload = {
     lead_id: mappedLead.id,
     cliente_id: client.id,
-    tipo_servico: mappedLead.tipoServico || 'Casamento',
-    data: mappedLead.dataEvento || null,
-    valor_contratado: total,
-    valor_recebido: 0,
+    tipo_servico:
+      preserveText(mappedLead.tipoServico, existingProject?.tipo_servico)
+      || 'Casamento',
+    data: mappedLead.dataEvento || existingProject?.data || null,
+    valor_contratado: effectiveTotal,
+    // Nunca zera o que já foi recebido apenas porque o lead foi editado.
+    valor_recebido: existingReceived,
     financeiro: {
       ...currentFinance,
       crmLeadId: mappedLead.id,
       receitas: readPayments(existingProject || {}),
-      valorContratado: total,
-      valorRecebido: Number(
-        existingProject?.valor_recebido || 0,
-      ),
+      valorContratado: effectiveTotal,
+      valorRecebido: existingReceived,
       saldoRestante: Math.max(
         0,
-        total - Number(
-          existingProject?.valor_recebido || 0,
-        ),
+        effectiveTotal - existingReceived,
       ),
       statusFinanceiro:
         currentFinance.statusFinanceiro

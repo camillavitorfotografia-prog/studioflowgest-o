@@ -2737,6 +2737,24 @@ export default function CRM() {
         )),
       ]));
 
+      // Se o lead já está fechado, qualquer edição feita no CRM precisa
+      // sincronizar imediatamente o cadastro de Clientes e o Trabalho ligado
+      // a ele. Isso também cobre o caso em que o usuário muda para Fechado
+      // diretamente dentro do formulário de edição.
+      if (normalizeLeadStatus(persistedLead.status) === 'aprovado') {
+        try {
+          await convertLeadToClientProject(persistedLead);
+        } catch (syncError) {
+          console.error(
+            'Lead salvo, mas não foi possível sincronizar Cliente/Trabalho:',
+            syncError.message,
+          );
+          throw new Error(
+            `O lead foi salvo, mas a atualização em Clientes não foi concluída: ${syncError.message}`,
+          );
+        }
+      }
+
       await fetchLeads();
       window.dispatchEvent(new Event('sf_storage_update'));
 
